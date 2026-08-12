@@ -6,12 +6,17 @@
 // ser medidas.
 import type { RailBend, RailRow } from '../../lib/sequenceGraph';
 
-export const LANE_WIDTH = 10;
+// Alargado de 10 -> 14: numa bifurcação/junção, é a distância horizontal
+// entre lanes que faz a separação em duas linhas ficar óbvia de relance —
+// 10px deixava o fork lendo como "uma linha dobrando", não "duas se
+// separando".
+export const LANE_WIDTH = 14;
 // Centro vertical da primeira linha de texto do TaskRow (py-1.5 + text-sm).
 const NODE_Y = 16;
 // Altura da curva de bifurcação logo abaixo do nó — NODE_Y + BEND_H não
-// pode passar da altura mínima de uma row (32px).
-const BEND_H = 14;
+// pode passar da altura mínima de uma row (32px). Levada ao teto desse
+// orçamento (era 14) para abrir o mais possível antes de precisar ficar reta.
+const BEND_H = 16;
 // space-y-0.5 entre as linhas — os segmentos vazam 2px para cima/baixo para
 // a linha ficar contínua através do vão.
 const ROW_GAP = 2;
@@ -109,6 +114,16 @@ export default function SequenceRailCell({
       {row.lines.map((s) => {
         const color = laneColor(s.colorIndex);
         const cx = laneCenter(s.lane);
+        // Nó de bifurcação/junção: a curva sozinha pode não deixar óbvio
+        // que a tarefa tem mais de uma anterior/seguinte -- o tooltip
+        // torna isso explícito ao passar o mouse ou tocar no ponto.
+        const forkCount = s.node ? row.forks.length : 0;
+        const mergeCount = s.node ? row.merges.length : 0;
+        const nodeTitle = forkCount
+          ? `Ramifica em ${forkCount + 1} tarefas seguintes`
+          : mergeCount
+            ? `Junta ${mergeCount + 1} tarefas anteriores`
+            : undefined;
         return (
           <div key={s.lane}>
             {s.drawTop && (
@@ -141,6 +156,7 @@ export default function SequenceRailCell({
                   top: NODE_Y - 3.5,
                   backgroundColor: color,
                 }}
+                title={nodeTitle}
               />
             )}
           </div>
