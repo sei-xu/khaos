@@ -127,6 +127,52 @@ export interface RailLayout {
   rows: RailRow[];
 }
 
+// Tarefas done/cancelled somem de visibleTasks (fade de seções infinitas,
+// ver infiniteFade.ts) sem que suas arestas em tasks_sequence sejam
+// removidas. Sem isso, uma cadeia A -> B -> C perde o traço inteiro quando
+// B desaparece: a aresta A->B e a B->C ficam com uma ponta fora da lista
+// visível e são descartadas por buildSequenceRail. Aqui a cadeia é
+// recalculada pulando os ids ocultos, para o trilho continuar ligando A a C
+// diretamente.
+export function collapseHiddenEdges(
+  edges: TasksSequence[],
+  hiddenIds: Set<Id>
+): TasksSequence[] {
+  if (hiddenIds.size === 0) return edges;
+
+  const outgoing = new Map<Id, Id[]>();
+  edges.forEach((e) => {
+    const list = outgoing.get(e.task_previous) ?? [];
+    list.push(e.task_next);
+    outgoing.set(e.task_previous, list);
+  });
+
+  const memo = new Map<Id, Id[]>();
+  const resolveVisible = (id: Id, seen: Set<Id>): Id[] => {
+    if (memo.has(id)) return memo.get(id)!;
+    if (seen.has(id)) return []; // guarda contra ciclo residual
+    seen.add(id);
+    const result: Id[] = [];
+    (outgoing.get(id) ?? []).forEach((next) => {
+      const targets = hiddenIds.has(next) ? resolveVisible(next, seen) : [next];
+      targets.forEach((t) => {
+        if (!result.includes(t)) result.push(t);
+      });
+    });
+    memo.set(id, result);
+    return result;
+  };
+
+  const result: TasksSequence[] = [];
+  outgoing.forEach((_, prev) => {
+    if (hiddenIds.has(prev)) return;
+    resolveVisible(prev, new Set()).forEach((next) =>
+      result.push({ task_previous: prev, task_next: next })
+    );
+  });
+  return result;
+}
+
 // Layout git-graph para uma lista já em ordem topológica (topoChronoOrder):
 // cada lane "espera" a próxima tarefa da cadeia; uma tarefa que é previous
 // de várias bifurca (fork) em lanes novas, e uma tarefa com vários previous
