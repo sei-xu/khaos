@@ -473,6 +473,8 @@ export default function TaskDetailModal({
   const [seqError, setSeqError] = useState<string | null>(null);
 
   const [newItem, setNewItem] = useState('');
+  const [editingItemId, setEditingItemId] = useState<Id | null>(null);
+  const [editingItemDraft, setEditingItemDraft] = useState('');
 
   const [showDueTime, setShowDueTime] = useState(() => {
     if (!task.due) return false;
@@ -619,12 +621,14 @@ export default function TaskDetailModal({
   function addItem(e: React.FormEvent) {
     e.preventDefault();
     if (!newItem.trim()) return;
-    itemMutations.create.mutate({
-      task_id: task.id,
-      description: newItem.trim(),
-      done: false,
-    });
-    setNewItem('');
+    itemMutations.create.mutate(
+      {
+        task_id: task.id,
+        description: newItem.trim(),
+        done: false,
+      },
+      { onSuccess: () => setNewItem('') },
+    );
   }
 
   return (
@@ -1008,7 +1012,41 @@ export default function TaskDetailModal({
                   }
                   className="border-nyx-600 checked:border-gaia-500 checked:bg-gaia-500 h-3.5 w-3.5 shrink-0 appearance-none rounded-full border-[1.5px]"
                 />
-                <span className={clsxDone(item.done)}>{item.description}</span>
+                {editingItemId === item.id ? (
+                  <input
+                    autoFocus
+                    value={editingItemDraft}
+                    onChange={(e) => setEditingItemDraft(e.target.value)}
+                    onBlur={() => {
+                      const trimmed = editingItemDraft.trim();
+                      if (trimmed && trimmed !== item.description) {
+                        itemMutations.update.mutate({
+                          id: item.id,
+                          patch: { description: trimmed },
+                        });
+                      }
+                      setEditingItemId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                      if (e.key === 'Escape') {
+                        setEditingItemId(null);
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    className="text-nyx-200 flex-1 bg-transparent py-0.5 text-body focus:outline-none"
+                  />
+                ) : (
+                  <span
+                    className={clsxDone(item.done)}
+                    onDoubleClick={() => {
+                      setEditingItemId(item.id);
+                      setEditingItemDraft(item.description);
+                    }}
+                  >
+                    {item.description}
+                  </span>
+                )}
                 <button
                   onClick={() => itemMutations.remove.mutate(item.id)}
                   className="ml-auto opacity-0 group-hover:opacity-100"
