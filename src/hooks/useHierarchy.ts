@@ -195,19 +195,23 @@ export function useTaskItemMutations(taskId: Id) {
   const qc = useQueryClient();
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: ['taskItems', taskId] });
+  const onError = (err: unknown) => console.error('Task item mutation failed:', err);
   return {
     create: useMutation({
       mutationFn: (payload: NewTaskItem) => taskItemsApi.create(payload),
       onSuccess: invalidate,
+      onError,
     }),
     update: useMutation({
       mutationFn: ({ id, patch }: { id: Id; patch: TaskItemPatch }) =>
         taskItemsApi.update(id, patch),
       onSuccess: invalidate,
+      onError,
     }),
     remove: useMutation({
       mutationFn: (id: Id) => taskItemsApi.remove(id),
       onSuccess: invalidate,
+      onError,
     }),
   };
 }
