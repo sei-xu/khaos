@@ -63,6 +63,37 @@ function Bend({
   );
 }
 
+// Enquanto tasks_sequence ainda está carregando, o rail real não pode ser
+// calculado (laneCount depende dos dados) — sem isto, essa janela de
+// loading é indistinguível de "esta seção não tem sequência", que também
+// não renderiza nada. Um traço tracejado "andando" no lugar exato onde o
+// rail real vai aparecer comunica "carregando", não "vazio".
+export function SequenceRailLoading() {
+  return (
+    <div className="relative shrink-0" style={{ width: LANE_WIDTH }} aria-hidden>
+      <div
+        className="sequence-rail-loading absolute w-0.5"
+        style={{ left: laneCenter(0) - 1, top: -ROW_GAP, bottom: -ROW_GAP }}
+      />
+    </div>
+  );
+}
+
+// Se a query de tasks_sequence falhar, o rail também ficaria "vazio" sem
+// nenhum indício de que os dados de sequência não puderam ser lidos — daí
+// o X, para diferenciar de "esta seção nunca teve sequência".
+export function SequenceRailError() {
+  return (
+    <div
+      className="relative flex shrink-0 items-center justify-center"
+      style={{ width: LANE_WIDTH }}
+      title="Failed to load task sequence"
+    >
+      <span className="text-rust-500 text-[10px] leading-none">×</span>
+    </div>
+  );
+}
+
 interface SequenceRailCellProps {
   row: RailRow;
   laneCount: number;

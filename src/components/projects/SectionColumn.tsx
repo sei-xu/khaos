@@ -30,7 +30,10 @@ import {
 import { buildSequenceRail, collapseHiddenEdges } from '../../lib/sequenceGraph';
 import { infiniteFadeOpacity, daysSince } from '../../lib/infiniteFade';
 import TaskRow from '../tasks/TaskRow';
-import SequenceRailCell from './SequenceRail';
+import SequenceRailCell, {
+  SequenceRailLoading,
+  SequenceRailError,
+} from './SequenceRail';
 import {
   SequenceLinkControls,
   TaskDropTarget,
@@ -67,7 +70,11 @@ export default function SectionColumn({
   const { create: createTask } = useTaskMutations();
   const { update: updateSection, remove: removeSection } =
     useSectionMutations();
-  const { data: seqEdges = [] } = useTasksSequence();
+  const {
+    data: seqEdges = [],
+    isLoading: seqLoading,
+    isError: seqError,
+  } = useTasksSequence();
   const { data: statusMoments } = useTaskStatusMoments();
 
   // Infinite sections gradually fade, then hide, done/cancelled tasks based
@@ -293,11 +300,17 @@ export default function SectionColumn({
                 armedSource={linking?.taskId === task.id}
               >
                 <div className="group/row flex items-stretch">
-                  {rail.laneCount > 0 && (
-                    <SequenceRailCell
-                      row={rail.rows[index]}
-                      laneCount={rail.laneCount}
-                    />
+                  {seqLoading ? (
+                    <SequenceRailLoading />
+                  ) : seqError ? (
+                    <SequenceRailError />
+                  ) : (
+                    rail.laneCount > 0 && (
+                      <SequenceRailCell
+                        row={rail.rows[index]}
+                        laneCount={rail.laneCount}
+                      />
+                    )
                   )}
                   <div className="min-w-0 flex-1">
                     <TaskRow
