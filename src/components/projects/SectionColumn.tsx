@@ -301,7 +301,10 @@ export default function SectionColumn({
               >
                 <div className="group/row flex items-stretch">
                   {seqLoading ? (
-                    <SequenceRailLoading />
+                    <SequenceRailLoading
+                      isFirst={index === 0}
+                      isLast={index === visibleTasks.length - 1}
+                    />
                   ) : seqError ? (
                     <SequenceRailError />
                   ) : (

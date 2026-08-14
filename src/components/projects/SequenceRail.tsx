@@ -71,14 +71,36 @@ function Bend({
 // calculado (laneCount depende dos dados) — sem isto, essa janela de
 // loading é indistinguível de "esta seção não tem sequência", que também
 // não renderiza nada. Um traço tracejado "andando" no lugar exato onde o
-// rail real vai aparecer comunica "carregando", não "vazio".
-export function SequenceRailLoading() {
+// rail real vai aparecer comunica "carregando", não "vazio". Nós vazados
+// (sem preenchimento, já que ainda não sabemos se ali vai ter um nó de
+// verdade) marcam o início e o fim da lista, pra não ler como um traço
+// solto sem começo/fim.
+export function SequenceRailLoading({
+  isFirst = false,
+  isLast = false,
+}: {
+  isFirst?: boolean;
+  isLast?: boolean;
+}) {
+  const cx = laneCenter(0);
   return (
     <div className="relative shrink-0" style={{ width: LANE_WIDTH }} aria-hidden>
       <div
         className="sequence-rail-loading absolute w-0.5"
-        style={{ left: laneCenter(0) - 1, top: -ROW_GAP, bottom: -ROW_GAP }}
+        style={{ left: cx - 1, top: -ROW_GAP, bottom: -ROW_GAP }}
       />
+      {isFirst && (
+        <div
+          className="border-nyx-500 bg-nyx-900 absolute size-[7px] rounded-full border"
+          style={{ left: cx - 3.5, top: NODE_Y - 3.5 }}
+        />
+      )}
+      {isLast && (
+        <div
+          className="border-nyx-500 bg-nyx-900 absolute size-[7px] rounded-full border"
+          style={{ left: cx - 3.5, top: NODE_Y - 3.5 }}
+        />
+      )}
     </div>
   );
 }
