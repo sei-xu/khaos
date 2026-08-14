@@ -200,10 +200,16 @@ export function buildSequenceRail(
   let colorCounter = 0;
   let laneCount = 0;
 
-  const allocLane = () => {
-    let lane = lanes.findIndex((l) => l === null);
+  // minIndex evita que uma bifurcação reaproveite uma lane livre à
+  // ESQUERDA da lane que está bifurcando -- isso desenharia o ramo novo
+  // curvando "pra trás", o que lê como errado mesmo quando o dado está
+  // certo (uma bifurcação deve sempre abrir uma lane à direita da lane
+  // de origem).
+  const allocLane = (minIndex = 0) => {
+    let lane = lanes.findIndex((l, i) => i >= minIndex && l === null);
     if (lane === -1) {
-      lane = lanes.length;
+      lane = Math.max(lanes.length, minIndex);
+      while (lanes.length < lane) lanes.push(null);
       lanes.push(null);
     }
     laneCount = Math.max(laneCount, lane + 1);
@@ -259,7 +265,7 @@ export function buildSequenceRail(
       });
       lanes[nodeLane] = first ? { target: first, colorIndex: nodeColor } : null;
       branches.forEach((target) => {
-        const lane = allocLane();
+        const lane = allocLane(nodeLane + 1);
         const colorIndex = colorCounter++;
         lanes[lane] = { target, colorIndex };
         row.forks.push({ fromLane: nodeLane, toLane: lane, colorIndex });
