@@ -127,6 +127,52 @@ export interface RailLayout {
   rows: RailRow[];
 }
 
+// Tarefas done/cancelled somem de visibleTasks (fade de seções infinitas,
+// ver infiniteFade.ts) sem que suas arestas em tasks_sequence sejam
+// removidas. Sem isso, uma cadeia A -> B -> C perde o traço inteiro quando
+// B desaparece: a aresta A->B e a B->C ficam com uma ponta fora da lista
+// visível e são descartadas por buildSequenceRail. Aqui a cadeia é
+// recalculada pulando os ids ocultos, para o trilho continuar ligando A a C
+// diretamente.
+export function collapseHiddenEdges(
+  edges: TasksSequence[],
+  hiddenIds: Set<Id>
+): TasksSequence[] {
+  if (hiddenIds.size === 0) return edges;
+
+  const outgoing = new Map<Id, Id[]>();
+  edges.forEach((e) => {
+    const list = outgoing.get(e.task_previous) ?? [];
+    list.push(e.task_next);
+    outgoing.set(e.task_previous, list);
+  });
+
+  const memo = new Map<Id, Id[]>();
+  const resolveVisible = (id: Id, seen: Set<Id>): Id[] => {
+    if (memo.has(id)) return memo.get(id)!;
+    if (seen.has(id)) return []; // guarda contra ciclo residual
+    seen.add(id);
+    const result: Id[] = [];
+    (outgoing.get(id) ?? []).forEach((next) => {
+      const targets = hiddenIds.has(next) ? resolveVisible(next, seen) : [next];
+      targets.forEach((t) => {
+        if (!result.includes(t)) result.push(t);
+      });
+    });
+    memo.set(id, result);
+    return result;
+  };
+
+  const result: TasksSequence[] = [];
+  outgoing.forEach((_, prev) => {
+    if (hiddenIds.has(prev)) return;
+    resolveVisible(prev, new Set()).forEach((next) =>
+      result.push({ task_previous: prev, task_next: next })
+    );
+  });
+  return result;
+}
+
 // Layout git-graph para uma lista já em ordem topológica (topoChronoOrder):
 // cada lane "espera" a próxima tarefa da cadeia; uma tarefa que é previous
 // de várias bifurca (fork) em lanes novas, e uma tarefa com vários previous
@@ -154,10 +200,16 @@ export function buildSequenceRail(
   let colorCounter = 0;
   let laneCount = 0;
 
-  const allocLane = () => {
-    let lane = lanes.findIndex((l) => l === null);
+  // minIndex evita que uma bifurcação reaproveite uma lane livre à
+  // ESQUERDA da lane que está bifurcando -- isso desenharia o ramo novo
+  // curvando "pra trás", o que lê como errado mesmo quando o dado está
+  // certo (uma bifurcação deve sempre abrir uma lane à direita da lane
+  // de origem).
+  const allocLane = (minIndex = 0) => {
+    let lane = lanes.findIndex((l, i) => i >= minIndex && l === null);
     if (lane === -1) {
-      lane = lanes.length;
+      lane = Math.max(lanes.length, minIndex);
+      while (lanes.length < lane) lanes.push(null);
       lanes.push(null);
     }
     laneCount = Math.max(laneCount, lane + 1);
@@ -213,7 +265,7 @@ export function buildSequenceRail(
       });
       lanes[nodeLane] = first ? { target: first, colorIndex: nodeColor } : null;
       branches.forEach((target) => {
-        const lane = allocLane();
+        const lane = allocLane(nodeLane + 1);
         const colorIndex = colorCounter++;
         lanes[lane] = { target, colorIndex };
         row.forks.push({ fromLane: nodeLane, toLane: lane, colorIndex });

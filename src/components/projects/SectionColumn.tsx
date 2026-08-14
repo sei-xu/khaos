@@ -27,10 +27,13 @@ import {
   useTasksSequence,
   useTaskStatusMoments,
 } from '../../hooks/useHierarchy';
-import { buildSequenceRail } from '../../lib/sequenceGraph';
+import { buildSequenceRail, collapseHiddenEdges } from '../../lib/sequenceGraph';
 import { infiniteFadeOpacity, daysSince } from '../../lib/infiniteFade';
 import TaskRow from '../tasks/TaskRow';
-import SequenceRailCell from './SequenceRail';
+import SequenceRailCell, {
+  SequenceRailLoading,
+  SequenceRailError,
+} from './SequenceRail';
 import {
   SequenceLinkControls,
   TaskDropTarget,
@@ -67,36 +70,48 @@ export default function SectionColumn({
   const { create: createTask } = useTaskMutations();
   const { update: updateSection, remove: removeSection } =
     useSectionMutations();
-  const { data: seqEdges = [] } = useTasksSequence();
+  const {
+    data: seqEdges = [],
+    isLoading: seqLoading,
+    isError: seqError,
+  } = useTasksSequence();
   const { data: statusMoments } = useTaskStatusMoments();
 
   // Infinite sections gradually fade, then hide, done/cancelled tasks based
   // on how long ago they settled — keeps an ongoing/never-ending list from
   // accumulating clutter forever. See src/lib/infiniteFade.ts.
-  const { visibleTasks, fadeByTaskId } = useMemo(() => {
+  const { visibleTasks, fadeByTaskId, hiddenTaskIds } = useMemo(() => {
     if (!section.is_infinite || !statusMoments) {
-      return { visibleTasks: orderedTasks, fadeByTaskId: new Map<Id, number>() };
+      return {
+        visibleTasks: orderedTasks,
+        fadeByTaskId: new Map<Id, number>(),
+        hiddenTaskIds: new Set<Id>(),
+      };
     }
     const fade = new Map<Id, number>();
+    const hidden = new Set<Id>();
     const visible = orderedTasks.filter((task) => {
       if (task.status !== 'done' && task.status !== 'cancelled') return true;
       const changedAt = statusMoments.get(task.id);
       if (!changedAt) return true;
       const opacity = infiniteFadeOpacity(daysSince(changedAt));
-      if (opacity === null) return false;
+      if (opacity === null) {
+        hidden.add(task.id);
+        return false;
+      }
       fade.set(task.id, opacity);
       return true;
     });
-    return { visibleTasks: visible, fadeByTaskId: fade };
+    return { visibleTasks: visible, fadeByTaskId: fade, hiddenTaskIds: hidden };
   }, [orderedTasks, section.is_infinite, statusMoments]);
 
   const rail = useMemo(
     () =>
       buildSequenceRail(
         visibleTasks.map((t) => t.id),
-        seqEdges
+        collapseHiddenEdges(seqEdges, hiddenTaskIds)
       ),
-    [visibleTasks, seqEdges]
+    [visibleTasks, seqEdges, hiddenTaskIds]
   );
   const [newTaskName, setNewTaskName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -285,11 +300,20 @@ export default function SectionColumn({
                 armedSource={linking?.taskId === task.id}
               >
                 <div className="group/row flex items-stretch">
-                  {rail.laneCount > 0 && (
-                    <SequenceRailCell
-                      row={rail.rows[index]}
-                      laneCount={rail.laneCount}
+                  {seqLoading ? (
+                    <SequenceRailLoading
+                      isFirst={index === 0}
+                      isLast={index === visibleTasks.length - 1}
                     />
+                  ) : seqError ? (
+                    <SequenceRailError isFirst={index === 0} />
+                  ) : (
+                    rail.laneCount > 0 && (
+                      <SequenceRailCell
+                        row={rail.rows[index]}
+                        laneCount={rail.laneCount}
+                      />
+                    )
                   )}
                   <div className="min-w-0 flex-1">
                     <TaskRow

@@ -172,6 +172,29 @@
     );
   }
 
+  /* Sequence rail while tasks_sequence is still loading: a marching-dash
+     placeholder in the exact spot the real rail line will occupy, so it
+     reads as "loading" rather than "no sequence here" (which renders
+     nothing at all). Respects prefers-reduced-motion via the global rule
+     above that clamps all animation-duration to ~0. */
+  .sequence-rail-loading {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--color-nyx-500) 0,
+      var(--color-nyx-500) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+    background-size: 100% 16px;
+    animation: sequence-rail-dash 0.6s linear infinite;
+  }
+
+  @keyframes sequence-rail-dash {
+    to {
+      background-position: 0 16px;
+    }
+  }
+
   /* Slow drifting backdrop for the Vortex hero -- nyx-700 (the logo's
      color) bleeding into nyx-900 (the page background), panned instead
      of static so it reads as alive without calling attention to itself. */
