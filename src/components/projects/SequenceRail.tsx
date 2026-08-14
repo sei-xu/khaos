@@ -6,11 +6,10 @@
 // ser medidas.
 import type { RailBend, RailRow } from '../../lib/sequenceGraph';
 
-// Alargado de 10 -> 14: numa bifurcação/junção, é a distância horizontal
-// entre lanes que faz a separação em duas linhas ficar óbvia de relance —
-// 10px deixava o fork lendo como "uma linha dobrando", não "duas se
-// separando".
-export const LANE_WIDTH = 14;
+// 10 -> 14 (separação de fork ficar óbvia) -> 11 (o bug real era as cores
+// undefined tornando lanes invisíveis, não a distância -- resolvido isso,
+// coube encolher de volta a distância entre linhas).
+export const LANE_WIDTH = 11;
 // Centro vertical da primeira linha de texto do TaskRow (py-1.5 + text-sm).
 const NODE_Y = 16;
 // Altura da curva de bifurcação logo abaixo do nó — NODE_Y + BEND_H não
