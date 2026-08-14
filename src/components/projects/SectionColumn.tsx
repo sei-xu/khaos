@@ -306,7 +306,7 @@ export default function SectionColumn({
                       isLast={index === visibleTasks.length - 1}
                     />
                   ) : seqError ? (
-                    <SequenceRailError />
+                    <SequenceRailError isFirst={index === 0} />
                   ) : (
                     rail.laneCount > 0 && (
                       <SequenceRailCell

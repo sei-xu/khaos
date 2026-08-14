@@ -107,15 +107,20 @@ export function SequenceRailLoading({
 
 // Se a query de tasks_sequence falhar, o rail também ficaria "vazio" sem
 // nenhum indício de que os dados de sequência não puderam ser lidos — daí
-// o X, para diferenciar de "esta seção nunca teve sequência".
-export function SequenceRailError() {
+// o X, para diferenciar de "esta seção nunca teve sequência". É uma falha
+// só (query única, compartilhada por toda a seção), então o marcador
+// aparece apenas na primeira linha -- repeti-lo em cada tarefa daria a
+// entender que cada uma falhou individualmente.
+export function SequenceRailError({ isFirst = false }: { isFirst?: boolean }) {
   return (
     <div
       className="relative flex shrink-0 items-center justify-center"
       style={{ width: LANE_WIDTH }}
-      title="Failed to load task sequence"
+      title={isFirst ? 'Failed to load task sequence' : undefined}
     >
-      <span className="text-tartarus-500 text-[10px] leading-none">×</span>
+      {isFirst && (
+        <span className="text-tartarus-500 text-[10px] leading-none">×</span>
+      )}
     </div>
   );
 }
