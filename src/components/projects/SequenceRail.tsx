@@ -22,11 +22,11 @@ const BEND_H = 16;
 const ROW_GAP = 2;
 
 const LANE_COLORS = [
-  'var(--color-teal-400)',
-  'var(--color-copper-400)',
-  'var(--color-violet-400)',
-  'var(--color-sage-500)',
-  'var(--color-rust-500)',
+  'var(--color-pontus-400)',
+  'var(--color-eros-400)',
+  'var(--color-hypnos-400)',
+  'var(--color-gaia-500)',
+  'var(--color-tartarus-500)',
 ];
 
 const laneColor = (colorIndex: number) =>
@@ -94,7 +94,7 @@ export function SequenceRailError() {
       style={{ width: LANE_WIDTH }}
       title="Failed to load task sequence"
     >
-      <span className="text-rust-500 text-[10px] leading-none">×</span>
+      <span className="text-tartarus-500 text-[10px] leading-none">×</span>
     </div>
   );
 }
