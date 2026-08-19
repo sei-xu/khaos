@@ -5,11 +5,13 @@ import {
   DueBadge,
   TargetBadge,
   ScheduledBadge,
+  TodayToggle,
   ProjectChip,
 } from '../common/ui';
 import { minutesToHuman } from '../../lib/dateUtils';
 import { useSequenceCounts } from '../../hooks/useSequence';
 import { useScheduledTaskIds } from '../../hooks/useEvents';
+import { useTodayTaskIds, useTodayMutations } from '../../hooks/useMoments';
 import type { Task } from '../../lib/types';
 
 const DIMMED: Task['status'][] = ['done', 'cancelled'];
@@ -41,6 +43,9 @@ export default function TaskRow({
   const dimmed = DIMMED.includes(task.status);
   const seqCounts = useSequenceCounts().get(task.id);
   const scheduled = useScheduledTaskIds().has(task.id);
+  const { data: todayTaskIds } = useTodayTaskIds();
+  const { mark, unmark } = useTodayMutations();
+  const markedToday = Boolean(todayTaskIds?.has(task.id));
   const opacity = dimmed ? (fadeOpacity ?? 0.38) : 1;
 
   return (
@@ -57,6 +62,13 @@ export default function TaskRow({
           <GripVertical size={13} />
         </span>
       )}
+
+      <span className="mt-1 shrink-0">
+        <TodayToggle
+          marked={markedToday}
+          onToggle={() => (markedToday ? unmark.mutate(task.id) : mark.mutate(task.id))}
+        />
+      </span>
 
       <div className="min-w-0 flex-1">
         <button

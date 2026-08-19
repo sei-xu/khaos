@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { todayDateStringInTz } from '../timezone';
 import type { Id, Moment } from '../types';
 
 function unwrap<T>({ data, error }: { data: T | null; error: unknown }): T {
@@ -46,6 +47,52 @@ export const momentsApi = {
       if (!latest.has(row.task_id)) latest.set(row.task_id, row.created_at);
     }
     return latest;
+  },
+
+  // Marks a task "for today" (or any future date for planning ahead) by
+  // appending a 'today' moment — never updates/deletes, so remarking after
+  // an unmark just adds another entry (and grows the mark count).
+  markForDay: async (taskId: Id, date: string = todayDateStringInTz()): Promise<Moment> => {
+    const response = await supabase
+      .from('moments')
+      .insert({ task_id: taskId, moment_type: 'today', value: date })
+      .select()
+      .single();
+    return unwrap(response);
+  },
+
+  unmarkForDay: async (taskId: Id, date: string = todayDateStringInTz()): Promise<Moment> => {
+    const response = await supabase
+      .from('moments')
+      .insert({ task_id: taskId, moment_type: 'notToday', value: date })
+      .select()
+      .single();
+    return unwrap(response);
+  },
+
+  // Task ids currently marked for `date` (default: today) — the latest
+  // 'today'/'notToday' moment per task for that date decides the state.
+  taskIdsMarkedForDay: async (date: string = todayDateStringInTz()): Promise<Set<Id>> => {
+    const response = await supabase
+      .from('moments')
+      .select('task_id, moment_type, created_at')
+      .in('moment_type', ['today', 'notToday'])
+      .eq('value', date)
+      .not('task_id', 'is', null)
+      .order('created_at', { ascending: false });
+    const rows = unwrap(response) as {
+      task_id: Id;
+      moment_type: 'today' | 'notToday';
+      created_at: string;
+    }[];
+    const marked = new Set<Id>();
+    const seen = new Set<Id>();
+    for (const row of rows) {
+      if (seen.has(row.task_id)) continue;
+      seen.add(row.task_id);
+      if (row.moment_type === 'today') marked.add(row.task_id);
+    }
+    return marked;
   },
 
   remove: async (id: Id): Promise<Moment> => {

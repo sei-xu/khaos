@@ -15,6 +15,7 @@ import {
   DraftingCompass,
   Bot,
   Layers,
+  Star,
 } from 'lucide-react';
 import {
   Modal,
@@ -31,6 +32,7 @@ import {
   StatusBadge,
   PriorityBadge,
   TimeToggle,
+  TodayToggle,
 } from '../common/ui';
 import TargetEditor from '../common/TargetEditor';
 import {
@@ -59,7 +61,12 @@ import {
   useTimerMutations,
 } from '../../hooks/useTimeTracking';
 import { useTags, useTagLinks, useTagMutations } from '../../hooks/useTags';
-import { useNotes, useNoteMutations } from '../../hooks/useMoments';
+import {
+  useNotes,
+  useNoteMutations,
+  useTodayTaskIds,
+  useTodayMutations,
+} from '../../hooks/useMoments';
 import { useTaskSequence, useSequenceMutations } from '../../hooks/useSequence';
 import { wouldCreateCycle } from '../../lib/sequenceGraph';
 import type {
@@ -82,6 +89,8 @@ const MOMENT_TYPE_LABELS: Partial<Record<MomentType, string>> = {
   scheduled: 'Scheduled',
   target: 'Target',
   priority: 'Priority',
+  today: 'Marked for day',
+  notToday: 'Unmarked for day',
 };
 
 function describeMoment(moment: Moment): string {
@@ -119,6 +128,16 @@ function MomentIcon({ moment }: { moment: Moment }) {
       return (
         <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-hypnos-400" />
       );
+    case 'today':
+      return (
+        <Star
+          size={12}
+          fill="currentColor"
+          className="text-eros-400 mt-0.5 shrink-0"
+        />
+      );
+    case 'notToday':
+      return <Star size={12} className="text-nyx-500 mt-0.5 shrink-0" />;
     default:
       return null;
   }
@@ -460,6 +479,9 @@ export default function TaskDetailModal({
   const tagMutations = useTagMutations();
   const { data: moments = [] } = useNotes({ task_id: taskId });
   const noteMutations = useNoteMutations({ task_id: taskId });
+  const { data: todayTaskIds } = useTodayTaskIds();
+  const { mark, unmark } = useTodayMutations();
+  const markedToday = Boolean(todayTaskIds?.has(taskId));
 
   const { data: allTasks = [] } = useTasks();
   const { data: seqEdges = [] } = useTasksSequence();
@@ -636,12 +658,20 @@ export default function TaskDetailModal({
       open
       onClose={onClose}
       title={
-        <TextInput
-          value={nameDraft}
-          onChange={(e) => setNameDraft(e.target.value)}
-          onBlur={flushName}
-          className="focus:bg-nyx-900! w-full border-0! bg-transparent! px-0! py-0! text-display! font-medium!"
-        />
+        <span className="flex min-w-0 items-center gap-2">
+          <TodayToggle
+            marked={markedToday}
+            onToggle={() =>
+              markedToday ? unmark.mutate(taskId) : mark.mutate(taskId)
+            }
+          />
+          <TextInput
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={flushName}
+            className="focus:bg-nyx-900! w-full border-0! bg-transparent! px-0! py-0! text-display! font-medium!"
+          />
+        </span>
       }
       width="max-w-2xl"
     >
