@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { momentsApi, type EntityRef } from '../lib/api/moments';
+import { todayDateStringInTz } from '../lib/timezone';
 import type { Id } from '../lib/types';
 
 function refKey(entityRef: EntityRef | null | undefined): [string, Id] | null {
@@ -13,6 +14,31 @@ export function useNotes(entityRef: EntityRef) {
     queryFn: () => momentsApi.listForEntity(entityRef),
     enabled: Boolean(key),
   });
+}
+
+// Set of task ids marked "for today", for the TaskRow/TaskDetailModal
+// toggle button. Same one-query-for-everyone pattern as useScheduledTaskIds.
+export function useTodayTaskIds(date: string = todayDateStringInTz()) {
+  return useQuery({
+    queryKey: ['moments', 'today', date],
+    queryFn: () => momentsApi.taskIdsMarkedForDay(date),
+  });
+}
+
+export function useTodayMutations(date: string = todayDateStringInTz()) {
+  const qc = useQueryClient();
+  const invalidate = () =>
+    qc.invalidateQueries({ queryKey: ['moments', 'today', date] });
+  return {
+    mark: useMutation({
+      mutationFn: (taskId: Id) => momentsApi.markForDay(taskId, date),
+      onSuccess: invalidate,
+    }),
+    unmark: useMutation({
+      mutationFn: (taskId: Id) => momentsApi.unmarkForDay(taskId, date),
+      onSuccess: invalidate,
+    }),
+  };
 }
 
 export function useNoteMutations(entityRef: EntityRef) {

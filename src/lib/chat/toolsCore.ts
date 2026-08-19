@@ -155,6 +155,26 @@ const reasonSchema = {
 // Tool's `"object"` literal requirement.
 export const READ_TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
+    name: 'list_tasks_marked_for_day',
+    description:
+      'Lists tasks the user marked "for" a given day via the today/notToday moment toggle (the star button on a task) — i.e. what they want to work on that day, before any of it has been put on the calendar. ' +
+      "A task's state for a day is derived, not a stored column: the most recent of its 'today'/'notToday' moments whose value equals that date decides whether it's currently marked. " +
+      'This tool does that derivation for you — use it instead of querying the moments table directly for this purpose, since a plain filter on moments would show every toggle event, not just the current state. ' +
+      'Excludes deleted and done/cancelled tasks. Returns full task rows (id, name, status, priority, due, estimate, section_id) so you can plan/schedule them — e.g. by creating "scheduled" events (insert_row on the events table, event_type "scheduled", linked via task_id) — without a second lookup.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description:
+            "The day to check, as 'YYYY-MM-DD' in the user's own timezone — compute it from the Temporal Context prefix's current_time/timezone (for 'today') rather than guessing.",
+        },
+      },
+      required: ['date'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'search_schema',
     description:
       "Searches the database's schema (tables, columns, enum values, callable RPC functions) by keyword.",
@@ -466,6 +486,41 @@ export async function executeTool(
   const { db, searchSchema } = deps;
   const name = normalizeToolName(rawName);
   switch (name) {
+    case 'list_tasks_marked_for_day': {
+      const a = args as { date?: unknown };
+      const date = typeof a.date === 'string' ? a.date : undefined;
+      if (!date) throw new Error('list_tasks_marked_for_day requires a date');
+
+      const { data: momentRows, error: momentsError } = await db
+        .from('moments')
+        .select('task_id, moment_type, created_at')
+        .in('moment_type', ['today', 'notToday'])
+        .eq('value', date)
+        .not('task_id', 'is', null)
+        .order('created_at', { ascending: false });
+      if (momentsError) throw new Error(momentsError.message);
+
+      const seen = new Set<string>();
+      const markedTaskIds: string[] = [];
+      for (const row of (momentRows ?? []) as {
+        task_id: string;
+        moment_type: 'today' | 'notToday';
+      }[]) {
+        if (seen.has(row.task_id)) continue;
+        seen.add(row.task_id);
+        if (row.moment_type === 'today') markedTaskIds.push(row.task_id);
+      }
+      if (!markedTaskIds.length) return { date, tasks: [] };
+
+      const { data: tasks, error: tasksError } = await db
+        .from('tasks')
+        .select('id, name, status, priority, due, estimate, section_id')
+        .in('id', markedTaskIds)
+        .is('deleted_at', null)
+        .not('status', 'in', '(done,cancelled)');
+      if (tasksError) throw new Error(tasksError.message);
+      return { date, tasks: cleanPayload(tasks ?? []) };
+    }
     case 'search_schema': {
       return cleanPayload(searchSchema((args as any).query));
     }

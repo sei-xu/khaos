@@ -26,6 +26,7 @@ import {
   Plus,
   Clock,
   CalendarClock,
+  Star,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -615,6 +616,34 @@ export function ScheduledBadge({ scheduled }: { scheduled?: boolean }) {
     >
       <CalendarClock size={12} />
     </span>
+  );
+}
+
+// Toggle button for marking a task "for today" — filled/copper when marked,
+// outline/dim otherwise. Click always toggles; stopPropagation so it works
+// inside the TaskRow's onOpen button without also opening the modal.
+export function TodayToggle({
+  marked,
+  onToggle,
+}: {
+  marked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={marked ? 'Marcada para hoje' : 'Marcar para hoje'}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={clsx(
+        'inline-flex shrink-0 items-center transition-colors',
+        marked ? 'text-eros-400' : 'text-nyx-700 hover:text-nyx-400'
+      )}
+    >
+      <Star size={12} fill={marked ? 'currentColor' : 'none'} />
+    </button>
   );
 }
 

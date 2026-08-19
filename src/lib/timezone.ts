@@ -135,6 +135,13 @@ export function isOverdueInTz(
   return new Date(dateInput) < new Date();
 }
 
+// Today's date as 'YYYY-MM-DD' in the user's timezone — the key used to
+// mark/unmark tasks "for today" independent of exact time.
+export function todayDateStringInTz(tz?: string): string {
+  const { year, month, day } = partsInTz(new Date(), tz || getTimezone());
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 // Checks whether a date falls on today in the user's timezone
 export function isTodayInTz(dateInput: DateInput, tz?: string): boolean {
   if (!dateInput) return false;

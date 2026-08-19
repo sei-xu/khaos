@@ -792,6 +792,8 @@ export type Database = {
         | "note"
         | "priority"
         | "definition"
+        | "today"
+        | "notToday"
       priority: "urgent" | "high" | "medium" | "low"
       status:
         | "planning"
@@ -942,6 +944,8 @@ export const Constants = {
         "note",
         "priority",
         "definition",
+        "today",
+        "notToday",
       ],
       priority: ["urgent", "high", "medium", "low"],
       status: [
