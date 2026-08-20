@@ -167,13 +167,19 @@ async function runTurn(history: ChatMessage[]): Promise<ChatMessage[]> {
   return messages;
 }
 
-// --- per-chat history (telegram_chats) -------------------------------------
+// --- shared history (chat_history) ------------------------------------------
+//
+// One conversation, shared with the web app (src/hooks/useChatAgent.ts) via
+// the same "chat_history" table — chat_id is no longer a storage key, only
+// the Telegram side's own auth/routing concern (see telegram-bot/index.ts).
 
-export async function loadHistory(chatId: number): Promise<ChatMessage[]> {
+const CHAT_ROW_ID = 'khaos';
+
+export async function loadHistory(): Promise<ChatMessage[]> {
   const { data, error } = await db
-    .from('telegram_chats')
+    .from('chat_history')
     .select('history')
-    .eq('chat_id', chatId)
+    .eq('id', CHAT_ROW_ID)
     .maybeSingle();
   if (error) {
     console.error('loadHistory failed', error.message);
@@ -183,19 +189,19 @@ export async function loadHistory(chatId: number): Promise<ChatMessage[]> {
   return Array.isArray(history) ? history : [];
 }
 
-async function saveHistory(chatId: number, history: ChatMessage[]): Promise<void> {
+async function saveHistory(history: ChatMessage[]): Promise<void> {
   const trimmed = history.slice(-MAX_STORED_MESSAGES);
-  const { error } = await db.from('telegram_chats').upsert(
-    { chat_id: chatId, history: trimmed, updated_at: new Date().toISOString() },
-    { onConflict: 'chat_id' }
+  const { error } = await db.from('chat_history').upsert(
+    { id: CHAT_ROW_ID, history: trimmed, updated_at: new Date().toISOString() },
+    { onConflict: 'id' }
   );
   if (error) console.error('saveHistory failed', error.message);
 }
 
-export async function clearHistory(chatId: number): Promise<void> {
-  const { error } = await db.from('telegram_chats').upsert(
-    { chat_id: chatId, history: [], updated_at: new Date().toISOString() },
-    { onConflict: 'chat_id' }
+export async function clearHistory(): Promise<void> {
+  const { error } = await db.from('chat_history').upsert(
+    { id: CHAT_ROW_ID, history: [], updated_at: new Date().toISOString() },
+    { onConflict: 'id' }
   );
   if (error) console.error('clearHistory failed', error.message);
 }
@@ -203,18 +209,19 @@ export async function clearHistory(chatId: number): Promise<void> {
 // Load history, append the user turn, run the loop, persist, return the reply.
 // Used for real messages and for the automated morning digest (which threads
 // its suggestions into the same history so a follow-up "yes, do it" has
-// context).
+// context). chatId is kept as a param only so callers don't have to change;
+// it no longer selects which history is loaded.
 export async function runAgent(
-  chatId: number,
+  _chatId: number,
   userContent: string
 ): Promise<string> {
-  const history = await loadHistory(chatId);
+  const history = await loadHistory();
   const withUser: ChatMessage[] = [
     ...history,
     { role: 'user', content: userContent },
   ];
   const updated = await runTurn(withUser);
-  await saveHistory(chatId, updated);
+  await saveHistory(updated);
   const last = updated[updated.length - 1];
   return last?.role === 'assistant' ? extractText(last.content) : '';
 }

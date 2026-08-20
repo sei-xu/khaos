@@ -4,6 +4,11 @@ import {
   extractText,
   type ChatMessage as AgentMessage,
 } from '../lib/chat/agent';
+import {
+  loadHistory,
+  saveHistory,
+  clearHistory as clearHistoryRemote,
+} from '../lib/chat/history';
 import { useProcessingContext } from '../lib/processingContext';
 import { useActiveEntity } from '../lib/activeEntityContext';
 import { useChatActivity } from '../lib/chat/chatActivityContext';
@@ -12,12 +17,13 @@ import { getTimezone } from '../lib/timezone';
 const BOOTSTRAP_INSTRUCTION =
   '[Session Bootstrap: This is the first turn of a new session — nobody has typed anything yet. Follow your OPENING TURN rules: a brief greeting is fine, but do not offer to help or ask an open-ended question — check current state for something worth surfacing before saying anything else, including anything recall_oversight_notes turns up.]';
 
-// A session is one page load, full stop — history isn't persisted across
-// reloads, and this flag lives in module scope (not localStorage) for the
-// same reason: it needs to reset every time the JS itself reloads, not
-// survive it. It still does real work within a single load, though —
-// preventing the always-mounted desktop panel and a freshly-opened mobile
-// sheet from both firing the opener.
+// The conversation is now persisted server-side (table "chat_history", see
+// ../lib/chat/history.ts) and shared across every browser instance and the
+// Telegram bot — it's the same shared thread everywhere, not a per-page-load
+// session. This flag still exists to solve one narrow race: the always-
+// mounted desktop panel and a freshly-opened mobile sheet both mount this
+// hook, and only one of them should claim the opening bootstrap turn once
+// the fetched history turns out to be empty.
 let bootstrapClaimedThisLoad = false;
 
 // UI-facing shape — this is what ChatPanel and the rest of the app render.
@@ -30,16 +36,10 @@ export interface ChatMessage {
   isError?: boolean;
 }
 
-// No loadHistory()/isWellFormedMessage() sanitization here — main added that
-// to harden localStorage-persisted history against malformed `content`
-// surviving a JSON round-trip, but this branch removes that persistence
-// entirely (a session is one page load; messages always start empty), so
-// there's nothing stored to sanitize. extractText()'s own defensive
-// undefined-content handling (src/lib/chat/agent.ts) still applies regardless
-// of where a malformed message came from, and is kept.
 export function useChatAgent() {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
   const { setAssistantProcessing } = useProcessingContext();
   const { activeEntity } = useActiveEntity();
   const { markOpenerUnseen } = useChatActivity();
@@ -64,6 +64,7 @@ export function useChatAgent() {
           newUserAgentMessage,
         ]);
         setMessages(updatedHistory);
+        saveHistory(updatedHistory);
         return updatedHistory;
       } catch (err) {
         console.error(err);
@@ -97,27 +98,45 @@ export function useChatAgent() {
     [activeEntity, isSending, runWithUserContent]
   );
 
-  // Runs once per page load, on mount — see bootstrapClaimedThisLoad above.
+  // Fetches the shared history once per mount (every panel/sheet instance
+  // needs its own copy in state), then — only the first instance to finish,
+  // and only if the fetched history is genuinely empty — runs the opening
+  // bootstrap turn. bootstrapClaimedThisLoad guards that second part, not
+  // the fetch itself.
   useEffect(() => {
-    if (bootstrapClaimedThisLoad) return;
-    bootstrapClaimedThisLoad = true;
+    let cancelled = false;
 
-    const timeCtx = `[Temporal Context: current_time is ${new Date().toISOString()}, timezone is ${getTimezone()}]\n`;
-    runWithUserContent(`${timeCtx}${BOOTSTRAP_INSTRUCTION}`, {
-      silent: true,
-    }).then((updatedHistory) => {
-      const last = updatedHistory?.[updatedHistory.length - 1];
-      if (last?.role === 'assistant' && extractText(last.content)) {
-        markOpenerUnseen();
-      }
+    loadHistory().then((history) => {
+      if (cancelled) return;
+      setMessages(history);
+      setIsLoaded(true);
+
+      if (history.length > 0) return;
+      if (bootstrapClaimedThisLoad) return;
+      bootstrapClaimedThisLoad = true;
+
+      const timeCtx = `[Temporal Context: current_time is ${new Date().toISOString()}, timezone is ${getTimezone()}]\n`;
+      runWithUserContent(`${timeCtx}${BOOTSTRAP_INSTRUCTION}`, {
+        silent: true,
+      }).then((updatedHistory) => {
+        const last = updatedHistory?.[updatedHistory.length - 1];
+        if (last?.role === 'assistant' && extractText(last.content)) {
+          markOpenerUnseen();
+        }
+      });
     });
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Just a wipe — reopening the conversation is what a reload is for, not
-  // something Clear should do on its own.
+  // Wipes the shared conversation everywhere — web instances and Telegram
+  // alike — not just this tab's view of it.
   const clearHistory = useCallback(() => {
     setMessages([]);
+    clearHistoryRemote();
   }, []);
 
   const uiMessages: ChatMessage[] = messages
@@ -147,6 +166,7 @@ export function useChatAgent() {
     messages: uiMessages,
     sendMessage,
     isSending,
+    isLoaded,
     clearHistory,
   };
 }
