@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      chat_history: {
+        Row: {
+          history: Json
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          history?: Json
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          history?: Json
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           deleted_at: string | null

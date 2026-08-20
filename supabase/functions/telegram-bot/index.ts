@@ -55,7 +55,7 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
     : null;
 
   if (command === '/start' || command === '/clear' || command === '/reset') {
-    await clearHistory(chatId);
+    await clearHistory();
     await typing(chatId);
     const opener = await runAgent(
       chatId,
