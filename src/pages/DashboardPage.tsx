@@ -1,22 +1,125 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { isToday } from 'date-fns';
-import { AlertTriangle, CalendarClock, CheckCircle2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  Target,
+  Star,
+} from 'lucide-react';
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import {
   useTasks,
   useSections,
   useProjects,
   useFields,
 } from '../hooks/useHierarchy';
-import { useEvents } from '../hooks/useEvents';
+import { useEvents, useScheduledTaskIds, useEventMutations } from '../hooks/useEvents';
+import { useTodayTaskIds, useTodayMutations } from '../hooks/useMoments';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
 import { parseRange } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
-import { EmptyState } from '../components/common/ui';
+import { EmptyState, DueBadge, TargetBadge } from '../components/common/ui';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import TaskRow from '../components/tasks/TaskRow';
 import type { Event, Field, Project, Section, Task } from '../lib/types';
+
+// Auto-refresh cadence for the dashboard's live queries. Kept well above the
+// global 15s staleTime so this is purely a "someone else changed something"
+// safety net, not the primary fetch path.
+const AUTO_REFRESH_MS = 30_000;
+
+// First hour of the compact day-calendar column shown below the pills — runs
+// through midnight so a late-scheduled task is still droppable.
+const CALENDAR_START_HOUR = 6;
+
+interface TaskPillProps {
+  task: Task;
+  onOpen: (task: Task) => void;
+  children: ReactNode;
+}
+
+// Draggable pill matching the app's existing badge language (DueBadge /
+// TargetBadge: chrome-less or thin-bordered rounded chip, small mono/body
+// text). Dragging one onto the "Marked" group or a calendar slot below
+// changes that task's state — see DashboardPage's handleDragEnd. A plain
+// click (one that never crosses the drag activation distance) opens the
+// task, same as clicking a Kanban card.
+function TaskPill({ task, onOpen, children }: TaskPillProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({ id: task.id });
+  const style = transform
+    ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 30 }
+    : undefined;
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      title={task.name}
+      onClick={() => !isDragging && onOpen(task)}
+      className="border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 inline-flex max-w-[13rem] cursor-grab items-center gap-1.5 rounded-full border px-2 py-1 text-caption active:cursor-grabbing"
+    >
+      <span className="min-w-0 flex-1 truncate">{task.name}</span>
+      {isDragging ? null : children}
+    </button>
+  );
+}
+
+interface PillGroupProps {
+  icon: ReactNode;
+  label: string;
+  accentClass: string;
+  count: number;
+  emptyLabel: string;
+  droppableId?: string;
+  children: ReactNode;
+}
+
+function PillGroup({
+  icon,
+  label,
+  accentClass,
+  count,
+  emptyLabel,
+  droppableId,
+  children,
+}: PillGroupProps) {
+  const droppable = useDroppable({ id: droppableId ?? '__none__' });
+  const isDropTarget = Boolean(droppableId);
+  return (
+    <section>
+      <h2
+        className={`mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase ${accentClass}`}
+      >
+        {icon} {label} ({count})
+      </h2>
+      <div
+        ref={isDropTarget ? droppable.setNodeRef : undefined}
+        className={`flex min-h-[2.25rem] flex-wrap gap-1.5 rounded-lg p-1 transition-colors ${
+          isDropTarget && droppable.isOver
+            ? 'bg-nyx-800 ring-eros-400 ring-1'
+            : ''
+        }`}
+      >
+        {count ? children : <p className="text-nyx-600 px-1 text-body">{emptyLabel}</p>}
+      </div>
+    </section>
+  );
+}
 
 export default function DashboardPage() {
   const { data: tasks = [] } = useTasks() as { data: Task[] };
@@ -24,7 +127,27 @@ export default function DashboardPage() {
   const { data: projects = [] } = useProjects() as { data: Project[] };
   const { data: fields = [] } = useFields() as { data: Field[] };
   const { data: events = [] } = useEvents() as { data: Event[] };
+  const { data: todayTaskIds } = useTodayTaskIds();
+  const scheduledTaskIds = useScheduledTaskIds();
+  const { mark } = useTodayMutations();
+  const { create: createEvent } = useEventMutations();
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const isMutating = useIsMutating();
+
+  // Auto-update: periodically refetch the dashboard's live data. Skipped
+  // while a mutation (e.g. an in-flight drag-drop) is running so a refetch
+  // never races an optimistic update or clobbers a pending drop.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (isMutating > 0) return;
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['moments', 'today'] });
+    }, AUTO_REFRESH_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient]);
 
   const sectionsById = useMemo(
     () => new Map(sections.map((s) => [s.id, s])),
@@ -48,6 +171,16 @@ export default function DashboardPage() {
   const dueToday = openTasks.filter(
     (t) => t.due && isToday(new Date(t.due)) && !isOverdue(t.due, t.status)
   );
+
+  const markedTaskIds = todayTaskIds ?? new Set<string>();
+
+  const duePills = openTasks
+    .filter((t) => t.due)
+    .sort((a, b) => new Date(a.due!).getTime() - new Date(b.due!).getTime());
+  const targetPills = openTasks.filter((t) => t.target);
+  const scheduledPills = openTasks.filter((t) => scheduledTaskIds.has(t.id));
+  const markedPills = openTasks.filter((t) => markedTaskIds.has(t.id));
+
   const todaysEvents = events
     .map((e) => ({ ...e, ...parseRange(e.duration as unknown as string) }))
     .filter(
@@ -55,6 +188,22 @@ export default function DashboardPage() {
         Boolean(e.start) && isToday(e.start as Date)
     )
     .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  const eventsByHour = useMemo(() => {
+    const map = new Map<number, typeof todaysEvents>();
+    for (const ev of todaysEvents) {
+      const hour = ev.start.getHours();
+      if (!map.has(hour)) map.set(hour, []);
+      map.get(hour)!.push(ev);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+
+  const calendarHours = Array.from(
+    { length: 24 - CALENDAR_START_HOUR },
+    (_, i) => CALENDAR_START_HOUR + i
+  );
 
   const openTaskId = searchParams.get('taskId');
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : null;
@@ -74,6 +223,41 @@ export default function DashboardPage() {
   function fieldNameForProject(project: Project | null): string | null {
     if (!project?.field_id) return null;
     return fieldsById.get(project.field_id)?.name ?? null;
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over) return;
+    const task = tasksById.get(String(active.id));
+    if (!task) return;
+
+    if (over.id === 'marked-zone') {
+      if (!markedTaskIds.has(task.id)) mark.mutate(task.id);
+      return;
+    }
+
+    if (typeof over.id === 'string' && over.id.startsWith('slot:')) {
+      const hour = Number(over.id.slice('slot:'.length));
+      if (Number.isNaN(hour)) return;
+      const start = new Date();
+      start.setHours(hour, 0, 0, 0);
+      // Estimate-aware: the dropped slot becomes the start, and the event
+      // runs for the task's `estimate` (minutes), defaulting to 30 when the
+      // task carries no estimate.
+      const minutes = task.estimate || 30;
+      const end = new Date(start.getTime() + minutes * 60000);
+      createEvent.mutate({
+        name: task.name,
+        eventType: 'scheduled',
+        start,
+        end,
+        taskId: task.id,
+      });
+    }
   }
 
   return (
@@ -137,44 +321,92 @@ export default function DashboardPage() {
         </section>
       </div>
 
-      <section className="mt-6">
-        <h2 className="mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide text-pontus-400 uppercase">
-          <CalendarClock size={13} /> Today&lsquo;s calendar
-        </h2>
-        {!todaysEvents.length ? (
-          <EmptyState
-            icon={CalendarClock}
-            title="Nothing on the calendar today"
-          />
-        ) : (
-          <div className="divide-nyx-700 border-nyx-700 divide-y rounded-lg border">
-            {todaysEvents.map((ev) => {
-              const taskName = ev.task_id
-                ? tasksById.get(ev.task_id)?.name
-                : null;
-              return (
-                <div
-                  key={ev.id}
-                  className="flex items-center gap-3 px-4 py-2"
-                >
-                  <span className="text-nyx-400 w-20 shrink-0 font-mono text-caption">
-                    {ev.start.toLocaleTimeString(undefined, {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                  <span className="text-nyx-100 text-body">
-                    {getEventLabel(ev, taskName)}
-                  </span>
-                  <span className="text-nyx-600 ml-auto text-caption">
-                    {ev.event_type}
-                  </span>
-                </div>
-              );
-            })}
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <PillGroup
+            icon={<CheckCircle2 size={13} />}
+            label="Due"
+            accentClass="text-eros-400"
+            count={duePills.length}
+            emptyLabel="Nothing with a due date."
+          >
+            {duePills.map((task) => (
+              <TaskPill key={task.id} task={task} onOpen={openTask_}>
+                <DueBadge due={task.due} status={task.status} />
+              </TaskPill>
+            ))}
+          </PillGroup>
+
+          <PillGroup
+            icon={<Target size={13} />}
+            label="Target"
+            accentClass="text-pontus-400"
+            count={targetPills.length}
+            emptyLabel="Nothing with a target window."
+          >
+            {targetPills.map((task) => (
+              <TaskPill key={task.id} task={task} onOpen={openTask_}>
+                <TargetBadge target={task.target as string | null} />
+              </TaskPill>
+            ))}
+          </PillGroup>
+
+          <PillGroup
+            icon={<Star size={13} />}
+            label="Marked"
+            accentClass="text-eros-400"
+            count={markedPills.length}
+            emptyLabel="Drag a task here to mark it for today."
+            droppableId="marked-zone"
+          >
+            {markedPills.map((task) => (
+              <TaskPill key={task.id} task={task} onOpen={openTask_}>
+                <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+              </TaskPill>
+            ))}
+          </PillGroup>
+
+          <PillGroup
+            icon={<CalendarClock size={13} />}
+            label="Scheduled"
+            accentClass="text-sage-500"
+            count={scheduledPills.length}
+            emptyLabel="Drag a task onto today's calendar below to schedule it."
+          >
+            {scheduledPills.map((task) => (
+              <TaskPill key={task.id} task={task} onOpen={openTask_}>
+                <CalendarClock size={11} className="text-sage-500 shrink-0" />
+              </TaskPill>
+            ))}
+          </PillGroup>
+        </div>
+
+        <section className="mt-6">
+          <h2 className="mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide text-pontus-400 uppercase">
+            <CalendarClock size={13} /> Today&lsquo;s calendar
+          </h2>
+          <p className="text-nyx-600 mb-2 text-label">
+            Drag a pill onto an hour to schedule it there — it runs for the
+            task's estimate (30 min if none is set).
+          </p>
+          {!todaysEvents.length && (
+            <EmptyState
+              icon={CalendarClock}
+              title="Nothing on the calendar today"
+            />
+          )}
+          <div className="border-nyx-700 divide-nyx-800 divide-y rounded-lg border">
+            {calendarHours.map((hour) => (
+              <CalendarSlot
+                key={hour}
+                hour={hour}
+                events={eventsByHour.get(hour) ?? []}
+                tasksById={tasksById}
+              />
+            ))}
           </div>
-        )}
-      </section>
+        </section>
+      </DndContext>
 
       {openTask && (
         <TaskDetailModal
@@ -184,6 +416,51 @@ export default function DashboardPage() {
           onOpenTask={openTask_}
         />
       )}
+    </div>
+  );
+}
+
+interface CalendarSlotProps {
+  hour: number;
+  events: (Event & { start: Date })[];
+  tasksById: Map<string, Task>;
+}
+
+// One row of the compact day-calendar column — droppable (id `slot:{hour}`)
+// so a dragged pill can be scheduled there, and lists whatever's already
+// scheduled in that hour.
+function CalendarSlot({ hour, events, tasksById }: CalendarSlotProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: `slot:${hour}` });
+  const label = `${hour % 12 === 0 ? 12 : hour % 12}${hour < 12 ? 'am' : 'pm'}`;
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex min-h-[2rem] items-center gap-3 px-4 py-1.5 transition-colors ${
+        isOver ? 'bg-eros-500/10' : ''
+      }`}
+    >
+      <span className="text-nyx-500 w-10 shrink-0 font-mono text-caption">
+        {label}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {events.map((ev) => {
+          const taskName = ev.task_id ? tasksById.get(ev.task_id)?.name : null;
+          return (
+            <span
+              key={ev.id}
+              className="text-nyx-100 flex min-w-0 items-center gap-1.5 text-body"
+            >
+              <span className="text-nyx-500 font-mono text-caption">
+                {ev.start.toLocaleTimeString(undefined, {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </span>
+              <span className="truncate">{getEventLabel(ev, taskName)}</span>
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
