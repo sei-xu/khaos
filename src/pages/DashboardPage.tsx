@@ -19,7 +19,11 @@ import {
 } from '@dnd-kit/core';
 import { useTasks } from '../hooks/useHierarchy';
 import { useEvents, useScheduledTaskIds, useEventMutations } from '../hooks/useEvents';
-import { useTodayTaskIds, useTodayMutations } from '../hooks/useMoments';
+import {
+  useTodayTaskIds,
+  useMarkedPastTaskIds,
+  useTodayMutations,
+} from '../hooks/useMoments';
 import { OPEN_STATUSES } from '../lib/constants';
 import { parseRange, targetEnd } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
@@ -39,6 +43,7 @@ const CALENDAR_START_HOUR = 6;
 interface TaskPillProps {
   task: Task;
   onOpen: (task: Task) => void;
+  faded?: boolean;
   children: ReactNode;
 }
 
@@ -48,8 +53,9 @@ interface TaskPillProps {
 // changes that task's state — see DashboardPage's handleDragEnd. A plain
 // click (one that never crosses the drag activation distance) opens the
 // task, same as clicking a Kanban card. Full-width within its column so a
-// wide badge (e.g. TargetBadge's start→end range) always has room.
-function TaskPill({ task, onOpen, children }: TaskPillProps) {
+// wide badge (e.g. TargetBadge's start→end range) always has room. `faded`
+// dims a pill that's stale (e.g. marked on a past day, never resolved).
+function TaskPill({ task, onOpen, faded, children }: TaskPillProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
   const style = transform
@@ -64,7 +70,7 @@ function TaskPill({ task, onOpen, children }: TaskPillProps) {
       {...attributes}
       title={task.name}
       onClick={() => !isDragging && onOpen(task)}
-      className="border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab items-center gap-1.5 rounded-full border px-2 py-1 text-caption active:cursor-grabbing"
+      className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab items-center gap-1.5 rounded-full border px-2 py-1 text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
     >
       <span className="min-w-0 flex-1 truncate">{task.name}</span>
       {isDragging ? null : children}
@@ -118,6 +124,7 @@ export default function DashboardPage() {
   const { data: tasks = [] } = useTasks() as { data: Task[] };
   const { data: events = [] } = useEvents() as { data: Event[] };
   const { data: todayTaskIds } = useTodayTaskIds();
+  const { data: markedPastTaskIds } = useMarkedPastTaskIds();
   const scheduledTaskIds = useScheduledTaskIds();
   const { mark } = useTodayMutations();
   const { create: createEvent } = useEventMutations();
@@ -147,6 +154,7 @@ export default function DashboardPage() {
   const openTasks = tasks.filter((t) => OPEN_STATUSES.includes(t.status));
 
   const markedTaskIds = todayTaskIds ?? new Set<string>();
+  const pastMarkedTaskIds = markedPastTaskIds ?? new Set<string>();
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
 
@@ -156,16 +164,32 @@ export default function DashboardPage() {
   const duePills = openTasks
     .filter((t) => t.due)
     .sort((a, b) => new Date(a.due!).getTime() - new Date(b.due!).getTime());
-  // Target only shows tasks whose target window covers today.
-  const targetPills = openTasks.filter((t) => {
-    if (!t.target) return false;
-    const { start } = parseRange(t.target as string);
-    const end = targetEnd(t.target as string);
-    if (!start || !end) return false;
-    return start <= todayEnd && end >= todayStart;
-  });
+  // Target shows tasks whose window covers today (current) plus tasks whose
+  // window already ended with work still open (past, rendered yellowish via
+  // TargetBadge's `past` prop below) — future-only targets stay hidden.
+  const targetPills = openTasks
+    .filter((t) => t.target)
+    .map((t) => {
+      const end = targetEnd(t.target as string);
+      return end && end < todayStart ? { task: t, past: true } : { task: t, past: false };
+    })
+    .filter(({ task: t, past }) => {
+      if (past) return true;
+      const { start } = parseRange(t.target as string);
+      const end = targetEnd(t.target as string);
+      return Boolean(start && end && start <= todayEnd && end >= todayStart);
+    });
   const scheduledPills = openTasks.filter((t) => scheduledTaskIds.has(t.id));
-  const markedPills = openTasks.filter((t) => markedTaskIds.has(t.id));
+  // Marked pairs today's marks (full opacity) with tasks left marked on a
+  // past day and never resolved (faded, see TaskPill's `faded` prop below).
+  const markedPills = openTasks
+    .filter((t) => markedTaskIds.has(t.id))
+    .map((t) => ({ task: t, faded: false }))
+    .concat(
+      openTasks
+        .filter((t) => !markedTaskIds.has(t.id) && pastMarkedTaskIds.has(t.id))
+        .map((t) => ({ task: t, faded: true }))
+    );
 
   const todaysEvents = events
     .map((e) => ({ ...e, ...parseRange(e.duration as unknown as string) }))
@@ -270,9 +294,9 @@ export default function DashboardPage() {
             count={targetPills.length}
             emptyLabel="Nothing targeted for today."
           >
-            {targetPills.map((task) => (
+            {targetPills.map(({ task, past }) => (
               <TaskPill key={task.id} task={task} onOpen={openTask_}>
-                <TargetBadge target={task.target as string | null} />
+                <TargetBadge target={task.target as string | null} past={past} />
               </TaskPill>
             ))}
           </PillGroup>
@@ -285,8 +309,8 @@ export default function DashboardPage() {
             emptyLabel="Drag a task here to mark it for today."
             droppableId="marked-zone"
           >
-            {markedPills.map((task) => (
-              <TaskPill key={task.id} task={task} onOpen={openTask_}>
+            {markedPills.map(({ task, faded }) => (
+              <TaskPill key={task.id} task={task} onOpen={openTask_} faded={faded}>
                 <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
               </TaskPill>
             ))}
