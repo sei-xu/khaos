@@ -13,6 +13,8 @@ import {
   X,
   FolderKanban,
   RefreshCw,
+  PanelLeftClose,
+  PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -87,9 +89,20 @@ interface SidebarProps {
   onNavigate: () => void;
   onClose?: () => void;
   spinning?: boolean;
+  // Icon-only rail mode (desktop only — the mobile drawer is never
+  // collapsed). When set, `onToggleCollapse` renders the expand/collapse
+  // button in place of the logo's text.
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-function Sidebar({ onNavigate, onClose, spinning }: SidebarProps) {
+function Sidebar({
+  onNavigate,
+  onClose,
+  spinning,
+  collapsed,
+  onToggleCollapse,
+}: SidebarProps) {
   const { data: fields = [] } = useFields();
   const { data: projects = [] } = useProjects();
   const { create } = useProjectMutations();
@@ -113,8 +126,17 @@ function Sidebar({ onNavigate, onClose, spinning }: SidebarProps) {
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 py-4">
-        <KhaosLogo spinning={spinning} />
+      <div
+        className={clsx(
+          'flex items-center py-4',
+          collapsed ? 'flex-col gap-3 px-2' : 'justify-between px-4'
+        )}
+      >
+        {collapsed ? (
+          <KhaosIcon size="h-5 w-5" spin={spinning} />
+        ) : (
+          <KhaosLogo spinning={spinning} />
+        )}
         {onClose && (
           <button
             onClick={onClose}
@@ -124,9 +146,19 @@ function Sidebar({ onNavigate, onClose, spinning }: SidebarProps) {
             <X size={18} />
           </button>
         )}
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="text-nyx-500 hover:bg-nyx-800 hover:text-nyx-200 flex h-6 w-6 shrink-0 items-center justify-center rounded"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        )}
       </div>
 
-      <nav className="space-y-0.5 px-3">
+      <nav className={clsx('space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
         {SIDEBAR_NAV.map((item) => (
           <NavLink
             key={item.to}
@@ -134,47 +166,82 @@ function Sidebar({ onNavigate, onClose, spinning }: SidebarProps) {
             end={item.end}
             className={sidebarLinkClass}
             onClick={onNavigate}
+            title={collapsed ? item.label : undefined}
           >
             <item.icon size={16} />
-            {item.label}
+            {!collapsed && item.label}
           </NavLink>
         ))}
       </nav>
 
-      <div className="mt-5 flex items-center justify-between px-4">
-        <span className="text-nyx-500 text-caption font-semibold tracking-wide uppercase">
-          Projects
-        </span>
-        <button
-          onClick={() => {
-            const name = window.prompt('New project name');
-            if (name?.trim())
-              create.mutate({ name: name.trim(), status: 'planning' });
-          }}
-          className="text-nyx-500 hover:bg-nyx-800 hover:text-nyx-200 flex h-5 w-5 items-center justify-center rounded"
-          aria-label="New project"
-        >
-          <Plus size={13} />
-        </button>
-      </div>
-
-      <div className="mt-2 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-        {sortedProjects.map((p) => (
-          <NavLink
-            key={p.id}
-            to={`/projects/${p.id}`}
-            className={sidebarLinkClass}
-            onClick={onNavigate}
+      {collapsed ? (
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => {
+              const name = window.prompt('New project name');
+              if (name?.trim())
+                create.mutate({ name: name.trim(), status: 'planning' });
+            }}
+            className="text-nyx-500 hover:bg-nyx-800 hover:text-nyx-200 flex h-6 w-6 items-center justify-center rounded"
+            aria-label="New project"
+            title="New project"
           >
-            <ProjectChip
-              name={p.name}
-              fieldName={p.field_id ? fieldsById.get(p.field_id)?.name : null}
-              className="min-w-0 flex-1 text-body text-inherit"
-            />
-            <StatusBadge status={p.status} />
-          </NavLink>
-        ))}
-        {!projects.length && (
+            <Plus size={14} />
+          </button>
+        </div>
+      ) : (
+        <div className="mt-5 flex items-center justify-between px-4">
+          <span className="text-nyx-500 text-caption font-semibold tracking-wide uppercase">
+            Projects
+          </span>
+          <button
+            onClick={() => {
+              const name = window.prompt('New project name');
+              if (name?.trim())
+                create.mutate({ name: name.trim(), status: 'planning' });
+            }}
+            className="text-nyx-500 hover:bg-nyx-800 hover:text-nyx-200 flex h-5 w-5 items-center justify-center rounded"
+            aria-label="New project"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      )}
+
+      <div
+        className={clsx(
+          'mt-2 flex-1 space-y-0.5 overflow-y-auto pb-4',
+          collapsed ? 'px-2' : 'px-3'
+        )}
+      >
+        {sortedProjects.map((p) =>
+          collapsed ? (
+            <NavLink
+              key={p.id}
+              to={`/projects/${p.id}`}
+              className={sidebarLinkClass}
+              onClick={onNavigate}
+              title={p.name}
+            >
+              <FolderKanban size={16} className="shrink-0" />
+            </NavLink>
+          ) : (
+            <NavLink
+              key={p.id}
+              to={`/projects/${p.id}`}
+              className={sidebarLinkClass}
+              onClick={onNavigate}
+            >
+              <ProjectChip
+                name={p.name}
+                fieldName={p.field_id ? fieldsById.get(p.field_id)?.name : null}
+                className="min-w-0 flex-1 text-body text-inherit"
+              />
+              <StatusBadge status={p.status} />
+            </NavLink>
+          )
+        )}
+        {!collapsed && !projects.length && (
           <p className="text-nyx-600 px-2 text-caption">
             Create a project to get started.
           </p>
@@ -183,12 +250,18 @@ function Sidebar({ onNavigate, onClose, spinning }: SidebarProps) {
 
       <button
         onClick={() => setPaletteOpen(true)}
-        className="border-nyx-700 text-nyx-500 hover:border-nyx-600 hover:text-nyx-300 mx-3 mb-3 flex items-center justify-between rounded-md border px-2 py-1.5 text-caption"
+        title={collapsed ? 'Quick navigate (⌘K)' : undefined}
+        className={clsx(
+          'border-nyx-700 text-nyx-500 hover:border-nyx-600 hover:text-nyx-300 mb-3 flex items-center rounded-md border text-caption',
+          collapsed
+            ? 'mx-2 justify-center px-2 py-1.5'
+            : 'mx-3 justify-between px-2 py-1.5'
+        )}
       >
         <span className="flex items-center gap-1.5">
-          <Command size={12} /> Quick navigate
+          <Command size={12} /> {!collapsed && 'Quick navigate'}
         </span>
-        <span className="font-mono">⌘K</span>
+        {!collapsed && <span className="font-mono">⌘K</span>}
       </button>
 
       <CommandPalette
@@ -199,9 +272,18 @@ function Sidebar({ onNavigate, onClose, spinning }: SidebarProps) {
   );
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'khaos.sidebarCollapsed';
+
 export default function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [chatSheetOpen, setChatSheetOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+  );
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
+  }, [sidebarCollapsed]);
   const { hasUnseenOpener, markOpenerSeen } = useChatActivity();
   const hasChatActivity = hasUnseenOpener;
   const { isAssistantProcessing } = useProcessingContext();
@@ -236,8 +318,18 @@ export default function AppShell() {
   return (
     <div className="bg-nyx-900 flex h-dvh overflow-hidden">
       {/* ── Desktop nav sidebar ─────────────────────────────── */}
-      <aside className="border-nyx-700 bg-nyx-900 hidden w-60 shrink-0 flex-col border-r md:flex">
-        <Sidebar onNavigate={() => {}} spinning={spinning} />
+      <aside
+        className={clsx(
+          'border-nyx-700 bg-nyx-900 hidden shrink-0 flex-col border-r transition-[width] duration-150 md:flex',
+          sidebarCollapsed ? 'w-14' : 'w-60'
+        )}
+      >
+        <Sidebar
+          onNavigate={() => {}}
+          spinning={spinning}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        />
       </aside>
 
       {/* ── Mobile drawer backdrop ───────────────────────────── */}
