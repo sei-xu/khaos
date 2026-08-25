@@ -27,7 +27,7 @@ import {
 import { OPEN_STATUSES } from '../lib/constants';
 import { parseRange, targetEnd } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
-import { DueBadge, TargetBadge } from '../components/common/ui';
+import { DueBadge, TargetBadge, StatusIcon, PriorityBadge } from '../components/common/ui';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import type { Event, Task } from '../lib/types';
 
@@ -75,7 +75,13 @@ function TaskPill({ task, onOpen, faded, children }: TaskPillProps) {
       className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
     >
       <span className="w-full truncate">{task.name}</span>
-      {isDragging ? null : children}
+      {isDragging ? null : (
+        <span className="flex flex-wrap items-center gap-1.5">
+          <StatusIcon status={task.status} size={14} />
+          <PriorityBadge priority={task.priority} />
+          {children}
+        </span>
+      )}
     </button>
   );
 }
