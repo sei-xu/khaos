@@ -29,7 +29,7 @@ import CommandPalette from './CommandPalette';
 import TimezonePicker from '../common/TimezonePicker';
 import ChatPanel from '../assistant/ChatPanel';
 import KhaosIcon from '../common/KhaosIcon'; // Certifique-se de que o caminho relativo está correto
-import { StatusBadge, ProjectChip } from '../common/ui';
+import { StatusBadge, ProjectChip, FieldBadge } from '../common/ui';
 import { useProcessingContext } from '../../lib/processingContext';
 import { useChatActivity } from '../../lib/chat/chatActivityContext';
 
@@ -214,16 +214,21 @@ function Sidebar({
           collapsed ? 'px-2' : 'px-3'
         )}
       >
-        {sortedProjects.map((p) =>
-          collapsed ? (
+        {sortedProjects.map((p) => {
+          const fieldName = p.field_id ? fieldsById.get(p.field_id)?.name : null;
+          return collapsed ? (
             <NavLink
               key={p.id}
               to={`/projects/${p.id}`}
-              className={sidebarLinkClass}
+              className="flex items-center justify-center rounded-md py-1"
               onClick={onNavigate}
               title={p.name}
             >
-              <FolderKanban size={16} className="shrink-0" />
+              {fieldName ? (
+                <FieldBadge fieldName={fieldName} size="sm" />
+              ) : (
+                <FolderKanban size={16} className="text-nyx-400 shrink-0" />
+              )}
             </NavLink>
           ) : (
             <NavLink
@@ -234,13 +239,13 @@ function Sidebar({
             >
               <ProjectChip
                 name={p.name}
-                fieldName={p.field_id ? fieldsById.get(p.field_id)?.name : null}
+                fieldName={fieldName}
                 className="min-w-0 flex-1 text-body text-inherit"
               />
               <StatusBadge status={p.status} />
             </NavLink>
-          )
-        )}
+          );
+        })}
         {!collapsed && !projects.length && (
           <p className="text-nyx-600 px-2 text-caption">
             Create a project to get started.
