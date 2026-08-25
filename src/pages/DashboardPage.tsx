@@ -65,11 +65,12 @@ interface TaskPillProps {
 // text). Dragging one onto the "Marked" group or a calendar slot below
 // changes that task's state — see DashboardPage's handleDragEnd. A plain
 // click (one that never crosses the drag activation distance) opens the
-// task, same as clicking a Kanban card. Two rows, both left-aligned: the
-// task name on top, status/priority/project/badge below it — rounded-lg
-// rather than the single-line pill's rounded-full, since a fully round
-// corner reads wrong once the content wraps to two rows. `faded` dims a
-// pill that's stale (e.g. marked on a past day, never resolved).
+// task, same as clicking a Kanban card. Two rows: the task name on top
+// (left) with status/priority on the same line (right), and the group's
+// own badge/project below — rounded-lg rather than the single-line pill's
+// rounded-full, since a fully round corner reads wrong once the content
+// wraps to two rows. `faded` dims a pill that's stale (e.g. marked on a
+// past day, never resolved).
 function TaskPill({
   task,
   onOpen,
@@ -94,11 +95,17 @@ function TaskPill({
       onClick={() => !isDragging && onOpen(task)}
       className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
     >
-      <span className="w-full truncate">{task.name}</span>
+      <span className="flex w-full items-center gap-1.5">
+        <span className="min-w-0 flex-1 truncate">{task.name}</span>
+        {!isDragging && (
+          <span className="flex shrink-0 items-center gap-1">
+            <StatusIcon status={task.status} size={14} />
+            <PriorityBadge priority={task.priority} />
+          </span>
+        )}
+      </span>
       {isDragging ? null : (
         <span className="flex w-full flex-wrap items-center gap-1.5">
-          <StatusIcon status={task.status} size={14} />
-          <PriorityBadge priority={task.priority} />
           {children}
           <ProjectChip
             name={projectName}
