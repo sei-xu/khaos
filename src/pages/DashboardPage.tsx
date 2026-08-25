@@ -52,9 +52,11 @@ interface TaskPillProps {
 // text). Dragging one onto the "Marked" group or a calendar slot below
 // changes that task's state — see DashboardPage's handleDragEnd. A plain
 // click (one that never crosses the drag activation distance) opens the
-// task, same as clicking a Kanban card. Full-width within its column so a
-// wide badge (e.g. TargetBadge's start→end range) always has room. `faded`
-// dims a pill that's stale (e.g. marked on a past day, never resolved).
+// task, same as clicking a Kanban card. Two rows, both left-aligned: the
+// task name on top, the badge (date/status) below it — rounded-lg rather
+// than the single-line pill's rounded-full, since a fully round corner
+// reads wrong once the content wraps to two rows. `faded` dims a pill
+// that's stale (e.g. marked on a past day, never resolved).
 function TaskPill({ task, onOpen, faded, children }: TaskPillProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
@@ -70,9 +72,9 @@ function TaskPill({ task, onOpen, faded, children }: TaskPillProps) {
       {...attributes}
       title={task.name}
       onClick={() => !isDragging && onOpen(task)}
-      className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab items-center gap-1.5 rounded-full border px-2 py-1 text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
+      className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
     >
-      <span className="min-w-0 flex-1 truncate">{task.name}</span>
+      <span className="w-full truncate">{task.name}</span>
       {isDragging ? null : children}
     </button>
   );
