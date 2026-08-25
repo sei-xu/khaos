@@ -17,7 +17,12 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { useTasks } from '../hooks/useHierarchy';
+import {
+  useTasks,
+  useSections,
+  useProjects,
+  useFields,
+} from '../hooks/useHierarchy';
 import { useEvents, useScheduledTaskIds, useEventMutations } from '../hooks/useEvents';
 import {
   useTodayTaskIds,
@@ -27,9 +32,15 @@ import {
 import { OPEN_STATUSES } from '../lib/constants';
 import { parseRange, targetEnd } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
-import { DueBadge, TargetBadge, StatusIcon, PriorityBadge } from '../components/common/ui';
+import {
+  DueBadge,
+  TargetBadge,
+  StatusIcon,
+  PriorityBadge,
+  ProjectChip,
+} from '../components/common/ui';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
-import type { Event, Task } from '../lib/types';
+import type { Event, Field, Project, Section, Task } from '../lib/types';
 
 // Auto-refresh cadence for the dashboard's live queries. Kept well above the
 // global 15s staleTime so this is purely a "someone else changed something"
@@ -43,6 +54,8 @@ const CALENDAR_START_HOUR = 6;
 interface TaskPillProps {
   task: Task;
   onOpen: (task: Task) => void;
+  projectName?: string | null;
+  projectField?: string | null;
   faded?: boolean;
   children: ReactNode;
 }
@@ -53,11 +66,18 @@ interface TaskPillProps {
 // changes that task's state — see DashboardPage's handleDragEnd. A plain
 // click (one that never crosses the drag activation distance) opens the
 // task, same as clicking a Kanban card. Two rows, both left-aligned: the
-// task name on top, the badge (date/status) below it — rounded-lg rather
-// than the single-line pill's rounded-full, since a fully round corner
-// reads wrong once the content wraps to two rows. `faded` dims a pill
-// that's stale (e.g. marked on a past day, never resolved).
-function TaskPill({ task, onOpen, faded, children }: TaskPillProps) {
+// task name on top, status/priority/project/badge below it — rounded-lg
+// rather than the single-line pill's rounded-full, since a fully round
+// corner reads wrong once the content wraps to two rows. `faded` dims a
+// pill that's stale (e.g. marked on a past day, never resolved).
+function TaskPill({
+  task,
+  onOpen,
+  projectName,
+  projectField,
+  faded,
+  children,
+}: TaskPillProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
   const style = transform
@@ -76,10 +96,15 @@ function TaskPill({ task, onOpen, faded, children }: TaskPillProps) {
     >
       <span className="w-full truncate">{task.name}</span>
       {isDragging ? null : (
-        <span className="flex flex-wrap items-center gap-1.5">
+        <span className="flex w-full flex-wrap items-center gap-1.5">
           <StatusIcon status={task.status} size={14} />
           <PriorityBadge priority={task.priority} />
           {children}
+          <ProjectChip
+            name={projectName}
+            fieldName={projectField}
+            className="min-w-0 flex-1 justify-end"
+          />
         </span>
       )}
     </button>
@@ -130,6 +155,9 @@ function PillGroup({
 
 export default function DashboardPage() {
   const { data: tasks = [] } = useTasks() as { data: Task[] };
+  const { data: sections = [] } = useSections() as { data: Section[] };
+  const { data: projects = [] } = useProjects() as { data: Project[] };
+  const { data: fields = [] } = useFields() as { data: Field[] };
   const { data: events = [] } = useEvents() as { data: Event[] };
   const { data: todayTaskIds } = useTodayTaskIds();
   const { data: markedPastTaskIds } = useMarkedPastTaskIds();
@@ -158,6 +186,28 @@ export default function DashboardPage() {
     () => new Map(tasks.map((t) => [t.id, t])),
     [tasks]
   );
+  const sectionsById = useMemo(
+    () => new Map(sections.map((s) => [s.id, s])),
+    [sections]
+  );
+  const projectsById = useMemo(
+    () => new Map(projects.map((p) => [p.id, p])),
+    [projects]
+  );
+  const fieldsById = useMemo(
+    () => new Map(fields.map((f) => [f.id, f])),
+    [fields]
+  );
+
+  function projectForTask(task: Task): Project | null {
+    const section = sectionsById.get(task.section_id!);
+    return section ? (projectsById.get(section.project_id!) ?? null) : null;
+  }
+
+  function fieldNameForProject(project: Project | null): string | null {
+    if (!project?.field_id) return null;
+    return fieldsById.get(project.field_id)?.name ?? null;
+  }
 
   const openTasks = tasks.filter((t) => OPEN_STATUSES.includes(t.status));
 
@@ -288,11 +338,20 @@ export default function DashboardPage() {
             count={duePills.length}
             emptyLabel="Nothing with a due date."
           >
-            {duePills.map((task) => (
-              <TaskPill key={task.id} task={task} onOpen={openTask_}>
-                <DueBadge due={task.due} status={task.status} />
-              </TaskPill>
-            ))}
+            {duePills.map((task) => {
+              const project = projectForTask(task);
+              return (
+                <TaskPill
+                  key={task.id}
+                  task={task}
+                  onOpen={openTask_}
+                  projectName={project?.name}
+                  projectField={fieldNameForProject(project)}
+                >
+                  <DueBadge due={task.due} status={task.status} />
+                </TaskPill>
+              );
+            })}
           </PillGroup>
 
           <PillGroup
@@ -302,11 +361,20 @@ export default function DashboardPage() {
             count={targetPills.length}
             emptyLabel="Nothing targeted for today."
           >
-            {targetPills.map(({ task, past }) => (
-              <TaskPill key={task.id} task={task} onOpen={openTask_}>
-                <TargetBadge target={task.target as string | null} past={past} />
-              </TaskPill>
-            ))}
+            {targetPills.map(({ task, past }) => {
+              const project = projectForTask(task);
+              return (
+                <TaskPill
+                  key={task.id}
+                  task={task}
+                  onOpen={openTask_}
+                  projectName={project?.name}
+                  projectField={fieldNameForProject(project)}
+                >
+                  <TargetBadge target={task.target as string | null} past={past} />
+                </TaskPill>
+              );
+            })}
           </PillGroup>
 
           <PillGroup
@@ -317,11 +385,21 @@ export default function DashboardPage() {
             emptyLabel="Drag a task here to mark it for today."
             droppableId="marked-zone"
           >
-            {markedPills.map(({ task, faded }) => (
-              <TaskPill key={task.id} task={task} onOpen={openTask_} faded={faded}>
-                <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
-              </TaskPill>
-            ))}
+            {markedPills.map(({ task, faded }) => {
+              const project = projectForTask(task);
+              return (
+                <TaskPill
+                  key={task.id}
+                  task={task}
+                  onOpen={openTask_}
+                  faded={faded}
+                  projectName={project?.name}
+                  projectField={fieldNameForProject(project)}
+                >
+                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                </TaskPill>
+              );
+            })}
           </PillGroup>
 
           <section>
