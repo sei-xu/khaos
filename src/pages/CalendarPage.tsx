@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents';
 import { useTasks, useProjects, useFields } from '../hooks/useHierarchy';
@@ -19,6 +20,22 @@ export default function CalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [creatingAt, setCreatingAt] = useState<Date | null>(null);
+  const queryClient = useQueryClient();
+  const isMutating = useIsMutating();
+
+  // Auto-update: periodically refetch events/tasks so changes made
+  // elsewhere (or by the assistant) show up without a manual reload. Skips
+  // while a mutation is in flight to avoid racing an edit in progress.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (isMutating > 0) return;
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['taskLogs'] });
+    }, 30_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient]);
 
   // Deep-link support for the [[event:id]] chat chip — mirrors the
   // ?taskId= pattern used by TasksPage/DashboardPage: derive the open

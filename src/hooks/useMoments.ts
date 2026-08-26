@@ -25,6 +25,15 @@ export function useTodayTaskIds(date: string = todayDateStringInTz()) {
   });
 }
 
+// Task ids left marked on some past day and never resolved for today —
+// used to show faded "still marked from before" pills in the Marked group.
+export function useMarkedPastTaskIds(beforeDate: string = todayDateStringInTz()) {
+  return useQuery({
+    queryKey: ['moments', 'today', 'past', beforeDate],
+    queryFn: () => momentsApi.taskIdsMarkedPast(beforeDate),
+  });
+}
+
 export function useTodayMutations(date: string = todayDateStringInTz()) {
   const qc = useQueryClient();
   const invalidate = () =>

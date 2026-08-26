@@ -95,6 +95,35 @@ export const momentsApi = {
     return marked;
   },
 
+  // Task ids whose *most recent* today/notToday moment (any date) still
+  // resolves to marked, but for a date strictly before `beforeDate` — i.e.
+  // tasks left marked on a past day and never explicitly unmarked or
+  // re-marked for today. Used to fade-show stale "Marked" pills.
+  taskIdsMarkedPast: async (beforeDate: string = todayDateStringInTz()): Promise<Set<Id>> => {
+    const response = await supabase
+      .from('moments')
+      .select('task_id, moment_type, value, created_at')
+      .in('moment_type', ['today', 'notToday'])
+      .not('task_id', 'is', null)
+      .order('created_at', { ascending: false });
+    const rows = unwrap(response) as {
+      task_id: Id;
+      moment_type: 'today' | 'notToday';
+      value: string;
+      created_at: string;
+    }[];
+    const past = new Set<Id>();
+    const seen = new Set<Id>();
+    for (const row of rows) {
+      if (seen.has(row.task_id)) continue;
+      seen.add(row.task_id);
+      if (row.moment_type === 'today' && row.value < beforeDate) {
+        past.add(row.task_id);
+      }
+    }
+    return past;
+  },
+
   remove: async (id: Id): Promise<Moment> => {
     const response = await supabase
       .from('moments')
