@@ -118,6 +118,7 @@ async function runTurn(history: ChatMessage[]): Promise<ChatMessage[]> {
         system: SYSTEM_BLOCKS,
         tools: TOOL_DEFINITIONS as Anthropic.Tool[],
         messages,
+        output_config: { effort: 'medium' },
       });
     } catch (err) {
       messages.push({
