@@ -243,7 +243,12 @@ export default function DashboardPage() {
       const { start } = parseRange(t.target as string);
       const end = targetEnd(t.target as string);
       return Boolean(start && end && start <= todayEnd && end >= todayStart);
-    });
+    })
+    .sort(
+      (a, b) =>
+        (targetEnd(a.task.target as string)?.getTime() ?? 0) -
+        (targetEnd(b.task.target as string)?.getTime() ?? 0)
+    );
   const scheduledPills = openTasks.filter((t) => scheduledTaskIds.has(t.id));
   // Marked pairs today's marks (full opacity) with tasks left marked on a
   // past day and never resolved (faded, see TaskPill's `faded` prop below).
