@@ -30,6 +30,7 @@ import {
   useTodayMutations,
 } from '../hooks/useMoments';
 import { OPEN_STATUSES } from '../lib/constants';
+import { isOverdue } from '../lib/dateUtils';
 import { parseRange, targetEnd } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
 import {
@@ -223,12 +224,16 @@ export default function DashboardPage() {
   const todayStart = startOfDay(new Date());
   const todayEnd = endOfDay(new Date());
 
-  // Due covers overdue + due-today + future-due tasks together — DueBadge's
-  // color (red/pulsing for overdue vs. copper otherwise) already tells them
-  // apart, so there's no separate "Overdue" / "Due today" section anymore.
+  // Due today/future first (soonest due date first), then a divider, then
+  // overdue (also soonest due date first) — same grouping as Target below.
   const duePills = openTasks
     .filter((t) => t.due)
-    .sort((a, b) => new Date(a.due!).getTime() - new Date(b.due!).getTime());
+    .map((t) => ({ task: t, overdue: isOverdue(t.due, t.status) }))
+    .sort((a, b) => {
+      if (a.overdue !== b.overdue) return a.overdue ? 1 : -1;
+      return new Date(a.task.due!).getTime() - new Date(b.task.due!).getTime();
+    });
+  const firstOverdueIndex = duePills.findIndex((p) => p.overdue);
   // Target shows tasks whose window covers today (current) plus tasks whose
   // window already ended with work still open (past, rendered yellowish via
   // TargetBadge's `past` prop below) — future-only targets stay hidden.
@@ -265,6 +270,7 @@ export default function DashboardPage() {
         .filter((t) => !markedTaskIds.has(t.id) && pastMarkedTaskIds.has(t.id))
         .map((t) => ({ task: t, faded: true }))
     );
+  const firstPastMarkedIndex = markedPills.findIndex((p) => p.faded);
 
   const todaysEvents = events
     .map((e) => ({ ...e, ...parseRange(e.duration as unknown as string) }))
@@ -355,18 +361,22 @@ export default function DashboardPage() {
             count={duePills.length}
             emptyLabel="Nothing with a due date."
           >
-            {duePills.map((task) => {
+            {duePills.map(({ task }, i) => {
               const project = projectForTask(task);
               return (
-                <TaskPill
-                  key={task.id}
-                  task={task}
-                  onOpen={openTask_}
-                  projectName={project?.name}
-                  projectField={fieldNameForProject(project)}
-                >
-                  <DueBadge due={task.due} status={task.status} />
-                </TaskPill>
+                <Fragment key={task.id}>
+                  {i === firstOverdueIndex && (
+                    <hr className="border-nyx-700 my-1 w-full" />
+                  )}
+                  <TaskPill
+                    task={task}
+                    onOpen={openTask_}
+                    projectName={project?.name}
+                    projectField={fieldNameForProject(project)}
+                  >
+                    <DueBadge due={task.due} status={task.status} />
+                  </TaskPill>
+                </Fragment>
               );
             })}
           </PillGroup>
@@ -406,19 +416,23 @@ export default function DashboardPage() {
             emptyLabel="Drag a task here to mark it for today."
             droppableId="marked-zone"
           >
-            {markedPills.map(({ task, faded }) => {
+            {markedPills.map(({ task, faded }, i) => {
               const project = projectForTask(task);
               return (
-                <TaskPill
-                  key={task.id}
-                  task={task}
-                  onOpen={openTask_}
-                  faded={faded}
-                  projectName={project?.name}
-                  projectField={fieldNameForProject(project)}
-                >
-                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
-                </TaskPill>
+                <Fragment key={task.id}>
+                  {i === firstPastMarkedIndex && (
+                    <hr className="border-nyx-700 my-1 w-full" />
+                  )}
+                  <TaskPill
+                    task={task}
+                    onOpen={openTask_}
+                    faded={faded}
+                    projectName={project?.name}
+                    projectField={fieldNameForProject(project)}
+                  >
+                    <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  </TaskPill>
+                </Fragment>
               );
             })}
           </PillGroup>
