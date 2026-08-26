@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { isToday, startOfDay, endOfDay } from 'date-fns';
@@ -244,11 +244,16 @@ export default function DashboardPage() {
       const end = targetEnd(t.target as string);
       return Boolean(start && end && start <= todayEnd && end >= todayStart);
     })
-    .sort(
-      (a, b) =>
+    // In-range targets first (soonest end date first), then a divider,
+    // then past-due targets (also soonest end date first).
+    .sort((a, b) => {
+      if (a.past !== b.past) return a.past ? 1 : -1;
+      return (
         (targetEnd(a.task.target as string)?.getTime() ?? 0) -
         (targetEnd(b.task.target as string)?.getTime() ?? 0)
-    );
+      );
+    });
+  const firstPastTargetIndex = targetPills.findIndex((p) => p.past);
   const scheduledPills = openTasks.filter((t) => scheduledTaskIds.has(t.id));
   // Marked pairs today's marks (full opacity) with tasks left marked on a
   // past day and never resolved (faded, see TaskPill's `faded` prop below).
@@ -373,18 +378,22 @@ export default function DashboardPage() {
             count={targetPills.length}
             emptyLabel="Nothing targeted for today."
           >
-            {targetPills.map(({ task, past }) => {
+            {targetPills.map(({ task, past }, i) => {
               const project = projectForTask(task);
               return (
-                <TaskPill
-                  key={task.id}
-                  task={task}
-                  onOpen={openTask_}
-                  projectName={project?.name}
-                  projectField={fieldNameForProject(project)}
-                >
-                  <TargetBadge target={task.target as string | null} past={past} />
-                </TaskPill>
+                <Fragment key={task.id}>
+                  {i === firstPastTargetIndex && (
+                    <hr className="border-nyx-700 my-1 w-full" />
+                  )}
+                  <TaskPill
+                    task={task}
+                    onOpen={openTask_}
+                    projectName={project?.name}
+                    projectField={fieldNameForProject(project)}
+                  >
+                    <TargetBadge target={task.target as string | null} past={past} />
+                  </TaskPill>
+                </Fragment>
               );
             })}
           </PillGroup>
