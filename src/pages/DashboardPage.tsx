@@ -1,7 +1,13 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { isToday } from 'date-fns';
-import { AlertTriangle, CalendarClock, CheckCircle2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  CalendarCheck,
+  Star,
+  Target as TargetIcon,
+} from 'lucide-react';
 import {
   useTasks,
   useSections,
@@ -9,14 +15,28 @@ import {
   useFields,
 } from '../hooks/useHierarchy';
 import { useEvents } from '../hooks/useEvents';
+import { useTodayTaskIds } from '../hooks/useMoments';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
-import { parseRange } from '../lib/range';
+import { parseRange, targetEnd } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
 import { EmptyState } from '../components/common/ui';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import TaskRow from '../components/tasks/TaskRow';
-import type { Event, Field, Project, Section, Task } from '../lib/types';
+import type { Event, Field, Id, Project, Section, Task } from '../lib/types';
+
+// A task's `target` planning window "covers" today when today falls
+// anywhere between its start and its end target (inclusive).
+function isTargetedToday(target: unknown): boolean {
+  const { start } = parseRange(target);
+  if (!start) return false;
+  const end = targetEnd(target) ?? start;
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date();
+  dayEnd.setHours(23, 59, 59, 999);
+  return start <= dayEnd && end >= dayStart;
+}
 
 export default function DashboardPage() {
   const { data: tasks = [] } = useTasks() as { data: Task[] };
@@ -24,6 +44,7 @@ export default function DashboardPage() {
   const { data: projects = [] } = useProjects() as { data: Project[] };
   const { data: fields = [] } = useFields() as { data: Field[] };
   const { data: events = [] } = useEvents() as { data: Event[] };
+  const { data: markedTaskIds } = useTodayTaskIds();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const sectionsById = useMemo(
@@ -44,10 +65,6 @@ export default function DashboardPage() {
   );
 
   const openTasks = tasks.filter((t) => OPEN_STATUSES.includes(t.status));
-  const overdue = openTasks.filter((t) => isOverdue(t.due, t.status));
-  const dueToday = openTasks.filter(
-    (t) => t.due && isToday(new Date(t.due)) && !isOverdue(t.due, t.status)
-  );
   const todaysEvents = events
     .map((e) => ({ ...e, ...parseRange(e.duration as unknown as string) }))
     .filter(
@@ -55,6 +72,30 @@ export default function DashboardPage() {
         Boolean(e.start) && isToday(e.start as Date)
     )
     .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  // Each open task lands in exactly one Today bucket — the highest-priority
+  // criterion it matches, in this order: scheduled, marked, targeted, due.
+  const scheduledTaskIds = new Set<Id>(
+    todaysEvents.filter((e) => e.task_id).map((e) => e.task_id as Id)
+  );
+  const scheduled: Task[] = [];
+  const marked: Task[] = [];
+  const targeted: Task[] = [];
+  const due: Task[] = [];
+  openTasks.forEach((t) => {
+    if (scheduledTaskIds.has(t.id)) {
+      scheduled.push(t);
+    } else if (markedTaskIds?.has(t.id)) {
+      marked.push(t);
+    } else if (isTargetedToday(t.target)) {
+      targeted.push(t);
+    } else if (
+      t.due &&
+      (isOverdue(t.due, t.status) || isToday(new Date(t.due)))
+    ) {
+      due.push(t);
+    }
+  });
 
   const openTaskId = searchParams.get('taskId');
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : null;
@@ -76,6 +117,41 @@ export default function DashboardPage() {
     return fieldsById.get(project.field_id)?.name ?? null;
   }
 
+  const buckets = [
+    {
+      key: 'scheduled',
+      title: 'Scheduled',
+      icon: CalendarCheck,
+      colorClass: 'text-pontus-400',
+      tasks: scheduled,
+      emptyMessage: 'Nothing scheduled today.',
+    },
+    {
+      key: 'marked',
+      title: 'Marked for today',
+      icon: Star,
+      colorClass: 'text-hypnos-400',
+      tasks: marked,
+      emptyMessage: 'Nothing marked for today.',
+    },
+    {
+      key: 'targeted',
+      title: 'Targeted',
+      icon: TargetIcon,
+      colorClass: 'text-eros-400',
+      tasks: targeted,
+      emptyMessage: 'Nothing targeted today.',
+    },
+    {
+      key: 'due',
+      title: 'Due',
+      icon: AlertTriangle,
+      colorClass: 'text-tartarus-500',
+      tasks: due,
+      emptyMessage: 'Nothing due. Good work.',
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-4xl px-6 py-5">
       <h1 className="font-display text-nyx-100 mb-1 text-display-lg">Today</h1>
@@ -88,53 +164,33 @@ export default function DashboardPage() {
       </p>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <section>
-          <h2 className="text-tartarus-500 mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase">
-            <AlertTriangle size={13} /> Overdue ({overdue.length})
-          </h2>
-          {!overdue.length ? (
-            <p className="text-nyx-600 text-body">Nothing overdue. Good work.</p>
-          ) : (
-            <div className="space-y-1">
-              {overdue.map((task) => {
-                const project = projectForTask(task);
-                return (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    projectName={project?.name}
-                    projectField={fieldNameForProject(project)}
-                    onOpen={openTask_}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="text-eros-400 mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase">
-            <CheckCircle2 size={13} /> Due today ({dueToday.length})
-          </h2>
-          {!dueToday.length ? (
-            <p className="text-nyx-600 text-body">Nothing due today.</p>
-          ) : (
-            <div className="space-y-1">
-              {dueToday.map((task) => {
-                const project = projectForTask(task);
-                return (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    projectName={project?.name}
-                    projectField={fieldNameForProject(project)}
-                    onOpen={openTask_}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </section>
+        {buckets.map(({ key, title, icon: Icon, colorClass, tasks: bucketTasks, emptyMessage }) => (
+          <section key={key}>
+            <h2
+              className={`mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase ${colorClass}`}
+            >
+              <Icon size={13} /> {title} ({bucketTasks.length})
+            </h2>
+            {!bucketTasks.length ? (
+              <p className="text-nyx-600 text-body">{emptyMessage}</p>
+            ) : (
+              <div className="space-y-1">
+                {bucketTasks.map((task) => {
+                  const project = projectForTask(task);
+                  return (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      projectName={project?.name}
+                      projectField={fieldNameForProject(project)}
+                      onOpen={openTask_}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        ))}
       </div>
 
       <section className="mt-6">
