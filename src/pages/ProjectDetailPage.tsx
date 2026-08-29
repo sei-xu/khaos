@@ -36,7 +36,6 @@ import {
   useSectionMutations,
 } from '../hooks/useHierarchy';
 import { STATUSES, PRIORITIES } from '../lib/constants';
-import { parseRange } from '../lib/range';
 import { Select, TextInput, EmptyState } from '../components/common/ui';
 import SectionColumn, {
   SortableSectionWrapper,
@@ -48,21 +47,11 @@ import type {
 } from '../components/projects/sequenceLinking';
 import { useSequenceMutations } from '../hooks/useSequence';
 import { topoChronoOrder, wouldCreateCycle } from '../lib/sequenceGraph';
+import { taskChronoKey } from '../lib/taskOrder';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import TargetEditor from '../components/common/TargetEditor';
 import { useSyncActiveEntity } from '../lib/activeEntityContext';
 import type { Id, Priority, Section, Status, Task } from '../lib/types';
-
-// Critério cronológico dentro de uma seção: target.start primeiro, senão
-// due, senão vai para o final. É o desempate da ordem topológica — a
-// sequência (tasks_sequence) manda primeiro, datas decidem entre tarefas
-// disponíveis ao mesmo tempo (ver topoChronoOrder).
-function taskChronoKey(task: Task): number {
-  const { start } = parseRange(task.target);
-  if (start) return start.getTime();
-  if (task.due) return new Date(task.due).getTime();
-  return Infinity;
-}
 
 interface SectionBlockProps {
   sectionId: Id;

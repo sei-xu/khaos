@@ -573,12 +573,17 @@ export function DueBadge({ due, status }: DueBadgeProps) {
 
 interface TargetBadgeProps {
   target?: string | null;
+  past?: boolean;
 }
 
 // Compact display of the `target` planning window — start (bold day +
 // month, same convention as DueBadge) through end, or an arrow with no
-// second date when the target is open-ended.
-export function TargetBadge({ target }: TargetBadgeProps) {
+// second date when the target is open-ended. `past` renders it in the
+// design system's caution step (tartarus-300 — same danger hue as
+// overdue, lighter, see index.css) for a target window that already ended
+// with work still open, instead of the neutral gray used for a window
+// covering today.
+export function TargetBadge({ target, past }: TargetBadgeProps) {
   if (!target) return null;
   const { start, end } = parseRange(target);
   if (!start) return null;
@@ -587,7 +592,12 @@ export function TargetBadge({ target }: TargetBadgeProps) {
   if (!startParts) return null;
 
   return (
-    <span className="border-nyx-600 text-nyx-400 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] tracking-tight">
+    <span
+      className={clsx(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] tracking-tight',
+        past ? 'border-tartarus-300 text-tartarus-300' : 'border-nyx-600 text-nyx-400'
+      )}
+    >
       <Target size={11} className="shrink-0" />
       <span>
         <span className="font-bold">{startParts.day}</span>

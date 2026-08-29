@@ -29,6 +29,8 @@ import {
 } from '../../hooks/useHierarchy';
 import { buildSequenceRail, collapseHiddenEdges } from '../../lib/sequenceGraph';
 import { infiniteFadeOpacity, daysSince } from '../../lib/infiniteFade';
+import { infiniteSectionOrder } from '../../lib/taskOrder';
+import { useTodayTaskIds } from '../../hooks/useMoments';
 import TaskRow from '../tasks/TaskRow';
 import SequenceRailCell, {
   SequenceRailLoading,
@@ -76,10 +78,18 @@ export default function SectionColumn({
     isError: seqError,
   } = useTasksSequence();
   const { data: statusMoments } = useTaskStatusMoments();
+  const { data: todayTaskIds } = useTodayTaskIds();
 
-  // Infinite sections gradually fade, then hide, done/cancelled tasks based
-  // on how long ago they settled — keeps an ongoing/never-ending list from
-  // accumulating clutter forever. See src/lib/infiniteFade.ts.
+  // Infinite sections get their own ordering and a fade-then-hide treatment
+  // for settled tasks, instead of the sequence/chrono order used elsewhere:
+  //   1. active work (to-do/in progress/planning), by urgency — overdue >
+  //      marked for today > due today > has a target/due date (soonest
+  //      first) > no date — see src/lib/taskOrder.ts
+  //   2. in review
+  //   3. waiting
+  //   4. paused
+  //   5. done/cancelled, most recently settled first, fading with age and
+  //      eventually hidden — see src/lib/infiniteFade.ts
   const { visibleTasks, fadeByTaskId, hiddenTaskIds } = useMemo(() => {
     if (!section.is_infinite || !statusMoments) {
       return {
@@ -90,20 +100,38 @@ export default function SectionColumn({
     }
     const fade = new Map<Id, number>();
     const hidden = new Set<Id>();
-    const visible = orderedTasks.filter((task) => {
-      if (task.status !== 'done' && task.status !== 'cancelled') return true;
+    const active: Task[] = [];
+    const settled: { task: Task; daysSettled: number }[] = [];
+    for (const task of orderedTasks) {
+      if (task.status !== 'done' && task.status !== 'cancelled') {
+        active.push(task);
+        continue;
+      }
       const changedAt = statusMoments.get(task.id);
-      if (!changedAt) return true;
-      const opacity = infiniteFadeOpacity(daysSince(changedAt));
+      if (!changedAt) {
+        settled.push({ task, daysSettled: -Infinity });
+        continue;
+      }
+      const days = daysSince(changedAt);
+      const opacity = infiniteFadeOpacity(days);
       if (opacity === null) {
         hidden.add(task.id);
-        return false;
+        continue;
       }
       fade.set(task.id, opacity);
-      return true;
-    });
-    return { visibleTasks: visible, fadeByTaskId: fade, hiddenTaskIds: hidden };
-  }, [orderedTasks, section.is_infinite, statusMoments]);
+      settled.push({ task, daysSettled: days });
+    }
+    settled.sort((a, b) => a.daysSettled - b.daysSettled);
+    const orderedActive = infiniteSectionOrder(
+      active,
+      todayTaskIds ?? new Set<Id>()
+    );
+    return {
+      visibleTasks: [...orderedActive, ...settled.map((s) => s.task)],
+      fadeByTaskId: fade,
+      hiddenTaskIds: hidden,
+    };
+  }, [orderedTasks, section.is_infinite, statusMoments, todayTaskIds]);
 
   const rail = useMemo(
     () =>

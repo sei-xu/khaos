@@ -317,11 +317,18 @@ export const OVERSIGHT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
 ];
 
+// Static across calls, same as SYSTEM_BLOCKS — the cache_control on the last
+// entry covers the whole array (caching is cumulative up to the breakpoint),
+// so the tool schemas are read from cache instead of recounted every turn.
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   ...READ_TOOL_DEFINITIONS,
   ...WRITE_TOOL_DEFINITIONS,
   ...OVERSIGHT_TOOL_DEFINITIONS,
 ];
+TOOL_DEFINITIONS[TOOL_DEFINITIONS.length - 1] = {
+  ...TOOL_DEFINITIONS[TOOL_DEFINITIONS.length - 1],
+  cache_control: { type: 'ephemeral' },
+};
 
 // Derived from the grouped arrays above rather than listed separately, so
 // the two can't drift out of sync as tools are added.
