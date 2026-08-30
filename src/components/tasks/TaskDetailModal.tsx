@@ -41,8 +41,10 @@ import {
   formatDueCompact,
   parseMomentTime,
   isOverdue,
+  toDatetimeLocalValue,
+  fromDatetimeLocalValue,
 } from '../../lib/dateUtils';
-import { parseRange, rangeDurationMinutes } from '../../lib/range';
+import { parseRange, rangeDurationMinutes, formatRange } from '../../lib/range';
 import { computeTaskProgress } from '../../lib/taskProgress';
 import {
   useTaskMutations,
@@ -445,6 +447,50 @@ function useDebouncedField<T>(
   return [draft, set, flush] as const;
 }
 
+// Same numbers as minutesToHuman, but "1h30m" instead of "1h 30m" — used
+// only in the right-aligned time column of the log list.
+function minutesToCompactHuman(mins: number | null | undefined): string {
+  if (!mins || mins <= 0) return '0m';
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m}m`;
+}
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+// "Today" / "Yesterday" / "Aug 13" — relative near the present, absolute
+// (no year) further out.
+function formatLogDayLabel(d: Date | null): string {
+  if (!d || isNaN(d.getTime())) return '—';
+  const diffDays = Math.round(
+    (startOfLocalDay(new Date()).getTime() - startOfLocalDay(d).getTime()) /
+      86_400_000
+  );
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(d);
+}
+
+function formatLogTime(d: Date | null): string {
+  if (!d || isNaN(d.getTime())) return '—';
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+function daysBetweenLocal(a: Date, b: Date): number {
+  return Math.round(
+    (startOfLocalDay(b).getTime() - startOfLocalDay(a).getTime()) / 86_400_000
+  );
+}
+
 interface SeqPicker {
   kind: 'before' | 'after';
   search: string;
@@ -474,6 +520,10 @@ export default function TaskDetailModal({
   const { data: foregroundLog } = useForegroundTimer();
   const { data: backgroundLogs = [] } = useBackgroundTimers();
   const timer = useTimerMutations();
+  const [editingLog, setEditingLog] = useState<{
+    id: Id;
+    field: 'start' | 'end';
+  } | null>(null);
   const { data: allTags = [] } = useTags();
   const { data: tagLinks = [] } = useTagLinks();
   const tagMutations = useTagMutations();
@@ -554,6 +604,15 @@ export default function TaskDetailModal({
     0
   );
   const progress = computeTaskProgress(task, logs);
+  const logsByStartDesc = useMemo(
+    () =>
+      [...logs].sort((a, b) => {
+        const aStart = parseRange(a.duration).start;
+        const bStart = parseRange(b.duration).start;
+        return (bStart?.getTime() ?? 0) - (aStart?.getTime() ?? 0);
+      }),
+    [logs]
+  );
 
   const linkedSequenceIds = useMemo(
     () =>
@@ -1154,20 +1213,118 @@ export default function TaskDetailModal({
               </div>
             </div>
             <div className="space-y-1">
-              {logs.slice(0, 8).map((log) => {
+              {logsByStartDesc.slice(0, 8).map((log) => {
                 const { start, end } = parseRange(log.duration);
+
+                function commit(nextStart: Date | null, nextEnd: Date | null) {
+                  timer.updateLog.mutate({
+                    id: log.id,
+                    patch: { duration: formatRange(nextStart, nextEnd) },
+                  });
+                  setEditingLog(null);
+                }
+
+                const dayDiff =
+                  start && end ? daysBetweenLocal(start, end) : 0;
+
                 return (
                   <div
                     key={log.id}
-                    className="text-nyx-400 flex items-center justify-between text-caption"
+                    className="group text-nyx-400 flex items-center justify-between gap-2 text-caption"
                   >
-                    <span>
-                      {start ? formatDue(start) : '—'}{' '}
-                      {end ? `→ ${formatDue(end)}` : '(running)'}
-                      {log.background && !end ? ' · background' : ''}
+                    <span className="flex min-w-0 flex-nowrap items-center gap-1 font-mono">
+                      <span className="text-nyx-500 shrink-0">
+                        {formatLogDayLabel(start)}
+                      </span>
+                      {editingLog?.id === log.id &&
+                      editingLog.field === 'start' ? (
+                        <input
+                          autoFocus
+                          type="datetime-local"
+                          defaultValue={toDatetimeLocalValue(start)}
+                          onBlur={(e) =>
+                            commit(
+                              fromDatetimeLocalValue(e.target.value) ?? start,
+                              end
+                            )
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.currentTarget.blur();
+                            if (e.key === 'Escape') setEditingLog(null);
+                          }}
+                          className="border-nyx-600 focus:border-eros-400 text-nyx-100 w-36 shrink-0 border-b bg-transparent font-mono text-[10px] outline-none"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingLog({ id: log.id, field: 'start' })
+                          }
+                          className="hover:text-nyx-100 shrink-0 underline decoration-dotted underline-offset-2"
+                        >
+                          {formatLogTime(start)}
+                        </button>
+                      )}
+                      {end ? (
+                        <>
+                          <span className="text-nyx-600 shrink-0">→</span>
+                          {editingLog?.id === log.id &&
+                          editingLog.field === 'end' ? (
+                            <input
+                              autoFocus
+                              type="datetime-local"
+                              defaultValue={toDatetimeLocalValue(end)}
+                              onBlur={(e) =>
+                                commit(
+                                  start,
+                                  fromDatetimeLocalValue(e.target.value)
+                                )
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') e.currentTarget.blur();
+                                if (e.key === 'Escape') setEditingLog(null);
+                              }}
+                              className="border-nyx-600 focus:border-eros-400 text-nyx-100 w-36 shrink-0 border-b bg-transparent font-mono text-[10px] outline-none"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingLog({ id: log.id, field: 'end' })
+                              }
+                              className="hover:text-nyx-100 shrink-0 underline decoration-dotted underline-offset-2"
+                            >
+                              {formatLogTime(end)}
+                            </button>
+                          )}
+                          {dayDiff > 0 && (
+                            <span className="text-eros-400 shrink-0">
+                              +{dayDiff}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="shrink-0">(running)</span>
+                      )}
+                      {log.background && !end ? (
+                        <span className="shrink-0"> · background</span>
+                      ) : null}
                     </span>
-                    <span className="tabular font-mono text-[10px]">
-                      {minutesToHuman(rangeDurationMinutes(log.duration))}
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <span className="tabular w-12 shrink-0 text-right font-mono text-[10px]">
+                        {minutesToCompactHuman(rangeDurationMinutes(log.duration))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => timer.removeLog.mutate(log.id)}
+                        className="opacity-0 group-hover:opacity-100"
+                        aria-label="Delete log"
+                      >
+                        <X
+                          size={12}
+                          className="text-nyx-500 hover:text-tartarus-500"
+                        />
+                      </button>
                     </span>
                   </div>
                 );
