@@ -41,6 +41,8 @@ import {
   formatDueCompact,
   parseMomentTime,
   isOverdue,
+  toDatetimeLocalValue,
+  fromDatetimeLocalValue,
 } from '../../lib/dateUtils';
 import { parseRange, rangeDurationMinutes, formatRange } from '../../lib/range';
 import { computeTaskProgress } from '../../lib/taskProgress';
@@ -456,31 +458,37 @@ function minutesToCompactHuman(mins: number | null | undefined): string {
   return `${h}h${m}m`;
 }
 
-// Fixed dd-mm-yyyy hh:mm — no relative phrasing, unlike formatDue.
-function formatLogMoment(d: Date | null): string {
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+// "Today" / "Yesterday" / "Aug 13" — relative near the present, absolute
+// (no year) further out.
+function formatLogDayLabel(d: Date | null): string {
   if (!d || isNaN(d.getTime())) return '—';
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${day}-${month}-${year} ${hours}:${minutes}`;
+  const diffDays = Math.round(
+    (startOfLocalDay(new Date()).getTime() - startOfLocalDay(d).getTime()) /
+      86_400_000
+  );
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(d);
 }
 
-function toDatetimeLocalValue(d: Date | null): string {
-  if (!d || isNaN(d.getTime())) return '';
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+function formatLogTime(d: Date | null): string {
+  if (!d || isNaN(d.getTime())) return '—';
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return `${hours}:${minutes}`;
 }
 
-function fromDatetimeLocalValue(value: string): Date | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
+function daysBetweenLocal(a: Date, b: Date): number {
+  return Math.round(
+    (startOfLocalDay(b).getTime() - startOfLocalDay(a).getTime()) / 86_400_000
+  );
 }
 
 interface SeqPicker {
@@ -1216,12 +1224,18 @@ export default function TaskDetailModal({
                   setEditingLog(null);
                 }
 
+                const dayDiff =
+                  start && end ? daysBetweenLocal(start, end) : 0;
+
                 return (
                   <div
                     key={log.id}
                     className="group text-nyx-400 flex items-center justify-between gap-2 text-caption"
                   >
-                    <span className="flex min-w-0 flex-wrap items-center gap-1">
+                    <span className="flex min-w-0 flex-nowrap items-center gap-1 font-mono">
+                      <span className="text-nyx-500 shrink-0">
+                        {formatLogDayLabel(start)}
+                      </span>
                       {editingLog?.id === log.id &&
                       editingLog.field === 'start' ? (
                         <input
@@ -1238,7 +1252,7 @@ export default function TaskDetailModal({
                             if (e.key === 'Enter') e.currentTarget.blur();
                             if (e.key === 'Escape') setEditingLog(null);
                           }}
-                          className="border-nyx-600 focus:border-eros-400 text-nyx-100 border-b bg-transparent font-mono text-[10px] outline-none"
+                          className="border-nyx-600 focus:border-eros-400 text-nyx-100 w-36 shrink-0 border-b bg-transparent font-mono text-[10px] outline-none"
                         />
                       ) : (
                         <button
@@ -1246,41 +1260,55 @@ export default function TaskDetailModal({
                           onClick={() =>
                             setEditingLog({ id: log.id, field: 'start' })
                           }
-                          className="hover:text-nyx-100 underline decoration-dotted underline-offset-2"
+                          className="hover:text-nyx-100 shrink-0 underline decoration-dotted underline-offset-2"
                         >
-                          {formatLogMoment(start)}
+                          {formatLogTime(start)}
                         </button>
                       )}
-                      {' '}
-                      {editingLog?.id === log.id &&
-                      editingLog.field === 'end' ? (
-                        <input
-                          autoFocus
-                          type="datetime-local"
-                          defaultValue={toDatetimeLocalValue(end)}
-                          onBlur={(e) =>
-                            commit(start, fromDatetimeLocalValue(e.target.value))
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') e.currentTarget.blur();
-                            if (e.key === 'Escape') setEditingLog(null);
-                          }}
-                          className="border-nyx-600 focus:border-eros-400 text-nyx-100 border-b bg-transparent font-mono text-[10px] outline-none"
-                        />
-                      ) : end ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingLog({ id: log.id, field: 'end' })
-                          }
-                          className="hover:text-nyx-100 underline decoration-dotted underline-offset-2"
-                        >
-                          → {formatLogMoment(end)}
-                        </button>
+                      {end ? (
+                        <>
+                          <span className="text-nyx-600 shrink-0">→</span>
+                          {editingLog?.id === log.id &&
+                          editingLog.field === 'end' ? (
+                            <input
+                              autoFocus
+                              type="datetime-local"
+                              defaultValue={toDatetimeLocalValue(end)}
+                              onBlur={(e) =>
+                                commit(
+                                  start,
+                                  fromDatetimeLocalValue(e.target.value)
+                                )
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') e.currentTarget.blur();
+                                if (e.key === 'Escape') setEditingLog(null);
+                              }}
+                              className="border-nyx-600 focus:border-eros-400 text-nyx-100 w-36 shrink-0 border-b bg-transparent font-mono text-[10px] outline-none"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingLog({ id: log.id, field: 'end' })
+                              }
+                              className="hover:text-nyx-100 shrink-0 underline decoration-dotted underline-offset-2"
+                            >
+                              {formatLogTime(end)}
+                            </button>
+                          )}
+                          {dayDiff > 0 && (
+                            <span className="text-eros-400 shrink-0">
+                              +{dayDiff}
+                            </span>
+                          )}
+                        </>
                       ) : (
-                        <span>(running)</span>
+                        <span className="shrink-0">(running)</span>
                       )}
-                      {log.background && !end ? ' · background' : ''}
+                      {log.background && !end ? (
+                        <span className="shrink-0"> · background</span>
+                      ) : null}
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
                       <span className="tabular w-12 shrink-0 text-right font-mono text-[10px]">
