@@ -456,6 +456,17 @@ function minutesToCompactHuman(mins: number | null | undefined): string {
   return `${h}h${m}m`;
 }
 
+// Fixed dd-mm-yyyy hh:mm — no relative phrasing, unlike formatDue.
+function formatLogMoment(d: Date | null): string {
+  if (!d || isNaN(d.getTime())) return '—';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${day}-${month}-${year} ${hours}:${minutes}`;
+}
+
 function toDatetimeLocalValue(d: Date | null): string {
   if (!d || isNaN(d.getTime())) return '';
   const year = d.getFullYear();
@@ -585,6 +596,15 @@ export default function TaskDetailModal({
     0
   );
   const progress = computeTaskProgress(task, logs);
+  const logsByStartDesc = useMemo(
+    () =>
+      [...logs].sort((a, b) => {
+        const aStart = parseRange(a.duration).start;
+        const bStart = parseRange(b.duration).start;
+        return (bStart?.getTime() ?? 0) - (aStart?.getTime() ?? 0);
+      }),
+    [logs]
+  );
 
   const linkedSequenceIds = useMemo(
     () =>
@@ -1185,7 +1205,7 @@ export default function TaskDetailModal({
               </div>
             </div>
             <div className="space-y-1">
-              {logs.slice(0, 8).map((log) => {
+              {logsByStartDesc.slice(0, 8).map((log) => {
                 const { start, end } = parseRange(log.duration);
 
                 function commit(nextStart: Date | null, nextEnd: Date | null) {
@@ -1228,7 +1248,7 @@ export default function TaskDetailModal({
                           }
                           className="hover:text-nyx-100 underline decoration-dotted underline-offset-2"
                         >
-                          {start ? formatDue(start) : '—'}
+                          {formatLogMoment(start)}
                         </button>
                       )}
                       {' '}
@@ -1255,7 +1275,7 @@ export default function TaskDetailModal({
                           }
                           className="hover:text-nyx-100 underline decoration-dotted underline-offset-2"
                         >
-                          → {formatDue(end)}
+                          → {formatLogMoment(end)}
                         </button>
                       ) : (
                         <span>(running)</span>
