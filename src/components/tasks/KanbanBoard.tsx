@@ -3,6 +3,7 @@ import {
   useDraggable,
   useDroppable,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -22,9 +23,12 @@ interface CardProps {
 function Card({ task, projectInfo, onOpen }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
-  const style = transform
-    ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 10 }
-    : undefined;
+  const style = {
+    touchAction: 'none' as const,
+    ...(transform
+      ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 10 }
+      : undefined),
+  };
   return (
     <div
       ref={setNodeRef}
@@ -100,7 +104,10 @@ export default function KanbanBoard({
 }: KanbanBoardProps) {
   const { update } = useTaskMutations();
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    })
   );
 
   function handleDragEnd(e: DragEndEvent) {

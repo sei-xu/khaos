@@ -13,6 +13,7 @@ import {
   useDraggable,
   useDroppable,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -82,9 +83,12 @@ function TaskPill({
 }: TaskPillProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
-  const style = transform
-    ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 30 }
-    : undefined;
+  const style = {
+    touchAction: 'none' as const,
+    ...(transform
+      ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 30 }
+      : undefined),
+  };
   return (
     <button
       type="button"
@@ -337,7 +341,10 @@ export default function DashboardPage() {
   }
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    })
   );
 
   function handleDragEnd(e: DragEndEvent) {
