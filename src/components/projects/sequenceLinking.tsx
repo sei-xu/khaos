@@ -39,6 +39,7 @@ function LinkHandle({ taskId, dir, armed, onToggle }: LinkHandleProps) {
   return (
     <button
       ref={setNodeRef}
+      style={{ touchAction: 'none' }}
       {...listeners}
       {...attributes}
       onClick={onToggle}
