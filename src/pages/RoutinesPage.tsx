@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, RefreshCw, CheckCircle } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import { useRoutines, useRoutineMutations } from '../hooks/useRoutines';
 import { useFields } from '../hooks/useHierarchy';
 import {
@@ -9,27 +9,9 @@ import {
   Select,
   EmptyState,
 } from '../components/common/ui';
+import RoutineCard from '../components/routines/RoutineCard';
+import { FREQUENCY_OPTIONS, TIME_OPTIONS } from '../lib/constants';
 import type { NewRoutine, RoutineWithField } from '../lib/types';
-
-const FREQUENCY_OPTIONS = [
-  { value: 'daily', label: 'Every day' },
-  { value: 'every_2_days', label: 'Every 2 days' },
-  { value: '2x_week', label: '2× per week' },
-  { value: '3x_week', label: '3× per week' },
-  { value: '4x_week', label: '4× per week' },
-  { value: '5x_week', label: '5× per week' },
-  { value: '1x_week', label: 'Once a week' },
-  { value: '2x_month', label: 'Twice a month' },
-  { value: '1x_month', label: 'Once a month' },
-];
-
-const TIME_OPTIONS = [
-  { value: 'anytime', label: 'Any time' },
-  { value: 'morning', label: 'Morning (06–12)' },
-  { value: 'afternoon', label: 'Afternoon (12–18)' },
-  { value: 'evening', label: 'Evening (18–21)' },
-  { value: 'night', label: 'Night (21–23)' },
-];
 
 interface RoutineForm {
   name: string;
@@ -215,22 +197,6 @@ function RoutineModal({ initial, onClose, onSave, saving }: RoutineModalProps) {
   );
 }
 
-function FrequencyLabel({ value }: { value: string }) {
-  return (
-    <span className="text-eros-400 font-mono text-caption">
-      {FREQUENCY_OPTIONS.find((o) => o.value === value)?.label ?? value}
-    </span>
-  );
-}
-
-function TimeLabel({ value }: { value: string | null }) {
-  return (
-    <span className="text-nyx-400 text-caption">
-      {TIME_OPTIONS.find((o) => o.value === value)?.label ?? value}
-    </span>
-  );
-}
-
 export default function RoutinesPage() {
   const { data: routines = [], isLoading } = useRoutines();
   const { create, update, remove } = useRoutineMutations();
@@ -320,7 +286,7 @@ export default function RoutinesPage() {
       <div className="border-nyx-700 bg-nyx-800/40 mt-6 rounded-lg border px-4 py-4">
         <p className="text-nyx-300 text-body">
           Tell the assistant{' '}
-          <span className="text-eros-400 font-mono">"plan my week"</span> and
+          <span className="text-eros-400 font-mono">&quot;plan my week&quot;</span> and
           it will schedule all active routines around your fixed events.
         </p>
       </div>
@@ -340,61 +306,6 @@ export default function RoutinesPage() {
           saving={update.isPending}
         />
       )}
-    </div>
-  );
-}
-
-interface RoutineCardProps {
-  routine: RoutineWithField;
-  onEdit: () => void;
-  onDelete: () => void;
-  onToggle: () => void;
-}
-
-function RoutineCard({ routine, onEdit, onDelete, onToggle }: RoutineCardProps) {
-  return (
-    <div className="border-nyx-700 bg-nyx-800/40 flex items-start gap-3 rounded-lg border px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-nyx-100 font-medium">{routine.name}</span>
-          <FrequencyLabel value={routine.frequency} />
-          <TimeLabel value={routine.preferred_time} />
-          {routine.estimate && (
-            <span className="text-nyx-500 font-mono text-caption">
-              {routine.estimate}min
-            </span>
-          )}
-        </div>
-        {routine.constraints && (
-          <p className="text-nyx-500 mt-1 text-caption leading-relaxed">
-            {routine.constraints}
-          </p>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          onClick={onToggle}
-          title={routine.active ? 'Deactivate' : 'Activate'}
-          className="text-nyx-500 hover:bg-nyx-700 hover:text-nyx-200 flex h-7 w-7 items-center justify-center rounded"
-        >
-          <CheckCircle
-            size={14}
-            className={routine.active ? 'text-gaia-500' : ''}
-          />
-        </button>
-        <button
-          onClick={onEdit}
-          className="text-nyx-500 hover:bg-nyx-700 hover:text-nyx-200 flex h-7 w-7 items-center justify-center rounded"
-        >
-          <Pencil size={14} />
-        </button>
-        <button
-          onClick={onDelete}
-          className="text-nyx-500 hover:bg-nyx-700 hover:text-tartarus-500 flex h-7 w-7 items-center justify-center rounded"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
     </div>
   );
 }

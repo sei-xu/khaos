@@ -134,13 +134,8 @@ export default function ChatPanel({
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-nyx-700 flex shrink-0 items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          <KhaosIcon
-            size="h-5 w-5"
-            bgColor="bg-transparent"
-            className="animate-pulse"
-          />
           <h2 className="font-display text-nyx-100 text-body font-semibold">
-            <KhaoticText text="KallKhaos" />
+            <KhaoticText text="@KhaosFacitBot" />
           </h2>
         </div>
         <div className="flex items-center gap-3">
@@ -221,7 +216,7 @@ export default function ChatPanel({
           onKeyDown={handleKeyDown}
           placeholder="Ask Khaos… (⌘+Enter to send)"
           disabled={isSending}
-          className="border-nyx-700 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 flex-1 resize-none rounded-2xl border px-4 py-2 text-body leading-normal focus:outline-hidden disabled:opacity-60"
+          className="border-nyx-700 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 flex-1 resize-none rounded border px-4 py-2 text-body leading-normal focus:outline-hidden disabled:opacity-60"
         />
         <button
           type="submit"

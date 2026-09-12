@@ -199,3 +199,23 @@ export const OPEN_STATUSES: Status[] = [
   'paused',
   'waiting',
 ];
+
+export const FREQUENCY_OPTIONS = [
+  { value: 'daily', label: 'Every day' },
+  { value: 'every_2_days', label: 'Every 2 days' },
+  { value: '2x_week', label: '2× per week' },
+  { value: '3x_week', label: '3× per week' },
+  { value: '4x_week', label: '4× per week' },
+  { value: '5x_week', label: '5× per week' },
+  { value: '1x_week', label: 'Once a week' },
+  { value: '2x_month', label: 'Twice a month' },
+  { value: '1x_month', label: 'Once a month' },
+];
+
+export const TIME_OPTIONS = [
+  { value: 'anytime', label: 'Any time' },
+  { value: 'morning', label: 'Morning (06–12)' },
+  { value: 'afternoon', label: 'Afternoon (12–18)' },
+  { value: 'evening', label: 'Evening (18–21)' },
+  { value: 'night', label: 'Night (21–23)' },
+];

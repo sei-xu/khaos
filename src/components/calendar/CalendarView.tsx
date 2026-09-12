@@ -371,7 +371,7 @@ export default function CalendarView({
             className="text-nyx-300 flex items-center gap-2 text-caption"
           >
             <span
-              className={`relative inline-block h-[17px] w-[30px] shrink-0 rounded-full transition-colors ${showLoggedTime ? 'bg-pontus-500' : 'bg-nyx-700'}`}
+              className={`relative inline-block h-[17px] w-[30px] shrink-0 rounded-full transition-colors ${showLoggedTime ? 'bg-eros-500' : 'bg-nyx-700'}`}
             >
               <span
                 className={`bg-nyx-100 absolute top-0.5 h-[13px] w-[13px] rounded-full transition-all ${showLoggedTime ? 'right-0.5' : 'left-0.5'}`}

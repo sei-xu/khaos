@@ -837,14 +837,22 @@ export default function TaskDetailModal({
                   : 'border-eros-500 bg-eros-500/10 text-eros-400'
               )}
             >
-              <Flag size={14} className="shrink-0" />
+              <Flag size={15} className="shrink-0" />
               <TextInput
                 type="date"
                 value={dueValues.date}
                 onChange={(e) => {
                   handleDueChange(e.target.value, dueValues.time);
                 }}
-                className="w-[10ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-caption! text-inherit!"
+                // w-[10ch] hugs the date text itself -- w-[12ch] left
+                // leftover box padding on the date side only, pushing the
+                // middot off-center between date and time.
+                className={clsx(
+                  'due-input w-[11ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-body!',
+                  isOverdue(task.due, task.status)
+                    ? 'text-tartarus-400!'
+                    : 'text-eros-400!'
+                )}
               />
               {showDueTime && dueValues.date && (
                 <>
@@ -855,7 +863,12 @@ export default function TaskDetailModal({
                     onChange={(e) => {
                       handleDueChange(dueValues.date, e.target.value, true);
                     }}
-                    className="w-14! shrink-0 border-0! bg-transparent! p-0! text-center text-caption! text-inherit!"
+                    className={clsx(
+                      'due-input w-13! shrink-0 border-0! bg-transparent! p-0! text-center text-body!',
+                      isOverdue(task.due, task.status)
+                        ? 'text-tartarus-400!'
+                        : 'text-eros-400!'
+                    )}
                   />
                 </>
               )}

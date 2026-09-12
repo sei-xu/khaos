@@ -88,6 +88,15 @@ const RADIUS_RULES: UsageRule[] = [
     deity: 'Eros',
     color: '#c0793d',
   },
+  {
+    token: 'rounded-2xl',
+    swatchClass: 'rounded-2xl',
+    value: 'Tailwind default, 16px -- no app override',
+    rule: 'The softest, most enclosing surfaces -- reserved for things that feel like they’re expanding to hold you, not just holding content.',
+    usedIn: 'the mobile chat drawer’s top corners, TargetEditor’s small-screen layout',
+    deity: 'Aether',
+    color: '#e7e9e6',
+  },
 ];
 
 const SHADOW_RULES: UsageRule[] = [

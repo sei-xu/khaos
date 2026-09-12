@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
+import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import KhaosIcon from '../../components/common/KhaosIcon';
 import KhaoticText from '../../components/common/KhaoticText';
@@ -7,7 +8,7 @@ import KhaoticText from '../../components/common/KhaoticText';
 // Shared chrome for the Khaos Vault (/dev/vortex/*) — deliberately outside
 // AppShell (no sidebar, no chat, no nav bar). The only wayfinding is a
 // corner placard (logo + roman-numeral nav) and one subtle exit mark.
-// Kept in sync by hand with VaultIndexPage's own CHAMBERS list -- six
+// Kept in sync by hand with VaultIndexPage's own CHAMBERS list -- seven
 // fixed items, low churn, not worth a shared-import refactor yet.
 const CHAMBER_NAV = [
   { index: 'I', name: 'The Pantheon', to: '/dev/vortex/pantheon' },
@@ -16,6 +17,7 @@ const CHAMBER_NAV = [
   { index: 'IV', name: 'The Forge', to: '/dev/vortex/forge' },
   { index: 'V', name: 'The Sigils', to: '/dev/vortex/sigils' },
   { index: 'VI', name: 'The Threshold', to: '/dev/vortex/threshold' },
+  { index: 'VII', name: 'The Emblem', to: '/dev/vortex/emblem' },
 ];
 
 export function MuseumFrame({
@@ -42,12 +44,16 @@ export function MuseumFrame({
           to="/dev/vortex"
           className="text-nyx-700 hover:text-nyx-300 flex items-center gap-2 font-mono text-[10px] tracking-[0.35em] uppercase transition-colors duration-300"
         >
+          {/* Gave up chasing the spin here -- swapped to Tailwind's
+              built-in animate-pulse instead of the custom rotation.
+              Nudged down 1px: the glyph's own ink sits slightly high in
+              its box, which read as misaligned against the title text
+              next to it. */}
           <KhaosIcon
             size="h-7 w-7"
             fontSize="text-2xl"
             color="text-nyx-400"
-            spin
-            className="animate-pulse"
+            className="relative top-px animate-pulse"
           />
           khaos vortex
         </Link>
@@ -84,16 +90,31 @@ export function MuseumFrame({
 export function Section({
   title,
   children,
+  nowrap = false,
 }: {
   title: string;
   children: ReactNode;
+  // Some sections read better as one continuous row (e.g. every status
+  // or priority value together) than wrapped across lines -- opt in
+  // per-section rather than changing the shared default.
+  nowrap?: boolean;
 }) {
   return (
     <section className="border-nyx-700 mb-10 border-t pt-6">
       <h2 className="text-nyx-400 mb-5 font-mono text-[10px] tracking-[0.25em] uppercase">
         {title}
       </h2>
-      <div className="flex flex-wrap items-center gap-5">{children}</div>
+      <div
+        className={clsx(
+          'flex items-center gap-5',
+          // Padding compensates for focus rings / active borders on the
+          // first and last item -- without it, overflow-x-auto's edge
+          // sits flush against the content and clips them.
+          nowrap ? 'flex-nowrap overflow-x-auto px-1 py-1' : 'flex-wrap'
+        )}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -106,7 +127,7 @@ export function Swatch({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-start gap-2">
+    <div className="flex shrink-0 flex-col items-start gap-2">
       <span className="text-nyx-400 font-mono text-[10px]">{label}</span>
       {children}
     </div>

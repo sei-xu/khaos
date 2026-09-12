@@ -51,8 +51,8 @@ function LinkHandle({ taskId, dir, armed, onToggle }: LinkHandleProps) {
       className={clsx(
         'flex size-5 cursor-grab items-center justify-center rounded active:cursor-grabbing',
         armed
-          ? 'bg-teal-500/20 text-teal-400'
-          : 'text-ink-600 hover:bg-ink-700 hover:text-ink-300'
+          ? 'bg-pontus-500/20 text-pontus-400'
+          : 'text-nyx-600 hover:bg-nyx-700 hover:text-nyx-300'
       )}
     >
       <Icon size={12} />
@@ -122,8 +122,8 @@ export function TaskDropTarget({
       data-task-id={taskId}
       className={clsx(
         'rounded-md',
-        hovering && 'ring-1 ring-teal-400/80',
-        armedSource && 'ring-1 ring-teal-500/40'
+        hovering && 'ring-1 ring-pontus-400/80',
+        armedSource && 'ring-1 ring-pontus-500/40'
       )}
     >
       {children}

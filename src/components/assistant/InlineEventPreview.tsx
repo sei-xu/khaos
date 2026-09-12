@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { CalendarClock } from 'lucide-react';
 import { parseRange } from '../../lib/range';
 import { EVENT_TYPE_META } from '../../lib/constants';
 import { getEventLabel } from '../../lib/eventLabel';
@@ -42,9 +43,12 @@ export function InlineEventPreview({
           <span className="text-nyx-100 min-w-0 flex-1 truncate text-body">
             {label}
           </span>
-          <span className="text-nyx-600 shrink-0 font-mono text-[9px] tracking-wide uppercase">
-            event
-          </span>
+          {/* Same CalendarClock glyph ScheduledBadge uses to mark "this
+              task already has a calendar event" -- reused here so the
+              event card and that marker read as one visual language
+              instead of this being plain uppercase text nothing else
+              in the app matches. */}
+          <CalendarClock size={11} className="text-nyx-600 shrink-0" />
         </div>
         {end && (
           <span className="text-nyx-600 col-start-1 row-start-2 font-mono text-[11px] leading-tight">

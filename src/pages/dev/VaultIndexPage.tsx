@@ -78,6 +78,13 @@ const CHAMBERS: ChamberEntry[] = [
     tagline: 'Where the app pauses to ask',
     contains: 'Modals · Empty states',
   },
+  {
+    to: '/dev/vortex/emblem',
+    index: 'VII',
+    name: 'The Emblem',
+    tagline: 'The icon, the logo, the chaos in the letters',
+    contains: 'Icon · Logo · KhaoticText',
+  },
 ];
 
 export default function VaultIndexPage() {

@@ -27,6 +27,7 @@ export function KhaosTitle({ className }: KhaosTitleProps) {
   return (
     <KhaoticText
       text="Khaos"
+      family={['display', 'serif', 'mono']}
       className={`${className} text-nyx-100 tracking-widest capitalize`}
     />
   );

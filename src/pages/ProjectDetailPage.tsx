@@ -300,7 +300,11 @@ export default function ProjectDetailPage() {
               patch: { name: e.target.value },
             })
           }
-          className="font-display text-nyx-100 w-full bg-transparent text-display-lg focus:outline-none"
+          // font-normal, not the page-title default -- this borrows
+          // font-display/text-display-lg's size but is an editable
+          // input, not a static h1, and shouldn't inherit the display
+          // font's heavier default weight the way real page titles do.
+          className="font-display text-nyx-100 w-full bg-transparent text-display-lg font-normal focus:outline-none"
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Select
@@ -427,11 +431,11 @@ export default function ProjectDetailPage() {
 
         <DragOverlay dropAnimation={null}>
           {activeLinkDrag && (
-            <span className="border-ink-600 bg-ink-800 text-ink-200 shadow-panel flex w-max items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs">
+            <span className="border-nyx-600 bg-nyx-800 text-nyx-200 shadow-panel flex w-max items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs">
               {activeLinkDrag.dir === 'prev' ? (
-                <CornerUpLeft size={12} className="text-teal-400" />
+                <CornerUpLeft size={12} className="text-pontus-400" />
               ) : (
-                <CornerDownRight size={12} className="text-teal-400" />
+                <CornerDownRight size={12} className="text-pontus-400" />
               )}
               {activeLinkDrag.dir === 'prev'
                 ? 'Solte na tarefa que vem antes'
@@ -464,27 +468,27 @@ export default function ProjectDetailPage() {
 
       {(linking || linkNotice) && (
         <div className="fixed bottom-4 left-1/2 z-20 -translate-x-1/2 px-4">
-          <div className="border-ink-600 bg-ink-800 shadow-panel flex items-center gap-2.5 rounded-full border px-3.5 py-2 text-xs">
+          <div className="border-nyx-600 bg-nyx-800 shadow-panel flex items-center gap-2.5 rounded-full border px-3.5 py-2 text-xs">
             {linkNotice ? (
-              <span className="text-rust-500">{linkNotice}</span>
+              <span className="text-tartarus-500">{linkNotice}</span>
             ) : (
               <>
                 {linking!.dir === 'prev' ? (
-                  <CornerUpLeft size={12} className="shrink-0 text-teal-400" />
+                  <CornerUpLeft size={12} className="shrink-0 text-pontus-400" />
                 ) : (
                   <CornerDownRight
                     size={12}
-                    className="shrink-0 text-teal-400"
+                    className="shrink-0 text-pontus-400"
                   />
                 )}
-                <span className="text-ink-200">
+                <span className="text-nyx-200">
                   Toque na tarefa que vem{' '}
                   {linking!.dir === 'prev' ? 'antes' : 'depois'} de “
                   {tasks.find((t) => t.id === linking!.taskId)?.name}”
                 </span>
                 <button
                   onClick={() => setLinking(null)}
-                  className="text-ink-500 hover:text-ink-200 shrink-0"
+                  className="text-nyx-500 hover:text-nyx-200 shrink-0"
                 >
                   cancelar
                 </button>

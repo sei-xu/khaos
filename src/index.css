@@ -97,6 +97,15 @@
      default rounded-sm directly instead of maintaining a duplicate. */
   --radius: 6px;
   --radius-lg: 10px;
+
+  /* Animation */
+  /* The KhaosIcon "spinning" state (sidebar during fetch/chat, corner
+     placard, password gate) always uses this instead of Tailwind's
+     built-in animate-spin (1s) -- 1s read as frantic for an ambient
+     "something's happening" indicator, not an urgent progress spinner.
+     Reuses Tailwind's own `spin` keyframe (already emitted wherever
+     animate-spin is used, e.g. ChatPanel's Loader2), just slower. */
+  --animate-spin-slow: spin 3s linear infinite;
 }
 
 /* ── Base styles ───────────────────────────────────────────────────────── */
@@ -265,4 +274,15 @@
       --shimmer-offset: -400px;
     }
   }
+}
+
+/* DueEditor / TaskDetailModal's Due field: date/time inputs sit inside an
+   already-iconed pill (Flag), so the browser's own calendar/clock glyph
+   is a redundant second icon. Plain CSS, not a Tailwind arbitrary variant
+   -- `[&::-webkit-calendar-picker-indicator]:hidden` never made it into
+   the generated stylesheet (untested combination of arbitrary variant +
+   vendor pseudo-element + important-suffix), so this is the reliable
+   fallback. */
+.due-input::-webkit-calendar-picker-indicator {
+  display: none;
 }

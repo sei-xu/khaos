@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bug, Plus, X } from 'lucide-react';
+import { Bug, Plus, Search, X } from 'lucide-react';
 import { Chamber, Section, Swatch } from './vaultUI';
 import { Button, IconButton, Select, TextInput } from '../../components/common/ui';
 
@@ -90,41 +90,133 @@ export default function ForgePage() {
             className="border-nyx-600 bg-nyx-800 accent-eros-500 h-4 w-4 rounded disabled:cursor-not-allowed disabled:opacity-50"
           />
         </Swatch>
+        <Swatch label="date">
+          {/* From TaskDetailModal's due-date field, un-stripped -- the
+              real usage overrides border/bg/padding to sit inline in a
+              pill, but the base control is still TextInput. */}
+          <div className="w-40">
+            <TextInput type="date" defaultValue="2026-08-01" />
+          </div>
+        </Swatch>
+        <Swatch label="number">
+          {/* From the Estimate field's minutes input. */}
+          <div className="w-20">
+            <TextInput type="number" min="0" defaultValue="90" />
+          </div>
+        </Swatch>
+        <Swatch label="password">
+          {/* From PasswordGate -- otherwise identical to a text input. */}
+          <div className="w-40">
+            <TextInput type="password" defaultValue="••••••••" />
+          </div>
+        </Swatch>
+        <Swatch label="textarea">
+          {/* From the chat composer -- same field styling as TextInput,
+              resize-none. Was rounded-2xl, an outlier next to every
+              other input's rounded; matched to rounded instead. */}
+          <textarea
+            rows={2}
+            placeholder="Ask Khaos…"
+            className="border-nyx-600 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 w-56 resize-none rounded border px-4 py-2 text-body leading-normal focus:outline-none"
+          />
+        </Swatch>
+        <Swatch label="search (icon + pill)">
+          {/* From QuickAddBar -- leading icon, fully rounded, no visible
+              chevron/affordance since it's a free-text field, not a picker. */}
+          <div className="relative w-56">
+            <Search
+              size={15}
+              className="text-nyx-500 pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
+            />
+            <input
+              placeholder="Quick add…"
+              className="border-nyx-600 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 w-full rounded-full border py-2 pr-3 pl-9 text-body focus:outline-none"
+            />
+          </div>
+        </Swatch>
       </Section>
 
       <Section title="Labels">
-        {/* From every field label in TaskDetailModal (Due, Target, Tags). */}
+        {/* From every field label in TaskDetailModal (Due, Target, Tags,
+            Previous/Next tasks, Time logged, Moments) -- all-caps,
+            tracking-wide, semibold. Was font-medium/no-caps here before,
+            which didn't match a single real usage. */}
         <Swatch label="field label">
-          <label className="text-nyx-500 mb-1 block text-caption font-medium">
+          <label className="text-nyx-500 mb-1 block text-caption font-semibold tracking-wide uppercase">
             Estimate
           </label>
         </Swatch>
       </Section>
 
-      <Section title="Add / remove">
-        <Swatch label="add button">
-          {/* AddButton pattern from TaskDetailModal -- bordered pill,
-              lights up eros when active. */}
+      <Section title="Divider">
+        {/* Not a real component today -- border-nyx-700 on a plain div,
+            repeated across TaskDetailModal/AppShell/boards/Modal/
+            CommandPalette. border-t and border-b aren't interchangeable
+            picks for the same job -- checked real usage: border-t always
+            separates stacked sibling sections *within* scrolling content
+            (TaskDetailModal's field groups, applied to the top of each
+            block after the first -- first:border-0 avoids a stray line
+            before the first one). border-b always underlines a *fixed
+            header bar* sitting above scrollable content (AppShell's top
+            bar, Modal's header, CommandPalette's search row, TaskList's
+            column header) -- never used between sibling sections. */}
+        <Swatch label="section divider (border-t)">
+          <div className="w-56">
+            <div className="border-nyx-700 border-t pt-3.5">
+              <span className="text-nyx-500 text-caption">Next section…</span>
+            </div>
+          </div>
+        </Swatch>
+        <Swatch label="header divider (border-b)">
+          <div className="w-56">
+            <div className="border-nyx-700 border-b pb-2">
+              <span className="text-nyx-300 text-body">Fixed header</span>
+            </div>
+          </div>
+        </Swatch>
+      </Section>
+
+      <Section title="Action buttons">
+        <Swatch label="add, bordered">
+          {/* AddButton pattern from TaskDetailModal -- bordered pill.
+              No color exception anymore: active state brightens to
+              neutral Nyx instead of lighting up Eros, matching every
+              other add control. */}
           <button
             type="button"
             onClick={() => setAddActive((v) => !v)}
             className={`flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-label transition-colors ${
               addActive
-                ? 'border-eros-500 text-eros-400 bg-eros-500/10'
+                ? 'border-nyx-500 text-nyx-200 bg-nyx-800'
                 : 'border-nyx-700 text-nyx-500 hover:text-nyx-300'
             }`}
           >
             <Plus size={10} /> Add time
           </button>
         </Swatch>
-        <Swatch label="add (inline, checklist)">
+        <Swatch label="add, inline">
           {/* From the checklist's "add item" row. */}
           <div className="flex items-center gap-1.5">
             <Plus size={14} className="text-nyx-500" />
-            <span className="text-nyx-500 text-body">Add a checklist item…</span>
+            <span className="text-nyx-500 text-caption">Add a checklist item…</span>
           </div>
         </Swatch>
-        <Swatch label="remove / close (×)">
+        <Swatch label="add, icon-only">
+          {/* IconAddButton, from TaskDetailModal's "Add previous/next
+              task" -- icon-only because the adjacent field label
+              ("Previous tasks") already says what's being added, with
+              no spare width for a second label. Bordered like the other
+              add controls, ghost fill, same language as IconButton. */}
+          <button
+            type="button"
+            aria-label="Add previous task"
+            title="Add previous task"
+            className="border-nyx-700 text-nyx-500 hover:bg-nyx-700 hover:text-nyx-100 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors"
+          >
+            <Plus size={10} />
+          </button>
+        </Swatch>
+        <Swatch label="remove, icon-only">
           {/* From checklist item rows and chip removal -- bare icon,
               hover reveals danger. Hover class must live on the icon
               itself, not the button -- the icon's own color class wins
@@ -139,25 +231,22 @@ export default function ForgePage() {
         <p className="text-nyx-200 mb-3 font-semibold tracking-wide uppercase">
           Why add/remove stay this muted
         </p>
-        <p className="text-nyx-400 mb-1.5">
-          Every real &ldquo;add&rdquo; in the app carries a text label — there
-          is no icon-only add pattern anywhere today. Icon-only is reserved
-          for <em>remove</em>, where the trash/× glyph is unambiguous and a
-          label would just add noise.
-        </p>
         <p className="text-nyx-400">
-          Add stays Nyx-grey rather than Eros so Eros keeps meaning one
-          thing app-wide: <em>this needs you</em>. An always-visible add
-          control isn&rsquo;t a call to act, it&rsquo;s just always there —
-          coloring it would dilute the one signal Eros is supposed to carry.
+          Every add control — bordered, inline, or icon-only — stays
+          neutral Nyx always, no exceptions, so Eros keeps meaning one
+          thing app-wide: <em>this needs you</em>. Add isn&rsquo;t a call
+          to act, it&rsquo;s just always there — coloring it, even for an
+          active/toggled state, would dilute the one signal Eros carries.
           Remove earns its danger hover because deleting is the one
           add/remove action with real consequence.
         </p>
       </div>
 
       <Section title="Toggle">
+        {/* Switch (track + sliding thumb) from CalendarView's "show logged
+            time"; TimeToggle in Inputs above is the other on/off pattern,
+            button-shaped instead. */}
         <Swatch label="switch">
-          {/* From CalendarView's "show logged time" control. */}
           <button
             type="button"
             onClick={() => setToggled((v) => !v)}
@@ -165,7 +254,7 @@ export default function ForgePage() {
           >
             <span
               className={`relative inline-block h-[17px] w-[30px] shrink-0 rounded-full transition-colors ${
-                toggled ? 'bg-pontus-500' : 'bg-nyx-700'
+                toggled ? 'bg-eros-500' : 'bg-nyx-700'
               }`}
             >
               <span
@@ -179,7 +268,7 @@ export default function ForgePage() {
         </Swatch>
         <Swatch label="switch, disabled">
           <button type="button" disabled className="text-nyx-300 flex items-center gap-2 text-caption disabled:cursor-not-allowed disabled:opacity-50">
-            <span className="bg-pontus-500 relative inline-block h-[17px] w-[30px] shrink-0 rounded-full">
+            <span className="bg-eros-500 relative inline-block h-[17px] w-[30px] shrink-0 rounded-full">
               <span className="bg-nyx-100 absolute top-0.5 right-0.5 h-[13px] w-[13px] rounded-full" />
             </span>
             Show logged time
@@ -189,16 +278,15 @@ export default function ForgePage() {
 
       <div className="max-w-prose text-caption leading-relaxed">
         <p className="text-nyx-200 mb-3 font-semibold tracking-wide uppercase">
-          Why the toggle is Pontus
+          Why the toggle is Eros
         </p>
         <p className="text-nyx-400">
-          Not a deliberate REN choice — there is only one toggle in the app
-          today (CalendarView&rsquo;s &ldquo;show logged time&rdquo;), and it
-          inherited Pontus mechanically from the pre-rename teal. It reads
-          fine (Pontus already means &ldquo;active/current&rdquo; elsewhere,
-          e.g. the in-review status), but it hasn&rsquo;t been tested
-          against a second toggle yet. Worth revisiting once a second one
-          exists to confirm the pattern rather than one sample.
+          Matched to the checkbox&rsquo;s own rule (<code className="text-eros-400">
+            accent-eros-500
+          </code>{' '}
+          on check, plain otherwise): a binary control colors only its
+          &ldquo;on&rdquo; state, in Eros, and stays neutral Nyx off.
+          Same rule, same color, across every binary control in the app.
         </p>
       </div>
     </Chamber>

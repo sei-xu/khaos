@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { STATUS_META, PRIORITY_META, PRIORITIES } from '../../lib/constants';
-import { formatDueCompact, isOverdue, minutesToHuman } from '../../lib/dateUtils';
+import { formatDueCompact, formatTimeOnly, isOverdue, minutesToHuman } from '../../lib/dateUtils';
 import { parseRange } from '../../lib/range';
 import { getFieldMeta } from '../../lib/fieldsConfig';
 import type { Status, Priority } from '../../lib/types';
@@ -89,7 +89,7 @@ export function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
   return (
     <span
       title={meta.label}
-      className="inline-flex items-center gap-0.5 rounded-md font-mono font-medium tracking-wider uppercase"
+      className="inline-flex items-center gap-px rounded-full py-0.5 pr-2 pl-0.5 font-mono font-medium tracking-wider uppercase"
       style={{
         fontSize: size === 'sm' ? 11 : 13,
         marginRight: size === 'sm' ? 4 : 6,
@@ -97,9 +97,7 @@ export function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
       }}
     >
       <StatusIcon status={status} size={iconSize} />
-      <span className="pr-1" style={{ color: meta.iconColor }}>
-        {meta.acronym}
-      </span>
+      <span style={{ color: meta.iconColor }}>{meta.acronym}</span>
     </span>
   );
 }
@@ -153,14 +151,10 @@ const STATUS_ROWS: Status[][] = [
 // scannable at a glance.
 export function StatusPicker({ value, onChange }: StatusPickerProps) {
   return (
-    <div
-      className="flex flex-col gap-1"
-      role="radiogroup"
-      aria-label="Status"
-    >
+    <div role="radiogroup" aria-label="Status" className="inline-flex flex-col">
       {STATUS_ROWS.map((row, i) => (
-        <div key={i} className="flex flex-wrap gap-1">
-          {row.map((s) => {
+        <div key={i} className="flex">
+          {row.map((s, j) => {
             const meta = STATUS_META[s];
             const active = s === value;
             return (
@@ -173,10 +167,16 @@ export function StatusPicker({ value, onChange }: StatusPickerProps) {
                 onClick={() => onChange(s)}
                 style={{
                   backgroundColor: meta.circleBg,
-                  boxShadow: active ? `0 0 0 1.5px ${meta.iconColor}` : 'none',
+                  border: `1.5px solid ${active ? meta.iconColor : 'transparent'}`,
                 }}
                 className={clsx(
-                  'inline-flex items-center gap-1 rounded-full py-0.5 pr-2 pl-0.5 transition-all',
+                  'inline-flex items-center gap-px py-px pr-2.5 pl-1 transition-all',
+                  i === 0 && j === 0 && 'rounded-tl-sm',
+                  i === 0 && j === row.length - 1 && 'rounded-tr-sm',
+                  i === STATUS_ROWS.length - 1 && j === 0 && 'rounded-bl-sm',
+                  i === STATUS_ROWS.length - 1 &&
+                    j === row.length - 1 &&
+                    'rounded-br-sm',
                   active ? 'opacity-100' : 'opacity-45 hover:opacity-75'
                 )}
               >
@@ -202,8 +202,10 @@ interface PriorityPickerProps {
 }
 
 // Same idea for Priority — icon-only circles matching PriorityBadge's own
-// look (no background chip, that's the point), minus its "urgent" bounce,
-// which belongs to a single live badge, not a menu of options.
+// look (no background chip, that's the point). The "urgent" bounce only
+// plays on the option that's both urgent and currently selected — not on
+// every render of the urgent option, which would bounce even while some
+// other priority is active.
 export function PriorityPicker({ value, onChange }: PriorityPickerProps) {
   return (
     <div
@@ -229,7 +231,8 @@ export function PriorityPicker({ value, onChange }: PriorityPickerProps) {
             }}
             className={clsx(
               'inline-flex h-7 w-7 items-center justify-center rounded-full transition-all',
-              active ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+              active ? 'opacity-100' : 'opacity-40 hover:opacity-70',
+              active && p === 'urgent' && 'animate-bounce'
             )}
           >
             <Icon size={15} />
@@ -263,7 +266,14 @@ export function IconAddButton({
       aria-label={label}
       title={label}
       className={clsx(
-        'bg-violet-400 text-ink-900 hover:bg-violet-300 active:bg-violet-500 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors',
+        // Ghost by default, same language as IconButton (transparent
+        // until hover) instead of its old always-filled bg-hypnos-400 --
+        // Hypnos had no established meaning here, and the always-on fill
+        // made this the one icon button in the app that didn't match
+        // IconButton's own treatment. Smaller footprint (h-4/w-4 vs
+        // IconButton's h-8/w-8) stays, since this one lives inline in
+        // dense rows, not standalone.
+        'text-nyx-500 hover:bg-nyx-700 hover:text-nyx-100 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors',
         className
       )}
       {...props}
@@ -278,14 +288,18 @@ interface TagProps {
   onRemove?: () => void;
 }
 
+// Not a pill -- every other column badge (status, priority, field) already
+// claims that shape, and a freeform many-per-task label doesn't need to
+// compete with them for it. rounded-sm + a solid ("lined") border + mono
+// type reads closer to a hashtag/label than another rounded chip.
 export function Tag({ children, onRemove }: TagProps) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-pontus-500/10 px-2 py-0.5 text-caption font-medium text-pontus-400">
-      {children}
+    <span className="border-pontus-500/40 text-pontus-400 inline-flex items-center gap-1 rounded-sm border bg-pontus-500/10 px-1.5 py-0.5 font-mono text-caption">
+      #{children}
       {onRemove && (
         <button
           onClick={onRemove}
-          className="rounded-full hover:bg-pontus-500/20"
+          className="hover:bg-pontus-500/20 rounded-sm"
           aria-label="Remove tag"
         >
           <X size={11} />
@@ -300,20 +314,49 @@ interface TagSuggestionProps {
   onClick: () => void;
 }
 
-// Dashed outline, muted — visually distinct from an applied Tag pill so a
-// suggestion never looks like it's already attached. Always rendered next
-// to the current tags (not hidden behind opening a picker) — one click to
-// add.
+// Dotted outline, muted — visually distinct from an applied Tag's solid
+// ("lined") border so a suggestion never looks like it's already attached.
+// Same rounded-sm/mono shape as Tag, not the pill language everything else
+// already uses. Always rendered next to the current tags (not hidden
+// behind opening a picker) — one click to add.
 export function TagSuggestion({ children, onClick }: TagSuggestionProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="border-ink-600 text-ink-500 hover:border-ink-500 hover:text-ink-300 inline-flex items-center gap-0.5 rounded-full border border-dashed px-2 py-0.5 text-xs"
+      className="border-nyx-600 text-nyx-500 hover:border-nyx-500 hover:text-nyx-300 inline-flex items-center gap-0.5 rounded-sm border border-dotted px-1.5 py-0.5 font-mono text-caption"
     >
       <Plus size={10} />
       {children}
     </button>
+  );
+}
+
+interface MomentTagChipProps {
+  children: ReactNode;
+  onRemove?: () => void;
+}
+
+// The other tag type -- moment_tags, a small curated vocabulary (each row
+// has synonyms) for tagging moments/notes, not the freeform many-per-task
+// work_tags Tag renders. Same rounded-sm/mono/lined-border shape as Tag so
+// they read as siblings, but Hypnos instead of Pontus (a fixed vocabulary
+// is closer kin to Field's curated set than to a freeform label) is the
+// one signal that tells the two apart at a glance.
+export function MomentTagChip({ children, onRemove }: MomentTagChipProps) {
+  return (
+    <span className="border-hypnos-500/40 text-hypnos-400 inline-flex items-center gap-1 rounded-sm border bg-hypnos-500/10 px-1.5 py-0.5 font-mono text-caption">
+      ~{children}
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="hover:bg-hypnos-500/20 rounded-sm"
+          aria-label="Remove moment tag"
+        >
+          <X size={11} />
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -339,10 +382,13 @@ export function TimeToggle({
       onClick={onClick}
       title={active ? 'Remove time' : 'Add time'}
       className={clsx(
-        'flex shrink-0 items-center gap-0.5 rounded border px-1 text-[10px] transition-colors',
+        // text-label, not the raw text-[10px] this used before -- same
+        // 10px value, but the named Chorus rung instead of an arbitrary
+        // one, matching how the rest of the app's small type is written.
+        'flex shrink-0 items-center gap-0.5 rounded border px-1 text-label transition-colors',
         active
-          ? 'border-copper-500 text-copper-400 bg-copper-500/10'
-          : 'border-ink-700 text-ink-500 hover:text-ink-300',
+          ? 'border-eros-500 text-eros-400 bg-eros-500/10'
+          : 'border-nyx-700 text-nyx-500 hover:text-nyx-300',
         className
       )}
     >
@@ -409,21 +455,34 @@ export function IconButton({
 type SelectProps = SelectHTMLAttributes<HTMLSelectElement>;
 
 export function Select({ className, children, ...props }: SelectProps) {
+  // className (e.g. consumers passing "w-full") lands on the wrapper, not
+  // the <select> itself -- the select is always w-full *of the wrapper*,
+  // so callers control overall width the same way they did before this
+  // became a two-element component.
   return (
-    <select
-      className={clsx(
-        // Same px-3/py-2 as TextInput -- they used to differ (px-2/py-1.5
-        // here vs px-3/py-2 there), which made the two controls render at
-        // different heights side by side.
-        'border-nyx-600 bg-nyx-800 text-nyx-100 rounded border px-3 py-2 text-body',
-        'focus:border-eros-400 focus:outline-none',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </select>
+    <div className={clsx('relative inline-block', className)}>
+      <select
+        className={clsx(
+          // Same px-3/py-2 as TextInput -- they used to differ (px-2/py-1.5
+          // here vs px-3/py-2 there), which made the two controls render at
+          // different heights side by side.
+          // appearance-none + the ChevronDown below replace the browser's
+          // native arrow, which used to sit flush against the border with
+          // no breathing room. pr-7 leaves room for the icon plus a gap --
+          // pr-8 (first pass) read as too much once seen next to TextInput.
+          'border-nyx-600 bg-nyx-800 text-nyx-100 w-full appearance-none rounded border px-3 py-2 pr-7 text-body',
+          'focus:border-eros-400 focus:outline-none',
+          'disabled:cursor-not-allowed disabled:opacity-50'
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+      <ChevronDown
+        size={13}
+        className="text-nyx-500 pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2"
+      />
+    </div>
   );
 }
 
@@ -546,6 +605,14 @@ interface DueBadgeProps {
   status?: Status | null;
 }
 
+// A due/target moment carries a real time only when it's not exactly
+// midnight -- same convention DueEditor/TargetEditor already use to
+// decide whether their own TimeToggle starts active.
+function hasExplicitTime(dateInput: string | Date): boolean {
+  const d = new Date(dateInput);
+  return d.getHours() !== 0 || d.getMinutes() !== 0;
+}
+
 // Plain icon + text, deliberately no border or background — that absence of
 // chrome is what keeps the copper-colored default from reading as a
 // clickable Add button, which owns the bordered-pill look everywhere else.
@@ -559,14 +626,17 @@ export function DueBadge({ due, status }: DueBadgeProps) {
     <span
       className={clsx(
         'inline-flex items-center gap-1 font-mono text-caption tracking-tight',
-        overdue ? 'text-tartarus-500 animate-pulse' : 'text-eros-400'
+        overdue ? 'text-tartarus-500' : 'text-eros-400'
       )}
     >
       <Flag size={11} className="shrink-0" />
-      <span>
+      <span className={overdue ? 'animate-pulse' : undefined}>
         <span className="font-bold">{parts.day}</span>
         <span>{parts.month}</span>
       </span>
+      {hasExplicitTime(due) && (
+        <span className="opacity-70">{formatTimeOnly(due)}</span>
+      )}
     </span>
   );
 }
@@ -603,28 +673,68 @@ export function TargetBadge({ target, past }: TargetBadgeProps) {
         <span className="font-bold">{startParts.day}</span>
         {startParts.month}
       </span>
-      <span className="text-nyx-600">→</span>
+      {hasExplicitTime(start) && (
+        <span className="opacity-70">{formatTimeOnly(start)}</span>
+      )}
       {endParts && (
-        <span>
-          <span className="font-bold">{endParts.day}</span>
-          {endParts.month}
-        </span>
+        <>
+          <span className="text-nyx-600">→</span>
+          <span>
+            <span className="font-bold">{endParts.day}</span>
+            {endParts.month}
+          </span>
+          {end && hasExplicitTime(end) && (
+            <span className="opacity-70">{formatTimeOnly(end)}</span>
+          )}
+        </>
       )}
     </span>
   );
 }
 
-// Indicates the task already has a future 'scheduled' event tied to it —
-// prevents scheduling it twice. Plain icon, no text, same chrome-less
-// convention as DueBadge so it doesn't compete visually with the pill badges.
-export function ScheduledBadge({ scheduled }: { scheduled?: boolean }) {
-  if (!scheduled) return null;
+// Plain helper, not inlined in the component -- calling Date.now()/`new
+// Date()` directly inside a component body trips the "impure function
+// during render" lint rule, same reason isOverdueInTz lives outside
+// DueBadge instead of inline.
+function isPastMoment(dateInput: string | Date): boolean {
+  return new Date(dateInput) < new Date();
+}
+
+interface ScheduledBadgeProps {
+  // The scheduled event's start time -- was a bare `scheduled?: boolean`,
+  // which could only ever render an icon. Accepting the real time lets
+  // the badge show it, and tell a still-upcoming slot from one that's
+  // already passed (still scheduled in the sense that it happened, but
+  // reads differently than "coming up").
+  scheduledAt?: string | Date | null;
+}
+
+// Indicates the task has a 'scheduled' calendar event tied to it — Gaia
+// (settled/upcoming) when the slot is still ahead, muted Nyx when it's
+// already passed. Chrome-less like DueBadge, but now carries the actual
+// time instead of being icon-only.
+export function ScheduledBadge({ scheduledAt }: ScheduledBadgeProps) {
+  if (!scheduledAt) return null;
+  const parts = formatDueCompact(scheduledAt);
+  if (!parts) return null;
+  const isPast = isPastMoment(scheduledAt);
+
   return (
     <span
-      title="Já agendada"
-      className="text-sage-500 inline-flex shrink-0 items-center"
+      title={isPast ? 'Agendada (passada)' : 'Já agendada'}
+      className={clsx(
+        'inline-flex shrink-0 items-center gap-1 font-mono text-caption tracking-tight',
+        isPast ? 'text-nyx-500' : 'text-gaia-500'
+      )}
     >
-      <CalendarClock size={12} />
+      <CalendarClock size={12} className="shrink-0" />
+      <span>
+        <span className="font-bold">{parts.day}</span>
+        <span>{parts.month}</span>
+      </span>
+      {hasExplicitTime(scheduledAt) && (
+        <span className="opacity-70">{formatTimeOnly(scheduledAt)}</span>
+      )}
     </span>
   );
 }
@@ -704,7 +814,7 @@ export function FieldBadge({ fieldName, size = 'sm' }: FieldBadgeProps) {
     <span
       title={fieldName}
       className={clsx(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-caption font-medium tracking-wide uppercase',
+        'inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-label font-bold tracking-wide uppercase',
         meta.classes.border,
         meta.classes.bg,
         meta.classes.text
@@ -739,7 +849,7 @@ export function ProjectChip({ name, fieldName, className }: ProjectChipProps) {
       )}
     >
       <FieldBadge fieldName={fieldName} size="xs" />
-      <span className="truncate">{name}</span>
+      <span className="truncate font-bold">{name}</span>
     </span>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Target, X } from 'lucide-react';
 import clsx from 'clsx';
 import { TextInput, TimeToggle } from './ui';
@@ -100,10 +100,16 @@ export default function TargetEditor({
   const [showStartTime, setShowStartTime] = useState(() => startValues.hasTime);
   const [showEndTime, setShowEndTime] = useState(() => endValues.hasTime);
 
-  useEffect(() => {
+  // Resets forceShowEnd/error whenever `value` changes from outside (e.g.
+  // switching between tasks) -- adjusted during render rather than in a
+  // useEffect, per React's own guidance for resetting state on a prop
+  // change, so this doesn't trigger an extra cascading render.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setForceShowEnd(false);
     setError(null);
-  }, [value]);
+  }
 
   const showEndInput = Boolean(end) || forceShowEnd;
 
@@ -174,16 +180,62 @@ export default function TargetEditor({
           and rotated between them (see max-[350px]: variants below). */}
       <div
         className={clsx(
-          'border-nyx-600 text-nyx-400 flex w-fit flex-wrap items-center gap-1.5 rounded-full border py-1 pr-2 pl-3 font-mono text-caption',
-          'max-[350px]:grid max-[350px]:grid-cols-[auto_1fr] max-[350px]:items-center max-[350px]:gap-x-2 max-[350px]:gap-y-1 max-[350px]:rounded-2xl max-[350px]:px-3.5 max-[350px]:py-2.5'
+          // h-8.5 matches DueEditor's pill height -- was py-1 (no fixed
+          // height), which read shorter than the app's other inputs.
+          'border-nyx-600 text-nyx-400 flex h-8.5 w-fit flex-wrap items-center gap-1.5 rounded-full border pr-2 pl-3 font-mono',
+          'max-[350px]:grid max-[350px]:grid-cols-[auto_1fr] max-[350px]:items-center max-[350px]:gap-x-2 max-[350px]:gap-y-1 max-[350px]:h-auto max-[350px]:rounded-2xl max-[350px]:px-3.5 max-[350px]:py-2.5'
         )}
       >
+        {/* Icon and input text both bumped to match the default input's
+            own size (15px icon, text-body) -- was 13px/text-caption,
+            smaller than every other input in the app. */}
         <Target
-          size={13}
+          size={15}
           className="shrink-0 max-[350px]:col-start-1 max-[350px]:row-span-3 max-[350px]:self-center"
         />
 
-        <span className="inline-flex shrink-0 items-center gap-1 max-[350px]:col-start-2 max-[350px]:row-start-1">
+        {/* Same layout as DueEditor: date, then (if active) a middot +
+            time, then the TimeToggle last -- was icon-first with the
+            toggle leading the date, a different order than Due's for no
+            real reason. Widths match Due's too (w-[11ch]/w-13). */}
+        <span className="inline-flex shrink-0 items-center gap-1.5 max-[350px]:col-start-2 max-[350px]:row-start-1">
+          <TextInput
+            type="date"
+            value={startValues.date}
+            disabled={disabled}
+            onChange={(e) => {
+              commitRange(
+                e.target.value,
+                startValues.time,
+                showStartTime,
+                endValues.date,
+                endValues.time,
+                showEndTime
+              );
+            }}
+            className="due-input text-nyx-400! w-[11ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+          />
+          {showStartTime && startValues.date && (
+            <>
+              <span className="opacity-50">·</span>
+              <TextInput
+                type="time"
+                value={startValues.time || '09:00'}
+                disabled={disabled}
+                onChange={(e) => {
+                  commitRange(
+                    startValues.date,
+                    e.target.value,
+                    true,
+                    endValues.date,
+                    endValues.time,
+                    showEndTime
+                  );
+                }}
+                className="due-input text-nyx-400! w-13! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+              />
+            </>
+          )}
           <TimeToggle
             active={showStartTime}
             disabled={disabled}
@@ -200,40 +252,6 @@ export default function TargetEditor({
               );
             }}
           />
-          <TextInput
-            type="date"
-            value={startValues.date}
-            disabled={disabled}
-            onChange={(e) => {
-              commitRange(
-                e.target.value,
-                startValues.time,
-                showStartTime,
-                endValues.date,
-                endValues.time,
-                showEndTime
-              );
-            }}
-            className="text-nyx-400! w-[9.5rem]! shrink-0 border-0! bg-transparent! p-0! text-center text-caption!"
-          />
-          {showStartTime && startValues.date && (
-            <TextInput
-              type="time"
-              value={startValues.time || '09:00'}
-              disabled={disabled}
-              onChange={(e) => {
-                commitRange(
-                  startValues.date,
-                  e.target.value,
-                  true,
-                  endValues.date,
-                  endValues.time,
-                  showEndTime
-                );
-              }}
-              className="text-nyx-400! w-20! shrink-0 border-0! bg-transparent! p-0! text-center text-caption!"
-            />
-          )}
         </span>
 
         {/* The arrow (and second date) only appear once the target spans more
@@ -246,29 +264,9 @@ export default function TargetEditor({
           </span>
         )}
 
-        <span className="inline-flex shrink-0 items-center gap-1 max-[350px]:col-start-2 max-[350px]:row-start-3">
+        <span className="inline-flex shrink-0 items-center gap-1.5 max-[350px]:col-start-2 max-[350px]:row-start-3">
           {showEndInput ? (
             <>
-              {/* toggle bookends the pill on the single-line (desktop)
-                  layout — order-2 pushes it after the date — but goes back
-                  to the left of its date once stacked to two lines */}
-              <TimeToggle
-                active={showEndTime}
-                disabled={disabled}
-                className="order-2 max-[350px]:order-none"
-                onClick={() => {
-                  const nextState = !showEndTime;
-                  setShowEndTime(nextState);
-                  commitRange(
-                    startValues.date,
-                    startValues.time,
-                    showStartTime,
-                    endValues.date,
-                    nextState ? endValues.time || '18:00' : '00:00',
-                    nextState
-                  );
-                }}
-              />
               <TextInput
                 type="date"
                 value={endValues.date}
@@ -283,47 +281,68 @@ export default function TargetEditor({
                     showEndTime
                   );
                 }}
-                className="text-nyx-400! w-[9.5rem]! shrink-0 border-0! bg-transparent! p-0! text-center text-caption!"
+                className="due-input text-nyx-400! w-[11ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
               />
               {showEndTime && endValues.date && (
-                <TextInput
-                  type="time"
-                  value={endValues.time || '18:00'}
-                  disabled={disabled}
-                  onChange={(e) => {
-                    commitRange(
-                      startValues.date,
-                      startValues.time,
-                      showStartTime,
-                      endValues.date,
-                      e.target.value,
-                      true
-                    );
-                  }}
-                  className="text-nyx-400! w-20! shrink-0 border-0! bg-transparent! p-0! text-center text-caption!"
-                />
+                <>
+                  <span className="opacity-50">·</span>
+                  <TextInput
+                    type="time"
+                    value={endValues.time || '18:00'}
+                    disabled={disabled}
+                    onChange={(e) => {
+                      commitRange(
+                        startValues.date,
+                        startValues.time,
+                        showStartTime,
+                        endValues.date,
+                        e.target.value,
+                        true
+                      );
+                    }}
+                    className="due-input text-nyx-400! w-13! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+                  />
+                </>
               )}
+              <TimeToggle
+                active={showEndTime}
+                disabled={disabled}
+                onClick={() => {
+                  const nextState = !showEndTime;
+                  setShowEndTime(nextState);
+                  commitRange(
+                    startValues.date,
+                    startValues.time,
+                    showStartTime,
+                    endValues.date,
+                    nextState ? endValues.time || '18:00' : '00:00',
+                    nextState
+                  );
+                }}
+              />
               <button
                 type="button"
                 disabled={disabled}
                 onClick={handleRemoveEnd}
                 title="Remove end date (single day)"
-                className="text-nyx-500 hover:text-tartarus-500 order-3 flex shrink-0 items-center max-[350px]:order-none"
+                className="text-nyx-500 hover:text-tartarus-500 flex shrink-0 items-center"
               >
                 <X size={12} />
               </button>
             </>
           ) : (
             startValues.date && (
+              // Matches the app's standard "add, bordered" pill (Forge)
+              // instead of a plain unbordered text+icon link, which was
+              // the only add control in the app without that chrome.
               <button
                 type="button"
                 disabled={disabled}
                 onClick={handleAddEnd}
                 title="Add end date"
-                className="text-nyx-500 hover:text-nyx-300 flex shrink-0 items-center gap-0.5"
+                className="border-nyx-700 text-nyx-500 hover:text-nyx-300 flex shrink-0 items-center gap-0.5 rounded border px-1.5 py-0.5 text-label transition-colors"
               >
-                <Plus size={12} />
-                <span>end</span>
+                <Plus size={10} /> end
               </button>
             )
           )}

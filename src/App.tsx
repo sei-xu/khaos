@@ -15,6 +15,7 @@ import WellspringPage from './pages/dev/WellspringPage';
 import SigilsPage from './pages/dev/SigilsPage';
 import ForgePage from './pages/dev/ForgePage';
 import ThresholdPage from './pages/dev/ThresholdPage';
+import EmblemPage from './pages/dev/EmblemPage';
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
       <Route path="/dev/vortex/sigils" element={<SigilsPage />} />
       <Route path="/dev/vortex/forge" element={<ForgePage />} />
       <Route path="/dev/vortex/threshold" element={<ThresholdPage />} />
+      <Route path="/dev/vortex/emblem" element={<EmblemPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
