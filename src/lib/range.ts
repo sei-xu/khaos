@@ -77,6 +77,27 @@ export function endOfLocalDay(d: Date): Date {
   return out;
 }
 
+// Public counterpart of isUntimed — shared by TargetBadge/TargetEditor so
+// both agree on what counts as "no explicit time" instead of keeping their
+// own copies of the same midnight check.
+export function hasExplicitTime(d: Date): boolean {
+  return !isUntimed(d);
+}
+
+// A range reads as a single all-day window when it starts at local midnight
+// and ends at 23:59 of that same local day — the shape TargetEditor already
+// produces for a target given only a start date (see effectiveEnd above).
+// Display can then collapse it to just the start date instead of spelling
+// out a start→end pair that says nothing beyond "that one day".
+export function isAllDayRange(start: Date | null, end: Date | null): boolean {
+  if (!start || !end) return false;
+  const sameLocalDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+  return sameLocalDay && isUntimed(start) && end.getHours() === 23 && end.getMinutes() === 59;
+}
+
 // A `target` is a planning window, and its "end target" is the moment by which
 // the work is meant to be finished. The concept:
 //   • a single date (no end bound) means "do it that day" — end target is

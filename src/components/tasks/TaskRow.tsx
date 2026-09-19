@@ -3,11 +3,11 @@ import {
   StatusBadge,
   PriorityBadge,
   DueBadge,
-  TargetBadge,
   ScheduledBadge,
   TodayToggle,
   ProjectChip,
 } from '../common/ui';
+import { TargetBadge } from '../common/TargetEditor';
 import { minutesToHuman } from '../../lib/dateUtils';
 import { useSequenceCounts } from '../../hooks/useSequence';
 import { useScheduledTaskIds } from '../../hooks/useEvents';

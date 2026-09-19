@@ -15,12 +15,11 @@ import {
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  TargetBadge,
   StatusBadge,
   StatusPicker,
   PriorityPicker,
 } from '../common/ui';
-import TargetEditor from '../common/TargetEditor';
+import TargetEditor, { TargetBadge } from '../common/TargetEditor';
 import {
   useTaskMutations,
   useSectionMutations,
