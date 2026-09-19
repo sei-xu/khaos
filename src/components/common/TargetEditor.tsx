@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, Target, X } from 'lucide-react';
 import clsx from 'clsx';
 import { TextInput, TimeToggle } from './ui';
@@ -8,6 +8,7 @@ import {
   endOfLocalDay,
   hasExplicitTime,
   isAllDayRange,
+  targetEnd,
 } from '../../lib/range';
 import { formatDueCompact, formatTimeOnly } from '../../lib/dateUtils';
 
@@ -16,16 +17,29 @@ interface TargetBadgeProps {
   past?: boolean;
 }
 
+// Plain helper, not inlined in the component -- calling `new Date()`
+// directly inside a component body trips the "impure function during
+// render" lint rule (same reason ui.tsx's own isPastMoment/ScheduledBadge
+// pair lives outside the component).
+function isPastTarget(target: string): boolean {
+  const deadline = targetEnd(target);
+  return Boolean(deadline && deadline < new Date());
+}
+
 // Compact display of the `target` planning window — start (bold day +
 // month, same convention as DueBadge) through end, or an arrow with no
-// second date when the target is open-ended. `past` renders it in the
-// design system's caution step (tartarus-300 — same danger hue as
-// overdue, lighter, see index.css) for a target window that already ended
-// with work still open, instead of the neutral gray used for a window
-// covering today. A range that's just "start at midnight through 23:59 of
-// the same day" (the shape a single-day target already stores, per
-// effectiveEnd below) collapses to showing only the start date — spelling
-// out a start→end pair there says nothing beyond "that one day".
+// second date when the target is open-ended. Renders in the design
+// system's caution step (tartarus-300 — same danger hue as overdue,
+// lighter, see index.css) for a target window that already ended with
+// work still open, instead of the neutral gray used for a window covering
+// today or later -- `past` lets a caller override the default "compare
+// targetEnd to now" check (e.g. Dashboard's own day-boundary grouping),
+// but every other caller gets the same red state for free instead of
+// needing to compute and pass it themselves. A range that's just "start at
+// midnight through 23:59 of the same day" (the shape a single-day target
+// already stores, per effectiveEnd below) collapses to showing only the
+// start date — spelling out a start→end pair there says nothing beyond
+// "that one day".
 export function TargetBadge({ target, past }: TargetBadgeProps) {
   if (!target) return null;
   const { start, end } = parseRange(target);
@@ -34,12 +48,13 @@ export function TargetBadge({ target, past }: TargetBadgeProps) {
   if (!startParts) return null;
   const allDay = isAllDayRange(start, end);
   const endParts = end && !allDay ? formatDueCompact(end) : null;
+  const isPast = past ?? isPastTarget(target);
 
   return (
     <span
       className={clsx(
         'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] tracking-tight',
-        past ? 'border-tartarus-300 text-tartarus-300' : 'border-nyx-600 text-nyx-400'
+        isPast ? 'border-tartarus-300 text-tartarus-300' : 'border-nyx-600 text-nyx-400'
       )}
     >
       <Target size={11} className="shrink-0" />
@@ -52,7 +67,7 @@ export function TargetBadge({ target, past }: TargetBadgeProps) {
       )}
       {endParts && (
         <>
-          <span className="text-nyx-600">→</span>
+          <span className={isPast ? 'text-tartarus-300' : 'text-nyx-600'}>→</span>
           <span>
             <span className="font-bold">{endParts.day}</span>
             {endParts.month}
@@ -155,6 +170,7 @@ export default function TargetEditor({
   const { start, end } = parseRange(value ?? null);
   const [error, setError] = useState<string | null>(null);
   const [forceShowEnd, setForceShowEnd] = useState(false);
+  const startDateRef = useRef<HTMLInputElement>(null);
 
   const startValues = useMemo(() => getLocalValues(start), [start]);
   const endValues = useMemo(() => getLocalValues(end), [end]);
@@ -251,10 +267,24 @@ export default function TargetEditor({
         {/* Icon and input text both bumped to match the default input's
             own size (15px icon, text-body) -- was 13px/text-caption,
             smaller than every other input in the app. */}
-        <Target
-          size={15}
-          className="shrink-0 max-[350px]:col-start-1 max-[350px]:row-span-3 max-[350px]:self-center"
-        />
+        {/* Clicking the icon opens the start date's native picker --
+            showPicker() is the standards way to trigger it programmatically;
+            .click() is the fallback for browsers that don't support it yet
+            (e.g. older Safari). */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            const input = startDateRef.current;
+            if (!input) return;
+            if (typeof input.showPicker === 'function') input.showPicker();
+            else input.click();
+          }}
+          title="Open date picker"
+          className="text-nyx-400 hover:text-nyx-200 flex shrink-0 items-center disabled:cursor-not-allowed max-[350px]:col-start-1 max-[350px]:row-span-3 max-[350px]:self-center"
+        >
+          <Target size={15} />
+        </button>
 
         {/* Same layout as DueEditor: date, then (if active) a middot +
             time, then the TimeToggle last -- was icon-first with the
@@ -262,6 +292,7 @@ export default function TargetEditor({
             real reason. Widths match Due's too (w-[11ch]/w-13). */}
         <span className="inline-flex shrink-0 items-center gap-1.5 max-[350px]:col-start-2 max-[350px]:row-start-1">
           <TextInput
+            ref={startDateRef}
             type="date"
             value={startValues.date}
             disabled={disabled}
