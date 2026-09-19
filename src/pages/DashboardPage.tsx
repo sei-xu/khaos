@@ -36,11 +36,11 @@ import { parseRange, targetEnd } from '../lib/range';
 import { getEventLabel } from '../lib/eventLabel';
 import {
   DueBadge,
-  TargetBadge,
   StatusIcon,
   PriorityBadge,
   ProjectChip,
 } from '../components/common/ui';
+import { TargetBadge } from '../components/common/TargetEditor';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import type { Event, Field, Id, Project, Section, Task } from '../lib/types';
 

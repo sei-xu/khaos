@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { StatusBadge, PriorityBadge, DueBadge, TargetBadge, FieldBadge } from '../common/ui';
+import { StatusBadge, PriorityBadge, DueBadge, FieldBadge } from '../common/ui';
+import { TargetBadge } from '../common/TargetEditor';
 import { getFieldMeta } from '../../lib/fieldsConfig';
 import type { Project } from '../../lib/types';
 

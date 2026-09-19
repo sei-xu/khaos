@@ -9,7 +9,6 @@ import {
   FieldBadge,
   ProjectChip,
   DueBadge,
-  TargetBadge,
   ScheduledBadge,
   TaskProgressBar,
   Tag,
@@ -24,7 +23,7 @@ import TaskRow from '../../components/tasks/TaskRow';
 import { InlineEventPreview } from '../../components/assistant/InlineEventPreview';
 import RoutineCard from '../../components/routines/RoutineCard';
 import DueEditor from '../../components/common/DueEditor';
-import TargetEditor from '../../components/common/TargetEditor';
+import TargetEditor, { TargetBadge } from '../../components/common/TargetEditor';
 import { minutesToHuman } from '../../lib/dateUtils';
 import { STATUSES, PRIORITIES } from '../../lib/constants';
 import { FIELDS_CONFIG, FIELD_EMOJI } from '../../lib/fieldsConfig';

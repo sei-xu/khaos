@@ -2,7 +2,69 @@ import { useMemo, useState } from 'react';
 import { Plus, Target, X } from 'lucide-react';
 import clsx from 'clsx';
 import { TextInput, TimeToggle } from './ui';
-import { parseRange, formatRange, endOfLocalDay } from '../../lib/range';
+import {
+  parseRange,
+  formatRange,
+  endOfLocalDay,
+  hasExplicitTime,
+  isAllDayRange,
+} from '../../lib/range';
+import { formatDueCompact, formatTimeOnly } from '../../lib/dateUtils';
+
+interface TargetBadgeProps {
+  target?: string | null;
+  past?: boolean;
+}
+
+// Compact display of the `target` planning window — start (bold day +
+// month, same convention as DueBadge) through end, or an arrow with no
+// second date when the target is open-ended. `past` renders it in the
+// design system's caution step (tartarus-300 — same danger hue as
+// overdue, lighter, see index.css) for a target window that already ended
+// with work still open, instead of the neutral gray used for a window
+// covering today. A range that's just "start at midnight through 23:59 of
+// the same day" (the shape a single-day target already stores, per
+// effectiveEnd below) collapses to showing only the start date — spelling
+// out a start→end pair there says nothing beyond "that one day".
+export function TargetBadge({ target, past }: TargetBadgeProps) {
+  if (!target) return null;
+  const { start, end } = parseRange(target);
+  if (!start) return null;
+  const startParts = formatDueCompact(start);
+  if (!startParts) return null;
+  const allDay = isAllDayRange(start, end);
+  const endParts = end && !allDay ? formatDueCompact(end) : null;
+
+  return (
+    <span
+      className={clsx(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] tracking-tight',
+        past ? 'border-tartarus-300 text-tartarus-300' : 'border-nyx-600 text-nyx-400'
+      )}
+    >
+      <Target size={11} className="shrink-0" />
+      <span>
+        <span className="font-bold">{startParts.day}</span>
+        {startParts.month}
+      </span>
+      {!allDay && hasExplicitTime(start) && (
+        <span className="opacity-70">{formatTimeOnly(start)}</span>
+      )}
+      {endParts && (
+        <>
+          <span className="text-nyx-600">→</span>
+          <span>
+            <span className="font-bold">{endParts.day}</span>
+            {endParts.month}
+          </span>
+          {end && hasExplicitTime(end) && (
+            <span className="opacity-70">{formatTimeOnly(end)}</span>
+          )}
+        </>
+      )}
+    </span>
+  );
+}
 
 interface TargetEditorProps {
   value?: string | null;
