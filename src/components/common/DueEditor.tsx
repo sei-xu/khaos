@@ -37,9 +37,12 @@ export default function DueEditor({
   const [showTime, setShowTime] = useState(() => {
     if (!value) return false;
     const timePart = value.split('T')[1];
-    return Boolean(timePart) && !timePart.startsWith('00:00:00');
+    return Boolean(timePart) && !timePart.startsWith('23:59:00');
   });
 
+  // A due date with no explicit time means "by end of that day," so it's
+  // stored at 23:59, not midnight -- midnight would read as "due at the
+  // very start of the day," which isn't what an untimed due date means.
   function commit(dateStr: string, timeStr: string, isTimeActive: boolean) {
     if (!dateStr) {
       onChange(null);
@@ -50,6 +53,8 @@ export default function DueEditor({
     if (isTimeActive && timeStr) {
       const [hours, minutes] = timeStr.split(':').map(Number);
       localDate.setHours(hours, minutes, 0, 0);
+    } else {
+      localDate.setHours(23, 59, 0, 0);
     }
     onChange(localDate.toISOString());
   }
