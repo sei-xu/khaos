@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   useEffect,
   useRef,
   type ButtonHTMLAttributes,
@@ -486,19 +487,25 @@ export function Select({ className, children, ...props }: SelectProps) {
 
 type TextInputProps = InputHTMLAttributes<HTMLInputElement>;
 
-export function TextInput({ className, ...props }: TextInputProps) {
-  return (
-    <input
-      className={clsx(
-        'border-nyx-600 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 w-full rounded border px-3 py-2 text-body',
-        'focus:border-eros-400 focus:outline-none',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        className
-      )}
-      {...props}
-    />
-  );
-}
+// forwardRef so callers can reach the underlying <input> directly (e.g.
+// TargetEditor calling the native showPicker() on it from a click
+// elsewhere in the pill) without every other call site needing to care.
+export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(
+  function TextInput({ className, ...props }, ref) {
+    return (
+      <input
+        ref={ref}
+        className={clsx(
+          'border-nyx-600 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 w-full rounded border px-3 py-2 text-body',
+          'focus:border-eros-400 focus:outline-none',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          className
+        )}
+        {...props}
+      />
+    );
+  }
+);
 
 interface ModalProps {
   open: boolean;
@@ -603,12 +610,21 @@ interface DueBadgeProps {
   status?: Status | null;
 }
 
-// A due/target moment carries a real time only when it's not exactly
-// midnight -- same convention DueEditor/TargetEditor already use to
-// decide whether their own TimeToggle starts active.
+// A scheduled/target moment carries a real time only when it's not
+// exactly midnight -- same convention TargetEditor uses to decide
+// whether its own TimeToggle starts active.
 function hasExplicitTime(dateInput: string | Date): boolean {
   const d = new Date(dateInput);
   return d.getHours() !== 0 || d.getMinutes() !== 0;
+}
+
+// Due is the one exception: an untimed due date means "by end of that
+// day," so it's stored at 23:59 (see DueEditor/TaskDetailModal's own
+// commit logic) rather than midnight -- so a due only carries a real time
+// when it's not exactly 23:59.
+function hasExplicitDueTime(dateInput: string | Date): boolean {
+  const d = new Date(dateInput);
+  return d.getHours() !== 23 || d.getMinutes() !== 59;
 }
 
 // Plain icon + text, deliberately no border or background — that absence of
@@ -632,7 +648,7 @@ export function DueBadge({ due, status }: DueBadgeProps) {
         <span className="font-bold">{parts.day}</span>
         <span>{parts.month}</span>
       </span>
-      {hasExplicitTime(due) && (
+      {hasExplicitDueTime(due) && (
         <span className="opacity-70">{formatTimeOnly(due)}</span>
       )}
     </span>

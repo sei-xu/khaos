@@ -551,7 +551,7 @@ export default function TaskDetailModal({
   const [showDueTime, setShowDueTime] = useState(() => {
     if (!task.due) return false;
     const timePart = task.due.split('T')[1];
-    return Boolean(timePart) && !timePart.startsWith('00:00:00');
+    return Boolean(timePart) && !timePart.startsWith('23:59:00');
   });
 
   const section = sections.find((s) => s.id === task.section_id);
@@ -667,7 +667,9 @@ export default function TaskDetailModal({
       const [hours, minutes] = timeStr.split(':').map(Number);
       localDate.setHours(hours, minutes, 0, 0);
     } else {
-      localDate.setHours(0, 0, 0, 0);
+      // A due date with no explicit time means "by end of that day," so
+      // it's stored at 23:59, not midnight.
+      localDate.setHours(23, 59, 0, 0);
     }
 
     patch({ due: localDate.toISOString() });
