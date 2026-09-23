@@ -1,5 +1,18 @@
 # Working with the user
 
+## Build, lint and test commands
+
+React/Vite/TypeScript frontend backed by Supabase. Always run via the `npm run <script>` below — don't infer the command from the file layout:
+
+- **Build**: `npm run build` (`vite build`).
+- **Typecheck**: `npm run typecheck` (`tsc --noEmit`).
+- **Lint**: `npm run lint` (`eslint . --ext .js,.jsx,.ts,.tsx --max-warnings 0` — zero warnings tolerated, not just zero errors; `npm run lint:fix` to auto-fix).
+- **Test**: **no test suite is configured** — no vitest/jest, no `*.test.ts` files, no `test` script in `package.json`. Don't invent one; verification here is typecheck + lint + manual/browser check.
+- **Format**: `npm run format` (`prettier --write`, not `--check` — it mutates; rules in `.prettierrc`: single quotes, `trailingComma: es5`, plus `prettier-plugin-tailwindcss` for class sorting).
+- **DB**: `npm run db:migration:new` (new Supabase migration), `npm run db:push` (push to linked project), `npm run db:dump` (dump remote schema to `schema.sql` + regenerate the edge-function schema via `gen:edge-schema`).
+
+Style convention beyond the language default: `strict` + `noFallthroughCasesInSwitch` in `tsconfig.json`; `@typescript-eslint/consistent-type-imports` is a warning (prefer `import type`); `no-console` warns except `console.warn`/`console.error`.
+
 ## Feature backlog tracking
 
 Superseded the old inline-numbered-topic scheme (`1a`, `2`, `NEW`, etc. spoken in
