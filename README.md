@@ -95,6 +95,34 @@ supabase/
 schema.sql          dump gerado do schema (npm run db:dump)
 ```
 
+## PWA e ícones
+
+O Khaos roda em produção em <https://khaos-seixu.vercel.app/> e é instalável
+como app (Chrome "Instalar app", ou "Adicionar à tela de início" no iOS). O
+manifesto é `public/site.webmanifest`; os ícones são os PNGs em `public/`.
+
+Quatro coisas não óbvias, apuradas depurando um caso em que o app instalado no
+macOS mostrava o monograma cinza do Chrome no lugar da estrela:
+
+- **O ícone de um app instalado é gravado no momento da instalação.** Mudar o
+  manifesto sozinho não atualiza um app que já existe — nem com deploy novo,
+  nem com recarga da página.
+- **A atualização fica pendente até que todas as janelas do app sejam
+  fechadas.** O Chrome guarda os ícones novos num estágio `Pending` dentro do
+  perfil e só os promove quando o app não tem nenhuma janela aberta. Se o
+  ícone parecer "preso", é quase sempre isto; fechar tudo e reabrir resolve.
+  Reinstalar o app também.
+- **No macOS quem governa o ícone do app é a entrada `maskable` do
+  manifesto**, não a `any`. O Chrome só promove o conjunto maskable para o
+  `.icns` do atalho em `~/Applications/Chrome Apps.localized/`.
+- **A arte maskable fica quadrada e full-bleed.** O arredondamento (o
+  *squircle* da Apple) é aplicado pelo Chrome; arredondar na origem produziria
+  canto duplo.
+
+Se o ícone continuar errado depois de reinstalar, aí é cache do macOS, não do
+Chrome: `killall Dock`, e se persistir
+`rm -rf ~/Library/Caches/com.apple.iconservices.store && killall Dock Finder`.
+
 ## Documentação
 
 - [Banco de dados](docs/01-database.md)

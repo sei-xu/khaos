@@ -46,6 +46,7 @@ work that grows out of them. Roadmap phases live in
 | [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
 | [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 |
+| [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 
 ---
 
@@ -529,9 +530,70 @@ installed app is still the *same* app (no second `Khaos.app`, same profile
 directory `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, star icon intact). If a duplicate
 app appears or the monogram returns, `"id"` wasn't neutral and C gets reverted.
 
+**Implemented on 2026-09-30 — C and D are done; the item stays open pending
+approval.**
+
+- ~~**C** — `"id": "/"` and `"scope": "/"` added to `public/site.webmanifest`.~~
+  Verified that the change adds exactly those two keys and alters nothing else:
+  the three icon entries are byte-identical to the previous revision, which is
+  what this scope required.
+- ~~**D** — `## PWA e ícones` section added to `README.md`~~, between
+  "Estrutura de arquivos" and "Documentação": the production URL, the four
+  non-obvious facts (icon committed at install time; update held in `Pending`
+  until every window closes; on macOS the maskable entry governs the app icon;
+  maskable art stays square because Chrome applies the squircle), and the
+  macOS icon-cache commands as a last resort.
+
+The whole diff is two files and +30 lines. Verification: `npm run typecheck`
+clean, `npm run build` clean (`dist/site.webmanifest` carries both new fields,
+icons unchanged), manifest parses with `id` and `scope` present.
+**`npm run lint` fails, but not because of this change** — all 16 problems are
+in `src/` files this branch never touches, and neither `.webmanifest` nor `.md`
+is matched by eslint's `--ext`. Tracked separately under
+[`npm run lint` fails on main](#npm-run-lint-fails-on-main).
+
+**Still to confirm, after this deploys** — the one risk in C is identity, not
+appearance. Check that the installed app is still the *same* app: no second
+`Khaos.app` under `~/Applications/Chrome Apps.localized/`, the profile
+directory still `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, the star icon intact, and
+no `Pending Manifest Icons/` reappearing. If a duplicate app shows up or the
+monogram returns, `"id"` wasn't neutral after all and C should be reverted.
+
 Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
 native mobile app explicitly out of scope. This only hardens the existing PWA,
 so it contradicts no registered phase.
+
+---
+
+## `npm run lint` fails on main
+
+started 2026-09-30
+
+Found while verifying the PWA manifest change, which touches no TypeScript at
+all. `npm run lint` exits 1 with **16 problems (11 errors, 5 warnings)**, none
+of them from that change. This contradicts `CLAUDE.md`, which documents the
+lint gate as "zero warnings tolerated, not just zero errors".
+
+Three groups:
+
+- **9 × `@typescript-eslint/no-explicit-any`**, all in `src/lib/chat/toolsCore.ts`
+  (lines 91, 532–592).
+- **2 × `react-hooks/set-state-in-effect`** — `AppShell.tsx:302` (closing the
+  drawer on route change) and `CommandPalette.tsx:49` (clearing the query when
+  the palette opens). Both look like a newer version of the React hooks plugin
+  flagging code that was already there, rather than newly written mistakes.
+- **5 warnings** — one unused `strokeWidth` arg in `StagingAcademyIcon.tsx`,
+  four `react-refresh/only-export-components` in context modules.
+
+Not fixed here: out of scope for the PWA work, and the `any` cluster in
+`toolsCore.ts` in particular deserves its own pass rather than a drive-by.
+Worth deciding whether these get fixed or whether the rule set gets adjusted —
+right now the documented gate and the actual state disagree, which makes the
+lint step useless as a signal.
+
+Gotcha noticed in passing: `eslint .` descends into `.claude/worktrees/`, so
+while a worktree is checked out there the problem counts come back exactly
+doubled (32 instead of 16). Worth an ignore entry if worktrees are used often.
 
 ---
 
