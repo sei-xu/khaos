@@ -45,7 +45,6 @@ work that grows out of them. Roadmap phases live in
 | [Components — column chips](#components--column-chips) | 2026-07-23 |
 | [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
-| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
 
@@ -434,138 +433,6 @@ Entity outcomes confirmed with the user:
 
 ---
 
-## PWA app icon — Chrome no macOS
-
-started 2026-09-30
-
-User reported that the app icon doesn't appear when Khaos is turned into an app
-from Chrome on macOS — `~/Applications/Chrome Apps.localized/Khaos.app` showed
-Chrome's grey "K" monogram fallback instead of the copper star.
-
-**Root cause: environment, not code.** The app for the `Default` profile had
-been installed *before* the manifest existed, so Chrome committed the monogram
-as the app's icon. The later manifest update then sat in Chrome's `Pending`
-stage, which is only promoted once every window of the app is closed.
-
-~~Reported symptom — fixed on 2026-09-30 by closing the app and reinstalling.~~
-Confirmed by direct measurement, not inference: the shim was rewritten at
-04:13, `app.icns` now carries a 512 slot with alpha and the copper star inside
-Apple's squircle (art measured at 80.5% of the canvas), and both `Pending
-Manifest Icons/` and `Pending Trusted Icons/` are gone from the profile. The
-stale app under `Profile 6` is gone too.
-
-**What the investigation established** (branch
-`hprj/investigation_planning/7db812a4…`; full forensics in `.hprj/handoff.json`):
-
-- On macOS the app icon comes from the **maskable** manifest entry.
-  `Trusted Icons/Icons/` exists but is empty — only the maskable set was
-  promoted. Degrading that entry would change the app icon.
-- One maskable size is enough: Chrome downsamples the seven sizes in
-  `Trusted Icons/Icons Maskable/` from the single declared 512.
-- The art must stay **square and full-bleed**. Chrome applies the squircle
-  itself, so pre-rounding it would produce a double corner.
-- An earlier claim that the art violated the maskable safe zone was a false
-  premise — it was read off `favicon.svg`, which is not the art in the PNGs —
-  and is retracted. Measured: the star's outer radius is 128 px on a 512
-  canvas, well inside the 204.8 px safe zone.
-- Production serving is fine. The manifest and every icon return 200 with the
-  right content types, and `vercel.json`'s catch-all rewrite doesn't swallow
-  statics. Nothing to change there.
-
-**Still open — the hardening, now scoped to C and D (see the decision below).**
-The real (non-blocking) defect is the inverse of the original diagnosis: the
-same `icon-512.png` serves both `any` and `maskable` at 50% fill, so on the
-surfaces that consume `any` unmasked the star renders too small.
-
-- **A** (out this round) — split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
-  while `icon-192`/`icon-512` and a new `icon-1024` get the star rescaled to
-  ~80%; write them all with an alpha channel.
-- **B** (out) — generate the icons with a dependency-free Node rasteriser
-  (`scripts/gen-icons.mjs`) — not `sharp`, and not by rasterising the SVG. The
-  art is a 16-vertex polygon whose geometry is fully determined (outer radius
-  13, inner 5, points every 45°), a native dependency is disproportionate here,
-  and `sharp`'s output varies across versions, which would defeat the
-  idempotency check. `favicon.svg` becomes generated from the same vertex table
-  so the SVG and the PNGs can't drift apart again.
-- **C —** add `id` and `scope` to `site.webmanifest`. Their absence is the identity
-  fragility that produced this incident in the first place.
-- **D —** a short README section on the install-time icon cycle: an app icon is
-  committed when the app is installed, and a manifest change alone never
-  updates an app that already exists.
-- Caveat to flag before shipping: the new anti-aliasing changes the maskable's
-  bytes even at an identical scale, so the deploy needs one more
-  close-every-window cycle before Chrome promotes the icon. Expect it — it
-  isn't a regression.
-- Verification is typecheck + lint + build + manual checks (no test suite, per
-  this repo's convention), plus a bounding-box measurement of each PNG against
-  the `#161b22` background. That measurement is precisely what would have
-  caught the false safe-zone premise. Note that `npm run lint` does not cover
-  `.mjs` files, and extending it would break `--max-warnings 0`.
-
-**Decision, 2026-09-30: do C and D only.** Investigation and planning are
-closed on that scope; implementation is the next phase.
-
-- **C and D are in.** `id`/`scope` is a two-line change, and `"id": "/"` is
-  identity-neutral — the default id already resolves to `start_url`, so it
-  describes existing behaviour rather than changing it, which is also why it
-  won't trigger another icon cycle. The README note is the highest return per
-  effort here: the whole incident reduces to "app icons are committed at
-  install time".
-- **A is out this round.** The browser tab is already served by `favicon.svg`
-  at ~81%, so the only genuinely visible symptom of the 50% fill is
-  `apple-touch-icon.png` on an iPhone home screen, and no Android or Windows
-  surface is in play. Worth revisiting only if the iOS home screen starts
-  mattering.
-- **B is out.** Its beneficiary is future debugging, not the app: the SVG/PNG
-  drift never broke anything a user sees — it made an earlier investigation
-  assert something false. Hand-writing a PNG encoder and rasteriser to
-  regenerate five images that change almost never is a maintenance liability
-  for a solo project. If A is ever done, generating the PNGs once and
-  committing them is enough.
-
-Because A and B are out, nothing about the icon files changes, so the
-close-every-window caveat above does not apply to this round, and the
-verification narrows to: typecheck, lint, build, the manifest parsing with
-both new fields, and — the one that matters — confirming after deploy that the
-installed app is still the *same* app (no second `Khaos.app`, same profile
-directory `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, star icon intact). If a duplicate
-app appears or the monogram returns, `"id"` wasn't neutral and C gets reverted.
-
-**Implemented on 2026-09-30 — C and D are done; the item stays open pending
-approval.**
-
-- ~~**C** — `"id": "/"` and `"scope": "/"` added to `public/site.webmanifest`.~~
-  Verified that the change adds exactly those two keys and alters nothing else:
-  the three icon entries are byte-identical to the previous revision, which is
-  what this scope required.
-- ~~**D** — `## PWA e ícones` section added to `README.md`~~, between
-  "Estrutura de arquivos" and "Documentação": the production URL, the four
-  non-obvious facts (icon committed at install time; update held in `Pending`
-  until every window closes; on macOS the maskable entry governs the app icon;
-  maskable art stays square because Chrome applies the squircle), and the
-  macOS icon-cache commands as a last resort.
-
-The whole diff is two files and +30 lines. Verification: `npm run typecheck`
-clean, `npm run build` clean (`dist/site.webmanifest` carries both new fields,
-icons unchanged), manifest parses with `id` and `scope` present.
-**`npm run lint` fails, but not because of this change** — all 16 problems are
-in `src/` files this branch never touches, and neither `.webmanifest` nor `.md`
-is matched by eslint's `--ext`. Tracked separately under
-[`npm run lint` fails on main](#npm-run-lint-fails-on-main).
-
-**Still to confirm, after this deploys** — the one risk in C is identity, not
-appearance. Check that the installed app is still the *same* app: no second
-`Khaos.app` under `~/Applications/Chrome Apps.localized/`, the profile
-directory still `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, the star icon intact, and
-no `Pending Manifest Icons/` reappearing. If a duplicate app shows up or the
-monogram returns, `"id"` wasn't neutral after all and C should be reverted.
-
-Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
-native mobile app explicitly out of scope. This only hardens the existing PWA,
-so it contradicts no registered phase.
-
----
-
 ## `npm run lint` fails on main
 
 started 2026-09-30
@@ -640,6 +507,7 @@ Not started; no code change involved.
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 | 2026-08-07 |
 | [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible) | 2026-08-12 | 2026-08-14 |
 | [Unify target pill + input view](#unify-target-pill--input-view) | 2026-09-19 | 2026-09-19 |
+| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 | 2026-09-30 |
 
 Round 1 (the token layer) is archived separately in
 [`backlog-round-1.md`](./backlog-round-1.md).
@@ -803,3 +671,141 @@ sandbox had no live Supabase data). Worth a quick look once deployed: an
 overdue target row reads tartarus-red including the arrow; clicking the
 target icon pops the date picker; an untimed due date shows no time badge
 and behaves as end-of-day wherever it's compared against "now".
+
+### PWA app icon — Chrome no macOS
+
+2026-09-30 → 2026-09-30 · approved by the user
+
+User reported that the app icon doesn't appear when Khaos is turned into an app
+from Chrome on macOS — `~/Applications/Chrome Apps.localized/Khaos.app` showed
+Chrome's grey "K" monogram fallback instead of the copper star.
+
+**Root cause: environment, not code.** The app for the `Default` profile had
+been installed *before* the manifest existed, so Chrome committed the monogram
+as the app's icon. The later manifest update then sat in Chrome's `Pending`
+stage, which is only promoted once every window of the app is closed.
+
+~~Reported symptom — fixed on 2026-09-30 by closing the app and reinstalling.~~
+Confirmed by direct measurement, not inference: the shim was rewritten at
+04:13, `app.icns` now carries a 512 slot with alpha and the copper star inside
+Apple's squircle (art measured at 80.5% of the canvas), and both `Pending
+Manifest Icons/` and `Pending Trusted Icons/` are gone from the profile. The
+stale app under `Profile 6` is gone too.
+
+**What the investigation established** (branch
+`hprj/investigation_planning/7db812a4…`; full forensics in `.hprj/handoff.json`):
+
+- On macOS the app icon comes from the **maskable** manifest entry.
+  `Trusted Icons/Icons/` exists but is empty — only the maskable set was
+  promoted. Degrading that entry would change the app icon.
+- One maskable size is enough: Chrome downsamples the seven sizes in
+  `Trusted Icons/Icons Maskable/` from the single declared 512.
+- The art must stay **square and full-bleed**. Chrome applies the squircle
+  itself, so pre-rounding it would produce a double corner.
+- An earlier claim that the art violated the maskable safe zone was a false
+  premise — it was read off `favicon.svg`, which is not the art in the PNGs —
+  and is retracted. Measured: the star's outer radius is 128 px on a 512
+  canvas, well inside the 204.8 px safe zone.
+- Production serving is fine. The manifest and every icon return 200 with the
+  right content types, and `vercel.json`'s catch-all rewrite doesn't swallow
+  statics. Nothing to change there.
+
+**Still open — the hardening, now scoped to C and D (see the decision below).**
+The real (non-blocking) defect is the inverse of the original diagnosis: the
+same `icon-512.png` serves both `any` and `maskable` at 50% fill, so on the
+surfaces that consume `any` unmasked the star renders too small.
+
+- **A** (out this round) — split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
+  while `icon-192`/`icon-512` and a new `icon-1024` get the star rescaled to
+  ~80%; write them all with an alpha channel.
+- **B** (out) — generate the icons with a dependency-free Node rasteriser
+  (`scripts/gen-icons.mjs`) — not `sharp`, and not by rasterising the SVG. The
+  art is a 16-vertex polygon whose geometry is fully determined (outer radius
+  13, inner 5, points every 45°), a native dependency is disproportionate here,
+  and `sharp`'s output varies across versions, which would defeat the
+  idempotency check. `favicon.svg` becomes generated from the same vertex table
+  so the SVG and the PNGs can't drift apart again.
+- **C —** add `id` and `scope` to `site.webmanifest`. Their absence is the identity
+  fragility that produced this incident in the first place.
+- **D —** a short README section on the install-time icon cycle: an app icon is
+  committed when the app is installed, and a manifest change alone never
+  updates an app that already exists.
+- Caveat to flag before shipping: the new anti-aliasing changes the maskable's
+  bytes even at an identical scale, so the deploy needs one more
+  close-every-window cycle before Chrome promotes the icon. Expect it — it
+  isn't a regression.
+- Verification is typecheck + lint + build + manual checks (no test suite, per
+  this repo's convention), plus a bounding-box measurement of each PNG against
+  the `#161b22` background. That measurement is precisely what would have
+  caught the false safe-zone premise. Note that `npm run lint` does not cover
+  `.mjs` files, and extending it would break `--max-warnings 0`.
+
+**Decision, 2026-09-30: do C and D only.** Investigation and planning are
+closed on that scope; implementation is the next phase.
+
+- **C and D are in.** `id`/`scope` is a two-line change, and `"id": "/"` is
+  identity-neutral — the default id already resolves to `start_url`, so it
+  describes existing behaviour rather than changing it, which is also why it
+  won't trigger another icon cycle. The README note is the highest return per
+  effort here: the whole incident reduces to "app icons are committed at
+  install time".
+- **A is out this round.** The browser tab is already served by `favicon.svg`
+  at ~81%, so the only genuinely visible symptom of the 50% fill is
+  `apple-touch-icon.png` on an iPhone home screen, and no Android or Windows
+  surface is in play. Worth revisiting only if the iOS home screen starts
+  mattering.
+- **B is out.** Its beneficiary is future debugging, not the app: the SVG/PNG
+  drift never broke anything a user sees — it made an earlier investigation
+  assert something false. Hand-writing a PNG encoder and rasteriser to
+  regenerate five images that change almost never is a maintenance liability
+  for a solo project. If A is ever done, generating the PNGs once and
+  committing them is enough.
+
+Because A and B are out, nothing about the icon files changes, so the
+close-every-window caveat above does not apply to this round, and the
+verification narrows to: typecheck, lint, build, the manifest parsing with
+both new fields, and — the one that matters — confirming after deploy that the
+installed app is still the *same* app (no second `Khaos.app`, same profile
+directory `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, star icon intact). If a duplicate
+app appears or the monogram returns, `"id"` wasn't neutral and C gets reverted.
+
+**Implemented on 2026-09-30 — C and D are done; the item stays open pending
+approval.**
+
+- ~~**C** — `"id": "/"` and `"scope": "/"` added to `public/site.webmanifest`.~~
+  Verified that the change adds exactly those two keys and alters nothing else:
+  the three icon entries are byte-identical to the previous revision, which is
+  what this scope required.
+- ~~**D** — `## PWA e ícones` section added to `README.md`~~, between
+  "Estrutura de arquivos" and "Documentação": the production URL, the four
+  non-obvious facts (icon committed at install time; update held in `Pending`
+  until every window closes; on macOS the maskable entry governs the app icon;
+  maskable art stays square because Chrome applies the squircle), and the
+  macOS icon-cache commands as a last resort.
+
+The whole diff is two files and +30 lines. Verification: `npm run typecheck`
+clean, `npm run build` clean (`dist/site.webmanifest` carries both new fields,
+icons unchanged), manifest parses with `id` and `scope` present.
+**`npm run lint` fails, but not because of this change** — all 16 problems are
+in `src/` files this branch never touches, and neither `.webmanifest` nor `.md`
+is matched by eslint's `--ext`. Tracked separately under
+[`npm run lint` fails on main](#npm-run-lint-fails-on-main).
+
+~~**Post-deploy identity check — done 2026-09-30, and clean.**~~ Production serves the manifest with
+`id=/` and `scope=/` and the same three icon entries, and the identity risk did
+not materialise: still a single `Khaos.app` under
+`~/Applications/Chrome Apps.localized/` with its mtime unchanged from before the
+deploy (so Chrome never rewrote the shim), the profile directory still
+`ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, and no `Pending` directories for this app.
+`"id": "/"` was neutral, as expected. The user confirmed the same from their
+side.
+
+~~**Visual check across the macOS surfaces — confirmed 2026-09-30.**~~ The user
+reported the icon correct in the Dock, Launchpad, Spotlight and Cmd+Tab.
+
+Nothing technical was left outstanding, and the user approved the item on
+2026-09-30.
+
+Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
+native mobile app explicitly out of scope. This only hardens the existing PWA,
+so it contradicts no registered phase.
