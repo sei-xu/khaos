@@ -553,12 +553,17 @@ in `src/` files this branch never touches, and neither `.webmanifest` nor `.md`
 is matched by eslint's `--ext`. Tracked separately under
 [`npm run lint` fails on main](#npm-run-lint-fails-on-main).
 
-**Still to confirm, after this deploys** — the one risk in C is identity, not
-appearance. Check that the installed app is still the *same* app: no second
-`Khaos.app` under `~/Applications/Chrome Apps.localized/`, the profile
-directory still `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, the star icon intact, and
-no `Pending Manifest Icons/` reappearing. If a duplicate app shows up or the
-monogram returns, `"id"` wasn't neutral after all and C should be reverted.
+~~**Post-deploy identity check — done 2026-09-30, and clean.**~~ Production serves the manifest with
+`id=/` and `scope=/` and the same three icon entries, and the identity risk did
+not materialise: still a single `Khaos.app` under
+`~/Applications/Chrome Apps.localized/` with its mtime unchanged from before the
+deploy (so Chrome never rewrote the shim), the profile directory still
+`ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, and no `Pending` directories for this app.
+`"id": "/"` was neutral, as expected. The user confirmed the same from their
+side.
+
+What remains before this can be approved is only the wider check: that the icon
+still looks right in the Dock, Launchpad, Spotlight and Cmd+Tab.
 
 Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
 native mobile app explicitly out of scope. This only hardens the existing PWA,
