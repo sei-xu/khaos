@@ -45,6 +45,7 @@ work that grows out of them. Roadmap phases live in
 | [Components — column chips](#components--column-chips) | 2026-07-23 |
 | [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
+| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 |
 
 ---
 
@@ -428,6 +429,77 @@ Entity outcomes confirmed with the user:
 4. **Chat/Telegram render contexts** for entities other than Field are
    still ahead — a proposal table was in progress in chat, not yet
    finalized or built.
+
+---
+
+## PWA app icon — Chrome no macOS
+
+started 2026-09-30
+
+User reported that the app icon doesn't appear when Khaos is turned into an app
+from Chrome on macOS — `~/Applications/Chrome Apps.localized/Khaos.app` showed
+Chrome's grey "K" monogram fallback instead of the copper star.
+
+**Root cause: environment, not code.** The app for the `Default` profile had
+been installed *before* the manifest existed, so Chrome committed the monogram
+as the app's icon. The later manifest update then sat in Chrome's `Pending`
+stage, which is only promoted once every window of the app is closed.
+
+~~Reported symptom — fixed on 2026-09-30 by closing the app and reinstalling.~~
+Confirmed by direct measurement, not inference: the shim was rewritten at
+04:13, `app.icns` now carries a 512 slot with alpha and the copper star inside
+Apple's squircle (art measured at 80.5% of the canvas), and both `Pending
+Manifest Icons/` and `Pending Trusted Icons/` are gone from the profile. The
+stale app under `Profile 6` is gone too.
+
+**What the investigation established** (branch
+`hprj/investigation_planning/7db812a4…`; full forensics in `.hprj/handoff.json`):
+
+- On macOS the app icon comes from the **maskable** manifest entry.
+  `Trusted Icons/Icons/` exists but is empty — only the maskable set was
+  promoted. Degrading that entry would change the app icon.
+- One maskable size is enough: Chrome downsamples the seven sizes in
+  `Trusted Icons/Icons Maskable/` from the single declared 512.
+- The art must stay **square and full-bleed**. Chrome applies the squircle
+  itself, so pre-rounding it would produce a double corner.
+- An earlier claim that the art violated the maskable safe zone was a false
+  premise — it was read off `favicon.svg`, which is not the art in the PNGs —
+  and is retracted. Measured: the star's outer radius is 128 px on a 512
+  canvas, well inside the 204.8 px safe zone.
+- Production serving is fine. The manifest and every icon return 200 with the
+  right content types, and `vercel.json`'s catch-all rewrite doesn't swallow
+  statics. Nothing to change there.
+
+**Still open — optional hardening; whether to do any of it is the user's call.**
+The real (non-blocking) defect is the inverse of the original diagnosis: the
+same `icon-512.png` serves both `any` and `maskable` at 50% fill, so on the
+surfaces that consume `any` unmasked the star renders too small.
+
+- Split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
+  while `icon-192`/`icon-512` and a new `icon-1024` get the star rescaled to
+  ~80%; write them all with an alpha channel.
+- Add `id` and `scope` to `site.webmanifest`. Their absence is the identity
+  fragility that produced this incident in the first place.
+- **Decided:** generate the icons with a dependency-free Node rasteriser
+  (`scripts/gen-icons.mjs`) — not `sharp`, and not by rasterising the SVG. The
+  art is a 16-vertex polygon whose geometry is fully determined (outer radius
+  13, inner 5, points every 45°), a native dependency is disproportionate here,
+  and `sharp`'s output varies across versions, which would defeat the
+  idempotency check. `favicon.svg` becomes generated from the same vertex table
+  so the SVG and the PNGs can't drift apart again.
+- Caveat to flag before shipping: the new anti-aliasing changes the maskable's
+  bytes even at an identical scale, so the deploy needs one more
+  close-every-window cycle before Chrome promotes the icon. Expect it — it
+  isn't a regression.
+- Verification is typecheck + lint + build + manual checks (no test suite, per
+  this repo's convention), plus a bounding-box measurement of each PNG against
+  the `#161b22` background. That measurement is precisely what would have
+  caught the false safe-zone premise. Note that `npm run lint` does not cover
+  `.mjs` files, and extending it would break `--max-warnings 0`.
+
+Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
+native mobile app explicitly out of scope. This only hardens the existing PWA,
+so it contradicts no registered phase.
 
 ---
 
