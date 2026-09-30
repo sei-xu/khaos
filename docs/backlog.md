@@ -18,14 +18,12 @@ work that grows out of them. Roadmap phases live in
 
 ## Conventions
 
-- Each item has a distinct **three-character code**, uppercase, unique within
-  this file. The user replies with just the code to call up an item. A code
-  is free to reuse once its item is resolved.
-- Severity marker, emoji only: 🔴 critical / blocking · 🟠 urgent ·
-  🟡 standard · 🟢 low / nice-to-have.
+- Items are identified by their **title** (no codes, no severity markers —
+  dropped on 2026-09-30). The user refers to an item by name, or by a
+  distinctive part of it.
 - **Start date** when opened; **end date** once resolved. History is kept —
   resolved items move to the Resolved table, never deleted.
-- An item is resolved when the user says **"approved"** for its code.
+- An item is resolved when the user says **"approved"** for it.
 - A new item starts with **`NEW`** from the user, **or proactively** whenever
   real work stays pending past the turn it came up (a decision, a review, a
   file to upload).
@@ -40,19 +38,19 @@ work that grows out of them. Roadmap phases live in
 
 ## Open
 
-| code | title | severity | started |
-|---|---|---|---|
-| [TKI](#tki--task-items--couldnt-add-from-frontend) | Task items — couldn't add from frontend | 🔴 critical | 2026-08-29 |
-| [CSC](#csc--cosmogony-compliance-sweep-post-merge) | Cosmogony compliance sweep (post-merge) | 🟡 standard | 2026-07-23 |
-| [COL](#col--components--column-chips) | Components — column chips | 🟡 standard | 2026-07-23 |
-| [BRN](#brn--the-emblem-new-chamber--reopened-icon-animation-issue) | The Emblem (new chamber + reopened icon-animation issue) | 🟡 standard | 2026-07-23 |
-| [ENT](#ent--components--entity-chips) | Components — entity chips | 🟡 standard | 2026-07-23 |
+| title | started |
+|---|---|
+| [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend) | 2026-08-29 |
+| [Cosmogony compliance sweep (post-merge)](#cosmogony-compliance-sweep-post-merge) | 2026-07-23 |
+| [Components — column chips](#components--column-chips) | 2026-07-23 |
+| [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
+| [Components — entity chips](#components--entity-chips) | 2026-07-23 |
 
 ---
 
-## TKI — Task items — couldn't add from frontend
+## Task items — couldn't add from frontend
 
-🔴 critical · started 2026-08-29
+started 2026-08-29
 
 User reported: "Não consigo incluir task itens pelo frontend" — adding a
 checklist item to a task silently did nothing, no visible error.
@@ -86,9 +84,9 @@ PR [#66](https://github.com/sei-xu/khaos/pull/66) on branch
 
 ---
 
-## CSC — Cosmogony compliance sweep (post-merge)
+## Cosmogony compliance sweep (post-merge)
 
-🟡 standard · started 2026-07-23
+started 2026-07-23
 
 Part of "make sure all Cosmogony standards are applied" (Cosmogony =
 the app's deity-named design-token system: nyx/eros/pontus/gaia/
@@ -101,7 +99,7 @@ pre-rename. Pushed as `9c091a7`.~~ (done)
 
 ~~Also applied as an ongoing practice, not a one-off: every commit this
 round was grepped for rename residue before pushing, and several later
-CSC passes caught real drift — Wellspring was missing `rounded-2xl` from
+compliance passes caught real drift — Wellspring was missing `rounded-2xl` from
 its radius table, and the Emblem page had two swatches that had drifted
 from the real values after later changes. Both fixed, pushed as
 `69b5005` / `1fb9d24`.~~ (done)
@@ -116,7 +114,7 @@ placeholder text-glyph version), `ui.tsx`'s `TargetBadge` (kept main's
 `past`-prop version; the branch's "single-day arrow" bug was already
 fixed independently on main's side), and `TaskRow.tsx` (main had already
 moved to consume `ScheduledBadge`'s new `scheduledAt` prop — introduced
-by this very branch's `ENT`/`COL` work — without the matching hook-call
+by this very branch's entity/column chip work — without the matching hook-call
 update; merged both sides' changes so the declaration matches the
 usage). One post-merge typecheck failure fixed: `SigilsPage.tsx`'s
 sample `SectionRecord` object was missing `is_infinite`, added to the
@@ -124,19 +122,19 @@ schema after this branch was forked. Typecheck and build both verified
 clean after resolution.~~ (done)
 
 **Note: the merge only lands the code in main's history.** It does not
-resolve the still-open decisions tracked separately in [ENT](#ent--components--entity-chips)
+resolve the still-open decisions tracked separately in [Components — entity chips](#components--entity-chips)
 (chip height normalization, the mobile name-truncation stress test) or
-[BRN](#brn--the-emblem-new-chamber--reopened-icon-animation-issue) (Emblem chamber awaiting final sign-off, the reopened
+[The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) (Emblem chamber awaiting final sign-off, the reopened
 icon-animation item) — those stay open on their own.
 
 ---
 
-## COL — Components — column chips
+## Components — column chips
 
-🟡 standard · started 2026-07-23
+started 2026-07-23
 
-Split off from the original `CMP` scoping — the **columns** track, as
-opposed to [ENT](#ent--components--entity-chips)'s entities. Columns are the badges pulled from a
+Split off from the original component-consolidation scoping — the **columns** track, as
+opposed to [Components — entity chips](#components--entity-chips)'s entities. Columns are the badges pulled from a
 task/project/section's own column values (status, priority, due, target,
 tags, etc.), as distinct from entity identity chips (project, task,
 event...).
@@ -186,23 +184,23 @@ event...).
 
 ### Still open
 
-- No shared `Chip` primitive built yet (see [ENT](#ent--components--entity-chips) for the full
+- No shared `Chip` primitive built yet (see [Components — entity chips](#components--entity-chips) for the full
   explanation and API proposal — this is shared work between the two
   tracks).
 - Today's badges (`StatusBadge`, `PriorityBadge`, `FieldBadge`,
   `DueBadge`, `TargetBadge`, `ChangeBadge`) still each hand-roll their
-  own styling; whether columns share ENT's proposed primitive shape is
+  own styling; whether columns share the entity-chips item's proposed primitive shape is
   unconfirmed.
 
 ---
 
-## BRN — The Emblem (new chamber + reopened icon-animation issue)
+## The Emblem (new chamber + reopened icon-animation issue)
 
-🟡 standard · started 2026-07-23
+started 2026-07-23
 
 ### New chamber — The Emblem
 
-User scoped `BRN` as app icon, app logo, and `KhaoticText`, and asked
+User scoped this item as app icon, app logo, and `KhaoticText`, and asked
 where it belongs in the design-system "Vortex." Considered folding it
 into Pantheon (color-adjacent) vs. a new chamber; built as a new chamber
 since it's a genuinely different concern (brand identity, not tokens or
@@ -275,14 +273,14 @@ Resolved — approved once already, reopened once already.
 
 ---
 
-## ENT — Components — entity chips
+## Components — entity chips
 
-🟡 standard · started 2026-07-23
+started 2026-07-23
 
-Split off from the original `CMP` scoping — the user called for two
+Split off from the original component-consolidation scoping — the user called for two
 separate tracks: entities vs. columns. This one is **entities** (chips
 that carry identity — project, task, event, etc. — as opposed to
-[COL](#col--components--column-chips)'s column-value badges).
+[Components — column chips](#components--column-chips)'s column-value badges).
 
 ### Audit and dictionary
 
@@ -361,7 +359,7 @@ Entity outcomes confirmed with the user:
   *input* in `ProjectDetailPage.tsx` given `font-normal` (it had inherited
   the display font's heavy default). Pushed as `ee76dfb` / `0012676` /
   `af1a976`.~~
-- ~~Spacing normalized to the SPC ladder: `pl-2.5` → `px-2` in
+- ~~Spacing normalized to the spacing ladder: `pl-2.5` → `px-2` in
   Project/SectionRow; all internal gaps unified to `gap-1.5`. Pushed as
   `4ae606e` / `2fe4b11`.~~
 - ~~`InlineEventPreview` progress bar demoed on the scheduled variant; the
@@ -435,19 +433,19 @@ Entity outcomes confirmed with the user:
 
 ## Resolved
 
-| code | title | started | resolved |
-|---|---|---|---|
-| [FR2](#fr2--forge--second-critique-round) | Forge — second critique round | 2026-07-23 | 2026-07-23 |
-| [FRG](#frg--forge--missing-inputs-divider-chevron) | Forge — missing inputs, divider, chevron | 2026-07-23 | 2026-07-23 |
-| — | [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish) | 2026-07-23 | 2026-07-23 |
-| — | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 | 2026-08-07 |
-| [SEQ](#seq--sequence-rail--sometimes-not-visible) | Sequence rail — sometimes not visible | 2026-08-12 | 2026-08-14 |
-| [TGT](#tgt--unify-target-pill--input-view) | Unify target pill + input view | 2026-09-19 | 2026-09-19 |
+| title | started | resolved |
+|---|---|---|
+| [Forge — second critique round](#forge--second-critique-round) | 2026-07-23 | 2026-07-23 |
+| [Forge — missing inputs, divider, chevron](#forge--missing-inputs-divider-chevron) | 2026-07-23 | 2026-07-23 |
+| [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish) | 2026-07-23 | 2026-07-23 |
+| [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 | 2026-08-07 |
+| [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible) | 2026-08-12 | 2026-08-14 |
+| [Unify target pill + input view](#unify-target-pill--input-view) | 2026-09-19 | 2026-09-19 |
 
 Round 1 (the token layer) is archived separately in
 [`backlog-round-1.md`](./backlog-round-1.md).
 
-### FR2 — Forge — second critique round
+### Forge — second critique round
 
 2026-07-23 → 2026-07-23 · approved by the user
 
@@ -465,7 +463,7 @@ Caught sitting stale in the backlog for several rounds after being fixed
 in code — the user asked why it looked frozen. Only the tracking was out
 of date; a duplicate leftover row was cleaned up in the same pass.
 
-### FRG — Forge — missing inputs, divider, chevron
+### Forge — missing inputs, divider, chevron
 
 2026-07-23 → 2026-07-23 · approved by the user
 
@@ -478,8 +476,8 @@ component. Fixed `Select`'s chevron — the native arrow sat flush against
 the border; replaced with `appearance-none` + a real `ChevronDown`.
 Pushed as `5911119`.
 
-Same stale-tracking bug as FR2: "FRG FRG2 approved" covered both rounds
-but only FR2 was moved. The textarea radius fix flagged in the same
+Same stale-tracking bug as the second critique round: "FRG FRG2 approved"
+covered both rounds but only the second was moved. The textarea radius fix flagged in the same
 round was confirmed still live in `ForgePage.tsx`.
 
 ### The Emblem — icon/logo/wordmark polish
@@ -505,9 +503,9 @@ with `textAnchor="middle"` + `dominantBaseline="central"`. Then the user
 caught it genuinely orbiting: timelapse screenshots showed the wrapping
 span had no explicit size, so a non-square box rotated around its own
 center. Forced to exactly 1em × 1em and re-verified — no drift. Pushed as
-`567e3e7`. (This item was later reopened — see BRN in Open.)
+`567e3e7`. (This item was later reopened — see *The Emblem* in Open.)
 
-CSC checked site-wide before approval: zero rename residue in `src/`,
+A compliance sweep checked site-wide before approval: zero rename residue in `src/`,
 Emblem swatches re-verified against real usage.
 
 ### Daily review — stale in-review prioritization
@@ -528,7 +526,7 @@ with `value = 'in_review'` gives the entry time (`created_at`); anything
 3+ days stale is listed first, ahead of overdue/due/scheduled, most stale
 first. Pushed as `add0de3`.
 
-### SEQ — Sequence rail — sometimes not visible
+### Sequence rail — sometimes not visible
 
 2026-08-12 → 2026-08-14 · approved by the user · PR `sei-xu/khaos#59`, merged
 
@@ -571,7 +569,7 @@ nothing.
   nodes on the loading placeholder (`3d06f83`); error marker once per
   section, not per row, since it's one shared query (`6d219fe`).
 
-### TGT — Unify target pill + input view
+### Unify target pill + input view
 
 2026-09-19 → 2026-09-19 · PRs `sei-xu/khaos#69` and `#70`, merged
 

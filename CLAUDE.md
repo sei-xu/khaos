@@ -37,40 +37,30 @@ never only in chat (chat doesn't survive context compaction).
 
 Each item in `docs/backlog.md`:
 
-- Gets a distinct **three-character keyword code**, uppercase, memorable,
-  unique within the file (e.g. `FNT`, `NAV`, `PAN`). The user replies with
-  just that code to call up, discuss, or act on that item — no need to
-  repeat the whole request.
-- Gets a **severity marker**, hospital-triage style — emoji only, don't also
-  spell out the color name next to it (redundant):
-  - 🔴 critical / blocking, needs immediate attention
-  - 🟠 urgent, high priority
-  - 🟡 standard priority
-  - 🟢 low priority / nice-to-have
+- Is identified by its **title** — no keyword codes and no severity markers
+  (both dropped on 2026-09-30). The user refers to an item by name, or by a
+  distinctive part of it, to call up, discuss, or act on it.
 - Gets a **start date** (when the item was opened) and, once resolved, an
   **end date** — history is kept, so both dates matter.
 - Moves to the "Resolved" table (don't delete — keep history) once the user
-  says **"approved"** for that code, with its end date recorded. The code is
-  then free to be reused for an unrelated future item.
-- A new item is added when the user's message starts with **`NEW`** — assign
-  the next unused code, an initial severity marker (ask if unclear), and
-  today's date as the start date.
+  says **"approved"** for it, with its end date recorded.
+- A new item is added when the user's message starts with **`NEW`** — give it
+  a clear title and today's date as the start date.
 - **Also add items proactively, not only on `NEW`.** Anything that becomes a
   real pending task — something waiting on the user (a file to upload, a
   decision, a review), or a genuine open thread that isn't resolved in the
   same turn it comes up — gets added right away, on its own initiative, even
   without the literal word `NEW`.
-- If the user replies with a code, treat that as their call on what it refers
-  to even if it doesn't exactly match the file — note the mismatch briefly
-  rather than blocking on it.
+- If the user's reference doesn't exactly match an item's title, take it as
+  their call on the closest item — note the mismatch briefly rather than
+  blocking on it.
 - **Treated items move to the end of the list.** When an item gets worked on
   (reopened, updated, discussed) in a turn, move it to the bottom of its
   table and its section order once that turn's work is done — "most recently
   touched" order, not first-added order.
 
-Format: Markdown. The index table has one row per item (code linking to the
-item's `##` section, title, severity, start date; Resolved adds the end
-date). Each item section is real detail, not a one-line stub — enough that
+Format: Markdown. The index table has one row per item (title linking to the
+item's `##` section, start date; Resolved adds the end date). Each item section is real detail, not a one-line stub — enough that
 the user can tell what happened without re-reading the chat — in short
 paragraphs (2–4 sentences) or short bullet lists, never one dense block.
 Anything substantive said in chat (a decision, a recommendation with a take,

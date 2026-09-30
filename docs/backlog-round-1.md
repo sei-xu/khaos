@@ -430,7 +430,7 @@ label, the bordered-pill add button, the checklist inline-add row, the
 remove/close (×) pattern (hover → danger), a checkbox with
 `accent-eros-500`, and a live toggle switch (from "show logged time").
 Kept as raw inline patterns, not new shared components — that
-consolidation (`CMP`) was parked for Round 2, which now had a real
+consolidation (component consolidation) was parked for Round 2, which now had a real
 inventory to build from. Pushed as `cce82c2`.
 
 **Follow-up critique round, same day** — the user caught real gaps after
@@ -446,10 +446,10 @@ the "done" declaration:
   won) — moved onto the icon, matching the real `TaskDetailModal` pattern.
 - Checked every real "add" usage app-wide: none were icon-only, so the
   add/remove asymmetry was real, not an oversight, and was documented
-  (this claim was later corrected — see FR2 in `backlog.md`).
+  (this claim was later corrected — see *Forge — second critique round* in `backlog.md`).
 - Documented why add/remove stays muted (Eros reserved for "needs you",
   not "always visible") and why the one toggle was Pontus (inherited from
-  pre-rename teal, never a deliberate call — since revised, see COL).
+  pre-rename teal, never a deliberate call — since revised, see *Components — column chips* in `backlog.md`).
 
 Also swapped the chamber order: **Forge is now IV, Sigils is V** —
 primitives before the marks built with/around them — in both
