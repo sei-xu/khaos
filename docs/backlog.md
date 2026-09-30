@@ -47,6 +47,7 @@ work that grows out of them. Roadmap phases live in
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
 | [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
+| [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
 
 ---
 
@@ -594,6 +595,38 @@ lint step useless as a signal.
 Gotcha noticed in passing: `eslint .` descends into `.claude/worktrees/`, so
 while a worktree is checked out there the problem counts come back exactly
 doubled (32 instead of 16). Worth an ignore entry if worktrees are used often.
+
+---
+
+## No changelog — rebuild it from the git history
+
+started 2026-09-30
+
+Debt found while applying the Ḫprj methodology to every managed repo: it now
+requires each app to produce a changelog entry per merged version, written in
+the same PR as the change (`hprj/docs/methodology.md`, "Documentação viva
+obrigatória por app"). Khaos has a roadmap (`docs/05-roadmap.md`), this
+backlog and a version in `package.json` (`1.0.30` at the time of writing) —
+but **no changelog at all**, so it is out of conformity until one exists.
+
+**Decision (user, 2026-09-30):** record it as debt now, and rebuild the
+changelog from the history later, not in the same change.
+
+The rebuild looks feasible from the history alone: 31 commits touched
+`version` in `package.json` (`chore: release v1.0.1` … `v1.0.30`), out of
+~430 commits since 2026-06-22. Plan when picked up:
+- Create `docs/history/CHANGELOG.md` (same location the other managed apps
+  use — Etto and Ḫprj), one entry per released version, newest first, with
+  date, what changed and why, taken from the release commits and the PRs
+  between them.
+- Versions that predate consistent bumping, or PRs merged without a
+  `chore: release` commit, get a one-line summary instead of an invented
+  version.
+- From then on, every PR that bumps the version adds its entry in the same
+  PR. Add that rule to the "Feature backlog tracking" section of `CLAUDE.md`
+  when the file is created.
+
+Not started; no code change involved.
 
 ---
 
