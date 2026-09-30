@@ -475,18 +475,21 @@ The real (non-blocking) defect is the inverse of the original diagnosis: the
 same `icon-512.png` serves both `any` and `maskable` at 50% fill, so on the
 surfaces that consume `any` unmasked the star renders too small.
 
-- Split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
+- **A —** split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
   while `icon-192`/`icon-512` and a new `icon-1024` get the star rescaled to
   ~80%; write them all with an alpha channel.
-- Add `id` and `scope` to `site.webmanifest`. Their absence is the identity
-  fragility that produced this incident in the first place.
-- **Decided:** generate the icons with a dependency-free Node rasteriser
+- **B — decided:** generate the icons with a dependency-free Node rasteriser
   (`scripts/gen-icons.mjs`) — not `sharp`, and not by rasterising the SVG. The
   art is a 16-vertex polygon whose geometry is fully determined (outer radius
   13, inner 5, points every 45°), a native dependency is disproportionate here,
   and `sharp`'s output varies across versions, which would defeat the
   idempotency check. `favicon.svg` becomes generated from the same vertex table
   so the SVG and the PNGs can't drift apart again.
+- **C —** add `id` and `scope` to `site.webmanifest`. Their absence is the identity
+  fragility that produced this incident in the first place.
+- **D —** a short README section on the install-time icon cycle: an app icon is
+  committed when the app is installed, and a manifest change alone never
+  updates an app that already exists.
 - Caveat to flag before shipping: the new anti-aliasing changes the maskable's
   bytes even at an identical scale, so the deploy needs one more
   close-every-window cycle before Chrome promotes the icon. Expect it — it
@@ -496,6 +499,24 @@ surfaces that consume `any` unmasked the star renders too small.
   the `#161b22` background. That measurement is precisely what would have
   caught the false safe-zone premise. Note that `npm run lint` does not cover
   `.mjs` files, and extending it would break `--max-warnings 0`.
+
+**Recommendation, asked for in chat on 2026-09-30: not all four.**
+
+- **Do C and D.** `id`/`scope` is a two-line change, and adding `"id": "/"` is
+  identity-neutral (the default id already resolves to `start_url`), so it
+  makes the fragile part explicit at no risk. The README note is what would
+  have saved the most time here — the whole incident reduces to "app icons are
+  committed at install time".
+- **Do A only if the iOS home screen matters.** The browser tab is already
+  served by `favicon.svg` at ~81%, so the one genuinely visible symptom of the
+  50% fill is `apple-touch-icon.png` on an iPhone home screen. No Android or
+  Windows surface is in play here.
+- **Skip B, or defer it behind A.** Its beneficiary is future debugging, not
+  the app: the SVG/PNG drift never broke anything a user sees — it made an
+  earlier investigation assert something false. Hand-writing a PNG encoder and
+  rasteriser to regenerate five images that change almost never is a
+  maintenance liability for a solo project. If A happens, generating the PNGs
+  once and committing them is enough.
 
 Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
 native mobile app explicitly out of scope. This only hardens the existing PWA,
