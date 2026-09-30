@@ -47,6 +47,7 @@ work that grows out of them. Roadmap phases live in
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
+| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 
 ---
 
@@ -494,6 +495,58 @@ The rebuild looks feasible from the history alone: 31 commits touched
   when the file is created.
 
 Not started; no code change involved.
+
+---
+
+## Nine unmerged branches — triage before cleanup
+
+started 2026-09-30
+
+`delete_branch_on_merge` was off on `sei-xu/khaos` until 2026-09-30, so every
+branch ever merged stayed behind. Turning it on (done, same day) fixes the
+future but not the backlog of 56 remote branches it left.
+
+**46 of them are already merged into `main`.** Those are pure clutter and are
+safe to delete in bulk — the content is all on `main`. Not done yet: a 46-branch
+deletion is worth doing deliberately, and it should come *after* the triage
+below, not before.
+
+**Nine are NOT merged.** This is the part that matters — it is work that never
+reached `main`, and deleting them would lose it:
+
+| branch | last commit | commits ahead | files vs main |
+|---|---|---|---|
+| `claude/anthropic-proxy-cleanup` | 2026-07-13 | 1 | 1 |
+| `claude/khaos-telegram-bot-yolc9z` | 2026-07-23 | 2 | **0** |
+| `claude/review-tasks-stale-priority-f02xyi` | 2026-08-07 | 1 | 1 |
+| `claude/task-logging-broken-5b9exk` | 2026-08-07 | 1 | 1 |
+| `claude/infinite-sections-sorting-na7nql` | 2026-08-29 | 1 | 3 |
+| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29 | 1 | 1 |
+| `claude/task-logs-editable-18yaqw` | 2026-08-30 | 3 | 1 |
+| `claude/mobile-task-drag-today-opaf6k` | 2026-09-04 | 1 | 6 |
+| `claude/unificar-targets-view-zm599h` | 2026-09-19 | 2 | 4 |
+
+Three things stand out:
+
+- `khaos-telegram-bot-yolc9z` shows **zero file difference** against `main`. Its
+  content already landed by another route, so it is merge-unreachable but
+  functionally dead — the one clearly safe deletion of the nine.
+- `task-items-frontend-inclusion-kqu4tm` maps to the still-open item
+  [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend).
+  Worth checking whether it holds an attempted fix before anyone restarts that
+  work from scratch.
+- `unificar-targets-view-zm599h` maps to
+  [Unify target pill + input view](#unify-target-pill--input-view), which is
+  marked **resolved**. So either the branch is an abandoned earlier take, or a
+  slice of that work never made it in. Worth a look either way.
+
+There is also a merged branch literally named
+`claude/lost-unmerged-branches-ctk3d3`, which suggests work has been lost this
+way before.
+
+Suggested order: triage these nine first (recover, re-open, or confirm dead),
+then delete the 46 merged ones in one pass. Nothing has been deleted yet apart
+from the two branches of PRs #72 and #74.
 
 ---
 
