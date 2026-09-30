@@ -562,8 +562,11 @@ deploy (so Chrome never rewrote the shim), the profile directory still
 `"id": "/"` was neutral, as expected. The user confirmed the same from their
 side.
 
-What remains before this can be approved is only the wider check: that the icon
-still looks right in the Dock, Launchpad, Spotlight and Cmd+Tab.
+~~**Visual check across the macOS surfaces — confirmed 2026-09-30.**~~ The user
+reported the icon correct in the Dock, Launchpad, Spotlight and Cmd+Tab.
+
+Nothing technical is outstanding on this item any more. It stays Open only
+because it has not been approved yet.
 
 Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
 native mobile app explicitly out of scope. This only hardens the existing PWA,
