@@ -470,15 +470,15 @@ stale app under `Profile 6` is gone too.
   right content types, and `vercel.json`'s catch-all rewrite doesn't swallow
   statics. Nothing to change there.
 
-**Still open — optional hardening; whether to do any of it is the user's call.**
+**Still open — the hardening, now scoped to C and D (see the decision below).**
 The real (non-blocking) defect is the inverse of the original diagnosis: the
 same `icon-512.png` serves both `any` and `maskable` at 50% fill, so on the
 surfaces that consume `any` unmasked the star renders too small.
 
-- **A —** split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
+- **A** (out this round) — split `any` from `maskable`: a new `icon-maskable-512.png` keeps today's art,
   while `icon-192`/`icon-512` and a new `icon-1024` get the star rescaled to
   ~80%; write them all with an alpha channel.
-- **B — decided:** generate the icons with a dependency-free Node rasteriser
+- **B** (out) — generate the icons with a dependency-free Node rasteriser
   (`scripts/gen-icons.mjs`) — not `sharp`, and not by rasterising the SVG. The
   art is a 16-vertex polygon whose geometry is fully determined (outer radius
   13, inner 5, points every 45°), a native dependency is disproportionate here,
@@ -500,23 +500,34 @@ surfaces that consume `any` unmasked the star renders too small.
   caught the false safe-zone premise. Note that `npm run lint` does not cover
   `.mjs` files, and extending it would break `--max-warnings 0`.
 
-**Recommendation, asked for in chat on 2026-09-30: not all four.**
+**Decision, 2026-09-30: do C and D only.** Investigation and planning are
+closed on that scope; implementation is the next phase.
 
-- **Do C and D.** `id`/`scope` is a two-line change, and adding `"id": "/"` is
-  identity-neutral (the default id already resolves to `start_url`), so it
-  makes the fragile part explicit at no risk. The README note is what would
-  have saved the most time here — the whole incident reduces to "app icons are
-  committed at install time".
-- **Do A only if the iOS home screen matters.** The browser tab is already
-  served by `favicon.svg` at ~81%, so the one genuinely visible symptom of the
-  50% fill is `apple-touch-icon.png` on an iPhone home screen. No Android or
-  Windows surface is in play here.
-- **Skip B, or defer it behind A.** Its beneficiary is future debugging, not
-  the app: the SVG/PNG drift never broke anything a user sees — it made an
-  earlier investigation assert something false. Hand-writing a PNG encoder and
-  rasteriser to regenerate five images that change almost never is a
-  maintenance liability for a solo project. If A happens, generating the PNGs
-  once and committing them is enough.
+- **C and D are in.** `id`/`scope` is a two-line change, and `"id": "/"` is
+  identity-neutral — the default id already resolves to `start_url`, so it
+  describes existing behaviour rather than changing it, which is also why it
+  won't trigger another icon cycle. The README note is the highest return per
+  effort here: the whole incident reduces to "app icons are committed at
+  install time".
+- **A is out this round.** The browser tab is already served by `favicon.svg`
+  at ~81%, so the only genuinely visible symptom of the 50% fill is
+  `apple-touch-icon.png` on an iPhone home screen, and no Android or Windows
+  surface is in play. Worth revisiting only if the iOS home screen starts
+  mattering.
+- **B is out.** Its beneficiary is future debugging, not the app: the SVG/PNG
+  drift never broke anything a user sees — it made an earlier investigation
+  assert something false. Hand-writing a PNG encoder and rasteriser to
+  regenerate five images that change almost never is a maintenance liability
+  for a solo project. If A is ever done, generating the PNGs once and
+  committing them is enough.
+
+Because A and B are out, nothing about the icon files changes, so the
+close-every-window caveat above does not apply to this round, and the
+verification narrows to: typecheck, lint, build, the manifest parsing with
+both new fields, and — the one that matters — confirming after deploy that the
+installed app is still the *same* app (no second `Khaos.app`, same profile
+directory `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, star icon intact). If a duplicate
+app appears or the monogram returns, `"id"` wasn't neutral and C gets reverted.
 
 Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
 native mobile app explicitly out of scope. This only hardens the existing PWA,
