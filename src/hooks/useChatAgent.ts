@@ -68,6 +68,9 @@ export function useChatAgent() {
         return updatedHistory;
       } catch (err) {
         console.error(err);
+        // isError is UI-only — stripped at the wire/storage boundary by
+        // toWireMessages (lib/chat/historyCore.ts) before it can reach the
+        // Messages API or the shared "chat_history" row.
         setMessages((prev) => [
           ...prev,
           {

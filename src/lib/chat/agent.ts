@@ -6,6 +6,7 @@ import {
   TONE_INSTRUCTION,
 } from './client';
 import { executeTool, normalizeToolName, TOOL_DEFINITIONS } from './tools';
+import { toWireMessages } from './historyCore';
 
 const MAX_TOOL_ROUNDS = 6;
 const MAX_HISTORY_MESSAGES = 14;
@@ -36,7 +37,9 @@ const SYSTEM_BLOCKS: Anthropic.TextBlockParam[] = [
 
 // History is stored directly in Anthropic's own wire format — no bespoke
 // interface to keep in sync with the API. `isError` is the one UI-only
-// field layered on top.
+// field layered on top, for ChatPanel's error bubble; it's stripped by
+// toWireMessages (./historyCore) before any message reaches the Messages
+// API or the shared "chat_history" row — the API 400s on unknown fields.
 export type ChatMessage = Anthropic.MessageParam & { isError?: boolean };
 
 export function extractText(content: ChatMessage['content']): string {
@@ -87,7 +90,7 @@ export async function runTurn(
         max_tokens: MAX_TOKENS,
         system: SYSTEM_BLOCKS,
         tools: TOOL_DEFINITIONS,
-        messages: currentMessages,
+        messages: toWireMessages(currentMessages),
         output_config: { effort: 'medium' },
       });
     } catch (err) {

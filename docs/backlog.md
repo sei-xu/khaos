@@ -48,6 +48,7 @@ work that grows out of them. Roadmap phases live in
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
+| [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
 
 ---
 
@@ -547,6 +548,87 @@ way before.
 Suggested order: triage these nine first (recover, re-open, or confirm dead),
 then delete the 46 merged ones in one pass. Nothing has been deleted yet apart
 from the two branches of PRs #72 and #74.
+
+---
+
+## Assistente morre com `isError: Extra inputs are not permitted`
+
+started 2026-10-02
+
+O usuário reportou o erro vindo da API da Anthropic:
+`messages.3.isError: Extra inputs are not permitted` (`invalid_request_error`,
+request_id `req_011CfZHLGmuot7WEFCgcnrgd`). A conversa do assistente para de
+funcionar e **não volta sozinha**: o erro é sticky.
+
+**Causa-raiz.** `ChatMessage` é `Anthropic.MessageParam & { isError?: boolean }`
+(`src/lib/chat/agent.ts:40`). O comentário logo acima diz que `isError` é
+"UI-only", mas nada o remove na saída: quando uma chamada falha, `runTurn`
+empurra `{ role: 'assistant', content: '…', isError: true }` dentro do próprio
+`currentMessages` (`agent.ts:94-101`), e esse mesmo array é devolvido como
+`updatedHistory`, vai para o estado do React **e** é persistido por
+`saveHistory` (`src/hooks/useChatAgent.ts:66-67`). No turno seguinte esse
+histórico é passado cru para `client.messages.create({ messages })` — a API
+rejeita campos desconhecidos no objeto de mensagem, e o índice 3 do erro é
+exatamente a mensagem envenenada. `useChatAgent.ts:71-78` tem o mesmo defeito
+no catch externo (só no estado, mas o estado alimenta o próximo `runTurn`).
+
+**Raio de alcance.** O histórico é uma linha única compartilhada
+(`chat_history`, id `khaos`) e `supabase/functions/_shared/khaos.ts` tipa
+`ChatMessage` como `Anthropic.MessageParam` puro, sem sanitizar na leitura —
+então a linha envenenada pelo web quebra também o `telegram-bot` e o
+`telegram-notify` (digest da manhã), com o mesmo 400. Enquanto a linha não for
+limpa, nenhuma superfície responde.
+
+**Plano (Fases 2-3, 2026-10-02).** Criar `src/lib/chat/historyCore.ts` no
+padrão `*Core.ts` já usado no repo (sem imports de runtime, consumível pelo
+Deno via `import_map.json`) com um `toWireMessages()` que devolve apenas
+`{ role, content }`; aplicá-lo na borda da API em `agent.ts`, na gravação e na
+leitura de `src/lib/chat/history.ts`, e na leitura/envio de
+`_shared/khaos.ts`. Sanear na leitura é o que cura a linha já envenenada hoje.
+Verificação: `npm run typecheck` + `npm run build` + repro manual (forçar a
+falha e mandar uma segunda mensagem) — sem suíte de testes, e `npm run lint`
+segue quebrado no main (item próprio).
+
+~~Detalhe completo em `.hprj/handoff.json` do branch
+`hprj/investigation_planning/cc410cdb-05b3-4d18-96b7-fd62c5ebe780`. Nada de
+código foi escrito ainda.~~
+
+**Implementado (2026-10-02).** `src/lib/chat/historyCore.ts` novo, sem
+imports de runtime (só `import type Anthropic`), no padrão `*Core.ts` —
+exporta `toWireMessages()` (allowlist `{ role, content }`, não blocklist de
+`isError`: fecha a porta para o próximo campo de UI também, não só o de
+hoje) e `sanitizeStoredHistory()` (mesmo mapeamento + descarte de entradas
+sem `role`/`content`, para o caso de um valor de banco malformado).
+Aplicado nos três pontos em que o histórico cruza uma fronteira:
+`agent.ts` (`client.messages.create`), `history.ts` (`saveHistory` e
+`loadHistory`) e `_shared/khaos.ts` (chamada à API e `loadHistory`, para o
+Telegram se defender de uma linha que o web ainda não tenha saneado). O
+tipo `ChatMessage` e o `isError` da UI (`ChatPanel.tsx`, bolha vermelha)
+ficaram intactos — só o que atravessa a borda é saneado.
+
+Decisão explícita: as mensagens de erro continuam indo para o modelo (só o
+campo `isError` é removido), não são descartadas do histórico enviado —
+descartar mudaria o comportamento conversacional (o modelo deixaria de
+"ver" que uma chamada anterior falhou), o que é escolha de produto, fora do
+escopo deste bug.
+
+Verificação: `npm run typecheck` limpo, `npm run build` passa (aviso de
+chunk >500kB é pré-existente), `npm run lint` continua em 16 problemas (11
+erros, 5 avisos) — mesma contagem do main, nenhuma regressão. Sem suíte de
+testes no repo (confirmado), então a lógica de `historyCore.ts` foi
+verificada com um script `tsx` ad-hoc fora do repo, não comitado: confirma
+que `toWireMessages`/`sanitizeStoredHistory` removem `isError`, rejeitam
+valor não-array e descartam entradas sem `role`/`content`.
+
+**Pendência explícita — não verificado nesta sessão.** T7 do plano (deploy
+das Edge Functions e teste real do Telegram/`telegram-notify`) não rodou
+aqui: exigiria dar deploy em `supabase/functions/_shared/khaos.ts` contra o
+projeto real. O código do lado Edge foi só revisado por leitura +
+typecheck, não exercitado em produção. Da mesma forma, a cura da linha
+`chat_history` já envenenada em produção (T5) não foi confirmada ao vivo —
+o saneamento na leitura foi comprovado isoladamente (script acima), mas não
+contra a linha real do banco. Recomendo testar os dois depois do merge,
+antes de considerar o item fechado.
 
 ---
 

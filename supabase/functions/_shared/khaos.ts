@@ -17,6 +17,10 @@ import {
   normalizeToolName,
   TOOL_DEFINITIONS,
 } from '../../../src/lib/chat/toolsCore.ts';
+import {
+  sanitizeStoredHistory,
+  toWireMessages,
+} from '../../../src/lib/chat/historyCore.ts';
 import { SCHEMA_SQL } from './schema.sql.ts';
 
 export const MODEL_NAME = Deno.env.get('LLM_MODEL') ?? 'claude-sonnet-5';
@@ -117,7 +121,7 @@ async function runTurn(history: ChatMessage[]): Promise<ChatMessage[]> {
         max_tokens: MAX_TOKENS,
         system: SYSTEM_BLOCKS,
         tools: TOOL_DEFINITIONS as Anthropic.Tool[],
-        messages,
+        messages: toWireMessages(messages),
         output_config: { effort: 'medium' },
       });
     } catch (err) {
@@ -186,8 +190,7 @@ export async function loadHistory(): Promise<ChatMessage[]> {
     console.error('loadHistory failed', error.message);
     return [];
   }
-  const history = (data?.history ?? []) as ChatMessage[];
-  return Array.isArray(history) ? history : [];
+  return sanitizeStoredHistory(data?.history);
 }
 
 async function saveHistory(history: ChatMessage[]): Promise<void> {
