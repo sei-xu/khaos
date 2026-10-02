@@ -5,6 +5,7 @@
 // makes the conversation carry over across browser instances and Telegram.
 import { supabase } from '../supabaseClient';
 import type { ChatMessage } from './agent';
+import { sanitizeStoredHistory, toWireMessages } from './historyCore';
 import type { Json } from '../database.types';
 
 const CHAT_ROW_ID = 'khaos';
@@ -20,12 +21,11 @@ export async function loadHistory(): Promise<ChatMessage[]> {
     console.error('loadHistory failed', error.message);
     return [];
   }
-  const history = (data?.history ?? []) as unknown as ChatMessage[];
-  return Array.isArray(history) ? history : [];
+  return sanitizeStoredHistory(data?.history) as ChatMessage[];
 }
 
 export async function saveHistory(history: ChatMessage[]): Promise<void> {
-  const trimmed = history.slice(-MAX_STORED_MESSAGES);
+  const trimmed = toWireMessages(history).slice(-MAX_STORED_MESSAGES);
   const { error } = await supabase.from('chat_history').upsert(
     {
       id: CHAT_ROW_ID,
