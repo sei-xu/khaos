@@ -45,10 +45,10 @@ work that grows out of them. Roadmap phases live in
 | [Components — column chips](#components--column-chips) | 2026-07-23 |
 | [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
-| [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
+| [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 
 ---
 
@@ -435,38 +435,6 @@ Entity outcomes confirmed with the user:
 
 ---
 
-## `npm run lint` fails on main
-
-started 2026-09-30
-
-Found while verifying the PWA manifest change, which touches no TypeScript at
-all. `npm run lint` exits 1 with **16 problems (11 errors, 5 warnings)**, none
-of them from that change. This contradicts `CLAUDE.md`, which documents the
-lint gate as "zero warnings tolerated, not just zero errors".
-
-Three groups:
-
-- **9 × `@typescript-eslint/no-explicit-any`**, all in `src/lib/chat/toolsCore.ts`
-  (lines 91, 532–592).
-- **2 × `react-hooks/set-state-in-effect`** — `AppShell.tsx:302` (closing the
-  drawer on route change) and `CommandPalette.tsx:49` (clearing the query when
-  the palette opens). Both look like a newer version of the React hooks plugin
-  flagging code that was already there, rather than newly written mistakes.
-- **5 warnings** — one unused `strokeWidth` arg in `StagingAcademyIcon.tsx`,
-  four `react-refresh/only-export-components` in context modules.
-
-Not fixed here: out of scope for the PWA work, and the `any` cluster in
-`toolsCore.ts` in particular deserves its own pass rather than a drive-by.
-Worth deciding whether these get fixed or whether the rule set gets adjusted —
-right now the documented gate and the actual state disagree, which makes the
-lint step useless as a signal.
-
-Gotcha noticed in passing: `eslint .` descends into `.claude/worktrees/`, so
-while a worktree is checked out there the problem counts come back exactly
-doubled (32 instead of 16). Worth an ignore entry if worktrees are used often.
-
----
-
 ## No changelog — rebuild it from the git history
 
 started 2026-09-30
@@ -629,6 +597,165 @@ typecheck, não exercitado em produção. Da mesma forma, a cura da linha
 o saneamento na leitura foi comprovado isoladamente (script acima), mas não
 contra a linha real do banco. Recomendo testar os dois depois do merge,
 antes de considerar o item fechado.
+
+---
+
+## `npm run lint` fails on main
+
+started 2026-09-30
+
+Found while verifying the PWA manifest change, which touches no TypeScript at
+all. `npm run lint` exits 1 with **16 problems (11 errors, 5 warnings)**, none
+of them from that change. This contradicts `CLAUDE.md`, which documents the
+lint gate as "zero warnings tolerated, not just zero errors".
+
+Three groups:
+
+- **9 × `@typescript-eslint/no-explicit-any`**, all in `src/lib/chat/toolsCore.ts`
+  (lines 91, 532–592).
+- **2 × `react-hooks/set-state-in-effect`** — `AppShell.tsx:302` (closing the
+  drawer on route change) and `CommandPalette.tsx:49` (clearing the query when
+  the palette opens). Both look like a newer version of the React hooks plugin
+  flagging code that was already there, rather than newly written mistakes.
+- **5 warnings** — one unused `strokeWidth` arg in `StagingAcademyIcon.tsx`,
+  four `react-refresh/only-export-components` in context modules.
+
+Not fixed here: out of scope for the PWA work, and the `any` cluster in
+`toolsCore.ts` in particular deserves its own pass rather than a drive-by.
+Worth deciding whether these get fixed or whether the rule set gets adjusted —
+right now the documented gate and the actual state disagree, which makes the
+lint step useless as a signal.
+
+Gotcha noticed in passing: `eslint .` descends into `.claude/worktrees/`, so
+while a worktree is checked out there the problem counts come back exactly
+doubled (32 instead of 16). Worth an ignore entry if worktrees are used often.
+
+### Investigation — 2026-10-05
+
+The suspicion above is confirmed, and it is not a regression: the history of
+`package.json` shows `eslint-plugin-react-hooks` has been pinned at `^7.1.1`
+since the repository's **initial commit**. v7's flat `recommended` config ships
+the React-Compiler-era rules, and `set-state-in-effect` is `error` there. So
+the lint gate has never been green on this repo — the documented "zero
+warnings" gate in `CLAUDE.md` describes an intent that was never actually met,
+rather than a state that was lost.
+
+Nothing enforces it either: there is no lint job in CI (`.github/workflows/`
+holds only `bump-version.yml`), and although `vite-plugin-eslint` is still a
+devDependency it is **not wired into `vite.config.ts`**, so the dev server
+doesn't lint on save. `npm run lint` is manual-only, which is how 16 problems
+accumulated unnoticed.
+
+Per-group root cause:
+
+1. **`no-explicit-any` × 9 in `toolsCore.ts`** — not a typing gap in the
+   domain, just friction. `executeTool(deps, rawName, args)` already receives
+   `args: Record<string, unknown>`, and each `case` does `const a = args as
+   any` purely so `a.table` / `a.filters` / `a.limit` read without complaint.
+   The file's *first* case already demonstrates the correct in-house idiom —
+   `const a = args as { date?: unknown }` followed by `typeof` guards — so
+   this is applying a pattern the file already owns to the other six cases.
+   The last two sites are `cleanPayload(obj: any): any` (a recursive JSON
+   scrubber that wants `unknown`) and `db.rpc(a.name as any, …)`.
+2. **`set-state-in-effect` × 2** — both are "reset state when something
+   changes", the exact case React's *You Might Not Need an Effect* covers.
+   Important finding: the escape hatch of adjusting state during render is
+   **also blocked**, because the same recommended config enables
+   `react-hooks/set-state-in-render` as `error`. Both fixes therefore have to
+   remove the `setState` rather than relocate it.
+3. **`strokeWidth` warning** — the prop is destructured deliberately, to
+   swallow it: the mark is fill-only (`fill="none"` on the `<svg>`,
+   `fill={color}` on the paths), so a stroke width would be meaningless on the
+   DOM node. Verified by probe that `ignoreRestSiblings` does *not* cover
+   function parameters (the `...rest` sibling doesn't exempt it) but that an
+   `_` prefix does, matching the configured `argsIgnorePattern: '^_'`.
+4. **`react-refresh/only-export-components` × 4** — the three context modules
+   (`activeEntityContext.tsx`, `chat/chatActivityContext.tsx`,
+   `processingContext.tsx`) each export a Provider component *and* its
+   consumer hook from one file. Standard, deliberate React practice; the
+   warning is only about dev-time HMR granularity.
+
+Also confirmed: `docs/05-roadmap.md` registers no phase this touches, so
+nothing here contradicts the roadmap. `eslint .` does lint
+`supabase/functions/**`, and those files are currently clean.
+
+### Plan — 2026-10-05
+
+Goal: `npm run lint` exits 0 with zero problems, so the gate `CLAUDE.md`
+documents becomes real. Behaviour-preserving throughout — no feature change.
+
+1. **`eslint.config.ts`** — add `.claude` to the top-level `ignores`. Without
+   it `eslint .` descends into `.claude/worktrees/` and double-counts every
+   problem whenever a worktree exists (the 32-instead-of-16 gotcha above),
+   which also means the implementation session can't trust its own counts.
+2. **`src/lib/chat/toolsCore.ts`** — replace each `const a = args as any` with
+   a locally declared `{ … ?: unknown }` shape plus `typeof` guards, following
+   the `list_tasks_marked_for_day` case already in the file. Widen the private
+   `assertAllowedTable(table: string)` to accept `unknown` (it is a runtime
+   membership check against `ALLOWED_TABLES` anyway, and it is not exported),
+   guard `select` / `orderBy` with `typeof x === 'string'`, pass `args`
+   straight to `coerceValues` (its parameter is already `Record<string,
+   unknown>`), and retype `cleanPayload` as `(value: unknown) => unknown`.
+   `search_schema` guards `args.query` instead of casting. For `db.rpc(a.name
+   as any, …)`: try dropping the cast first and only fall back to a narrower
+   cast with a one-line justification if the untyped `SupabaseClient` won't
+   accept a plain `string`. `executeTool`'s exported signature does **not**
+   change, so `src/lib/chat/tools.ts` and
+   `supabase/functions/_shared/khaos.ts` are untouched.
+3. **`src/components/layout/AppShell.tsx`** — delete the route-change effect
+   and derive the overlays instead of storing them: keep the pathname the
+   overlay was opened on (`drawerOpenFor` / `chatSheetOpenFor`) and compute
+   `const drawerOpen = drawerOpenFor === location.pathname`. Navigating makes
+   the comparison false on its own, so the overlay closes with no `setState`
+   in either an effect or render. The `localStorage` sidebar effect stays —
+   that one is a genuine external-system sync and is not flagged.
+4. **`src/components/layout/CommandPalette.tsx`** — drop the `open` prop and
+   the `if (!open) return null` early return, and let `AppShell` mount it
+   conditionally (`{paletteOpen && <CommandPalette onClose={…} />}`). A fresh
+   mount per open means `useState('')` already starts empty, so the
+   query-clearing effect is deleted outright rather than rewritten.
+5. **`src/components/icons/StagingAcademyIcon.tsx`** — rename the swallowed
+   prop to `_strokeWidth` (verified to satisfy `argsIgnorePattern`) with a
+   short comment saying why a fill-only mark drops it.
+6. **`react-refresh/only-export-components`** — recommendation: *don't* split
+   the three context modules. Splitting Provider from hook would add three
+   files and churn 12 import sites to buy a dev-only HMR nicety, against a
+   pattern the whole React ecosystem uses. Instead add a `files`-scoped block
+   in `eslint.config.ts` covering those modules that passes `allowExportNames:
+   ['useActiveEntity', 'useSyncActiveEntity', 'useChatActivity',
+   'useProcessingContext']` to the rule — the rule stays `warn` everywhere
+   else, and only these named hook exports are exempted. This is the one item
+   that is a policy call rather than a defect fix; if the preference is to
+   split the files instead, say so and step 6 swaps for that. (To verify
+   during implementation: `allowExportNames` is supported by the installed
+   `eslint-plugin-react-refresh@0.5.3`.)
+
+**Verification** (there is no test suite in this repo, per `CLAUDE.md` —
+verification is typecheck + lint + build + manual checks):
+
+- `npm run lint` → **0 problems**, down from 16. This is the primary gate and
+  the whole point of the change.
+- `npm run typecheck` → clean. This is what actually proves step 2 is sound:
+  removing `any` means every property access in those cases is now checked, so
+  a wrong guard surfaces here.
+- `npm run build` → clean.
+- `deno check supabase/functions/_shared/khaos.ts` — best-effort, since that
+  file imports `toolsCore.ts` directly and is outside `tsconfig.json`'s
+  `include: ["src"]`. Confirms the Edge-function consumer still typechecks.
+- Manual browser checks for steps 3–5, the only user-visible surfaces: mobile
+  drawer opens and closes itself on navigating to another route; chat sheet
+  likewise; Esc and ⌘K still close the drawer; ⌘K opens the palette with an
+  **empty** query after a previous search (the behaviour the deleted effect
+  provided); the Staging Academy icon still renders in `FIELDS_CONFIG`.
+- Agent smoke test for step 2, exercising the coercion paths the retyping
+  touches: a `query_rows` with `filters` as a real array, as a JSON *string*,
+  and as a `{column: value}` map, plus one `update_rows` with a `reason` so
+  `backfillReason` is covered.
+
+Follow-ups deliberately **not** in scope here, noted so they don't get lost:
+adding a lint job to CI (nothing would stop problem #17 from landing
+otherwise), and either wiring up or removing the unused `vite-plugin-eslint`
+devDependency.
 
 ---
 
