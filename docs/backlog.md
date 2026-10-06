@@ -724,11 +724,22 @@ documents becomes real. Behaviour-preserving throughout — no feature change.
    in `eslint.config.ts` covering those modules that passes `allowExportNames:
    ['useActiveEntity', 'useSyncActiveEntity', 'useChatActivity',
    'useProcessingContext']` to the rule — the rule stays `warn` everywhere
-   else, and only these named hook exports are exempted. This is the one item
-   that is a policy call rather than a defect fix; if the preference is to
-   split the files instead, say so and step 6 swaps for that. (To verify
-   during implementation: `allowExportNames` is supported by the installed
+   else, and only these named hook exports are exempted. (To verify during
+   implementation: `allowExportNames` is supported by the installed
    `eslint-plugin-react-refresh@0.5.3`.)
+
+   **Decided on 2026-10-05: the user chose this option ("seguir com A") — do
+   not split the context modules.** This was the one item in the plan that was
+   a policy call rather than a defect fix, so it was taken to the user; the
+   other five steps have a single correct fix and needed no decision. What the
+   warning actually costs was the deciding factor: Vite's Fast Refresh can
+   only hot-swap a module whose exports are *all* components, so with a hook
+   exported alongside the Provider, editing one of these three files during
+   `npm run dev` triggers a full page reload instead of a surgical swap. That
+   is the entire cost — nothing in the build or in production. Splitting would
+   have bought nicer HMR on three rarely-edited files in exchange for three
+   new files and edited import lines in twelve others, against a Provider +
+   hook co-location pattern the whole React ecosystem uses.
 
 **Verification** (there is no test suite in this repo, per `CLAUDE.md` —
 verification is typecheck + lint + build + manual checks):
