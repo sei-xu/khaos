@@ -768,6 +768,83 @@ adding a lint job to CI (nothing would stop problem #17 from landing
 otherwise), and either wiring up or removing the unused `vite-plugin-eslint`
 devDependency.
 
+### Implementação — 2026-10-05
+
+`npm run lint` agora sai 0 com **zero problemas**, contra os 16 de antes, em
+108 arquivos. Os quatro gates passam: `lint`, `typecheck`, `build` e
+`deno check supabase/functions/_shared/khaos.ts` (o consumidor Edge, que vive
+fora do `include: ["src"]` do tsconfig).
+
+Cinco dos seis passos saíram como planejado. **O passo 3 mudou de mecanismo**,
+e essa é a parte que importa revisar:
+
+#### O passo 3 foi feito de outro jeito — o plano tinha um bug
+
+O plano mandava derivar os overlays de uma comparação com `location.pathname`
+(`drawerOpen = drawerOpenFor === location.pathname`). Isso tem um defeito real:
+**estado velho volta a casar**. Abrir a chat sheet em `/dashboard`, navegar
+para `/tasks` (fecha, correto) e voltar para `/dashboard` faz a sheet reabrir
+sozinha, porque `chatSheetOpenFor` continua valendo `/dashboard`. No mobile é
+fácil de alcançar. Trocar para `location.key` não resolve: o botão Voltar
+restaura a entrada antiga do histórico com a chave original.
+
+A saída idiomática de verdade — remontar uma subárvore via `key` — exigiria
+reestruturar o `AppShell`, porque as regiões que dependem de `drawerOpen` e
+`chatSheetOpen` estão espalhadas pelo render (backdrop, painel do drawer,
+botão hambúrguer, FAB do chat e a bottom-sheet). Reestruturação, não ajuste,
+numa mudança que deveria preservar comportamento.
+
+Então o efeito **ficou como estava**, com uma supressão estreita
+(`eslint-disable` em volta das duas linhas de `setState`) e um comentário
+explicando por que as duas alternativas sem efeito não servem. O código do
+drawer/sheet ficou byte-equivalente ao que já roda em produção. Trocar um
+warning de lint por um bug de reabertura de overlay não valeria a pena.
+
+Nota de mecânica: a diretiva precisa ficar colada na linha do `setState` — um
+`eslint-disable-next-line` antes do `useEffect` não suprime nada, porque a
+regra reporta na linha da chamada, não na do hook.
+
+#### Os outros cinco
+
+1. ~~`.claude` entrou nos `ignores` do eslint.~~ Confirmado: 108 arquivos
+   lintados, nenhum sob `.claude`, sem contagem dobrada.
+2. ~~Os 9 `any` do `toolsCore.ts` saíram~~, trocados por shapes locais
+   `{ …?: unknown }` com guards `typeof`, seguindo o idioma que o próprio
+   arquivo já usava no primeiro `case`. O `db.rpc` aceitou `string` sem cast
+   nenhum, então o fallback previsto não foi necessário.
+4. ~~`CommandPalette` agora é montada condicionalmente pelo `AppShell`~~ e
+   perdeu a prop `open`, o early-return e o efeito que limpava a query.
+   Verificado no browser: ⌘K abre com a busca **vazia** depois de uma busca
+   anterior. Ganho de brinde — o `autoFocus` só dispara na montagem, então
+   antes a paleta não refocava ao reabrir; agora refoca.
+5. ~~`strokeWidth` virou `_strokeWidth`~~ no `StagingAcademyIcon`. Ícone
+   verificado renderizando no app.
+6. ~~Isenção `allowExportNames` para os três módulos de contexto~~, como
+   decidido. Verificado que a isenção é **por nome, não por arquivo**: um
+   export não listado dentro de um arquivo de contexto continua avisando, e a
+   regra segue disparando em qualquer outro arquivo do app.
+
+#### Verificação
+
+Além dos quatro gates: smoke test do executor com um `db` falso injetado via
+`ToolDeps` — 22 checks cobrindo `filters` nas três formas que o modelo emite
+(array, string JSON e mapa `{coluna: valor}`), o alias `set`, as coerções de
+`ascending`/`limit` vindos como string, o cap de 40 no limit, a rejeição de
+tabela fora da allowlist (incluindo não-strings) e o `backfillReason`. Não
+tocou o banco e **não ficou no repo**, porque o `CLAUDE.md` diz para não
+inventar suíte de testes.
+
+No browser: app carregado em dev, paleta e ícone verificados, console sem
+erros (só os warnings pré-existentes de future flag do React Router). O
+drawer/sheet não foi re-testado de propósito — seu código não mudou.
+
+Duas coisas que ficaram **fora** de propósito, e seguem abertas: não há job de
+lint no CI, então nada impede o problema nº 17 de entrar; e o
+`vite-plugin-eslint` continua como devDependency sem estar ligado ao
+`vite.config.ts`. Também não rodei `npm run format`: os três arquivos maiores
+que toquei já estavam fora do padrão do prettier **antes** desta mudança, e
+formatá-los agora inflaria o diff com linhas que nada têm a ver com o lint.
+
 ---
 
 ## Resolved
