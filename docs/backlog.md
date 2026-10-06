@@ -770,6 +770,9 @@ devDependency.
 
 ### Implementação — 2026-10-05
 
+Aberta como [PR #77](https://github.com/sei-xu/khaos/pull/77), no branch
+`worktree-lint-investigation-planning`. O item segue **aberto** até aprovação.
+
 `npm run lint` agora sai 0 com **zero problemas**, contra os 16 de antes, em
 108 arquivos. Os quatro gates passam: `lint`, `typecheck`, `build` e
 `deno check supabase/functions/_shared/khaos.ts` (o consumidor Edge, que vive
