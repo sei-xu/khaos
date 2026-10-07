@@ -374,7 +374,7 @@ export default function ProjectDetailPage() {
           </button>
         </div>
 
-        <div className="mt-2 max-w-sm">
+        <div className="mt-2 max-w-2xl">
           <label className="text-nyx-500 mb-1 block text-caption font-medium">
             Target{' '}
             <span className="text-nyx-600 font-normal normal-case">

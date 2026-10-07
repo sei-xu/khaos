@@ -150,6 +150,20 @@ export default function SigilsPage() {
   const [targetRangeTime, setTargetRangeTime] = useState<string | null>(
     '["2026-08-01 09:00:00+00","2026-08-15 18:00:00+00")'
   );
+  // Single-day target as TargetEditor's own effectiveEnd actually stores it
+  // (start at midnight, end at 23:59 of that same day) -- should render as
+  // just the start date plus a "+ end" button, never a "· 23:59".
+  const [targetSingleDayStored, setTargetSingleDayStored] = useState<
+    string | null
+  >('["2026-08-01 00:00:00+00","2026-08-01 23:59:59.999+00")');
+  // Multi-day target with no explicit time on either end -- the end date
+  // should show with no "· 23:59" next to it either.
+  const [targetRangeNoTime, setTargetRangeNoTime] = useState<string | null>(
+    '["2026-08-01 00:00:00+00","2026-08-15 23:59:59.999+00")'
+  );
+  const [targetNarrowHost, setTargetNarrowHost] = useState<string | null>(
+    '["2026-08-01 09:00:00+00","2026-08-15 18:00:00+00")'
+  );
   const [estimateDraft, setEstimateDraft] = useState('120');
   const fieldNames = Object.keys(FIELDS_CONFIG);
   const sampleField = fieldNames[0];
@@ -754,6 +768,39 @@ export default function SigilsPage() {
               onChange={setTargetRangeTime}
               hideClear
             />
+          </Swatch>
+        </Section>
+        <Section title="Target input, single day (stored shape)">
+          <Swatch label="input, single day — no end field, no · 23:59">
+            <TargetEditor
+              value={targetSingleDayStored}
+              onChange={setTargetSingleDayStored}
+              hideClear
+            />
+          </Swatch>
+        </Section>
+        <Section title="Target input, range (no explicit time)">
+          <Swatch label="input, range — end date with no · time">
+            <TargetEditor
+              value={targetRangeNoTime}
+              onChange={setTargetRangeNoTime}
+              hideClear
+            />
+          </Swatch>
+        </Section>
+        <Section title="Target input, narrow host (container query)">
+          <Swatch label="input, inside a max-w-sm wrapper">
+            {/* Exercises the pill's own @container width check -- this
+                host is narrow regardless of viewport width, the case
+                ProjectDetailPage's own max-w-sm panel used to hit before
+                it grew to max-w-2xl. */}
+            <div className="max-w-sm">
+              <TargetEditor
+                value={targetNarrowHost}
+                onChange={setTargetNarrowHost}
+                hideClear
+              />
+            </div>
           </Swatch>
         </Section>
         <Section title="Target input, past target suggested">
