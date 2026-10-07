@@ -49,6 +49,7 @@ work that grows out of them. Roadmap phases live in
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
+| [Target — pickers, largura e fim implícito](#target-pickers-largura-e-fim-implícito) | 2026-10-05 |
 
 ---
 
@@ -629,6 +630,84 @@ typecheck, não exercitado em produção. Da mesma forma, a cura da linha
 o saneamento na leitura foi comprovado isoladamente (script acima), mas não
 contra a linha real do banco. Recomendo testar os dois depois do merge,
 antes de considerar o item fechado.
+
+---
+
+## Target — pickers, largura e fim implícito
+
+started 2026-10-05
+
+User reportou seis problemas no campo `target` (`src/components/common/TargetEditor.tsx`):
+só o ícone abria um date picker nativo (a seta e os middots de hora eram
+`<span>` inertes); a pilula estourava/cortava quando início e fim estavam
+ambos com data+hora abertos; mudar a data de início não ajustava o fim se
+este ficasse anterior; o botão de remover fim não removia nada; um target
+de um único dia mostrava "· 23:59" indevidamente; e seções infinitas
+exibiam target/due mesmo não fazendo sentido para elas (sem fim por
+definição).
+
+**Raiz comum dos bugs 2, 4 e 5:** `effectiveEnd()` sempre grava um fim
+(mesmo para um único dia, como `[dia 00:00, dia 23:59:59.999)`), mas o
+editor decidia mostrar o campo de fim com `Boolean(end)` — que era sempre
+verdadeiro. Corrigido com dois helpers novos em `range.ts`:
+`hasExplicitEndTime(d)` (gêmeo de `hasExplicitDueTime`, falso em 23:59 **e**
+em meia-noite — tolera registros legados gravados antes desta correção,
+sem migração de dados) e `hasExplicitEnd(start, end)` (usa `isAllDayRange`
+para distinguir um fim implícito de um genuíno). O editor agora deriva
+`showEndInput`/`endValues`/`showEndTime` só do fim explícito, e
+`effectiveEnd()` passa a normalizar também um fim informado sem hora para
+`endOfLocalDay` — fechando a classe de range vazio/invertido que violava o
+`CHECK` do Postgres quando início e fim caíam no mesmo dia.
+
+**Pickers nativos (bug 1):** `openNativePicker()` extraído como helper
+(`showPicker()`/`.click()` com try/catch), reusado pelo ícone, pela seta
+(agora `<button>`, abre o date picker do fim) e pelos dois middots "·"
+(agora `<button>`, abre o time picker correspondente).
+
+**Largura (bug 2):** o `max-[350px]:` (viewport query) virou `@max-lg:`
+(container query, Tailwind 4) com `@container` no wrapper — dispara pelo
+espaço real disponível, não pela largura da janela, então também funciona
+dentro de um painel estreito numa tela larga. `h-8.5` → `min-h-8.5` para
+um wrap residual crescer a pílula em vez de vazar. Host
+`ProjectDetailPage.tsx`: `max-w-sm` → `max-w-2xl` (o único lugar onde a
+pílula vivia estreita sem necessidade).
+
+**Ajuste automático do fim (bug 3):** em `commitRange`, quando o início
+muda e deixa um fim explícito anterior para trás, o fim desloca pela
+mesma diferença (preserva a duração da janela, em vez de colar o fim no
+novo início). `validate()` ganhou a checagem que faltava,
+`início < fim efetivo`, como rede de segurança.
+
+**Infinite sections (bug 6):** seções infinitas não têm fim por definição
+— `SectionColumn.tsx` esconde o botão/editor de target quando
+`is_infinite`, `SectionRow.tsx` esconde `TargetBadge`+`DueBadge`, e ligar o
+modo infinito agora limpa `target`/`due` no mesmo patch (desligar não
+restaura nada — o histórico fica nos `moments`).
+
+Três demos novas em `SigilsPage.tsx`: target de um único dia (shape real
+gravada pelo `effectiveEnd`, deve mostrar só o início), target de vários
+dias sem hora (fim sem "· hora"), e um target dentro de um `max-w-sm` para
+exercitar a container query.
+
+**Assunção declarada:** o pedido do bug 6 foi lido como "esconder e
+limpar", não "adicionar devido/target a seções infinitas". `section.target`
+não alimenta nenhuma ordenação hoje (confirmado em `lib/taskOrder.ts` e
+`DashboardPage`), então a mudança é de baixo risco.
+
+Verificação: `npm run typecheck` limpo; `npm run lint` em 16 problemas (11
+erros, 5 avisos) — mesma contagem pré-existente do
+[`npm run lint` fails on main](#npm-run-lint-fails-on-main), nenhum nos
+arquivos tocados; `npm run build` limpo; `npm run format` nos arquivos
+tocados. Sem suíte de testes no repo (confirmado, `CLAUDE.md`). Checagem
+manual na página Sigils não pôde ser exercitada ao vivo neste sandbox (o
+dev server não respondeu a bind de porta neste ambiente); revisão de
+código linha-a-linha da lógica nova (convenção de fim, atalho de
+`commitRange`, reset de prop) feita em troca — vale uma conferência manual
+rápida pós-deploy, mesmo aviso já registrado em
+[Unify target pill + input view](#unify-target-pill--input-view).
+
+Não contradiz nenhuma fase registrada em `05-roadmap.md` — o roadmap só
+lista target como já entregue (moments/Dashboard); nada aqui muda isso.
 
 ---
 

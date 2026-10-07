@@ -52,8 +52,12 @@ export default function SectionRow({
       </span>
       <span className="flex shrink-0 flex-wrap items-center gap-1.5">
         <PriorityBadge priority={section.priority} />
-        <TargetBadge target={section.target as string | null} />
-        <DueBadge due={section.due} status={section.status} />
+        {!section.is_infinite && (
+          <>
+            <TargetBadge target={section.target as string | null} />
+            <DueBadge due={section.due} status={section.status} />
+          </>
+        )}
       </span>
     </button>
   );
