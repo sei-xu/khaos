@@ -13,9 +13,12 @@
 - [x] Bot do Telegram com a mesma persona/tools do app (webhook reativo + digest matinal + lembretes agendados)
 - [x] Histórico de chat compartilhado (`chat_history`) entre o app web e o Telegram
 - [x] Oversight agent — análise em segundo plano de lotes de moments, lido pelo chat via `recall_oversight_notes`
-- [x] Notificação automática de deploy (Vercel + GitHub Actions → Telegram)
 - [x] PWA / gate de senha simples para acesso mobile
 - [x] Dashboard com pills agrupadas (scheduled/marked/targeted/due), drag-and-drop e auto-refresh
+
+> Nota: "Notificação automática de deploy (Vercel + GitHub Actions →
+> Telegram)" foi removida em 2026-10-07 por decisão do usuário (histórico
+> preservado aqui, não apagado em silêncio) — ver `docs/backlog.md`.
 
 ## Em aberto / próximos passos plausíveis
 

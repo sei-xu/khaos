@@ -5,14 +5,8 @@ name: Bump version on merge
 # version, commits straight to main as "chore: release vX.Y.Z", and tags it.
 #
 # That commit is itself a push to main, which is what Vercel's own GitHub
-# integration deploys — this workflow never calls Vercel to deploy anything.
-# It only finds out when that deploy finishes: Vercel's outbound Webhooks
-# feature is Pro-plan-and-up, so on a Hobby project there's no event to
-# subscribe to. Instead the last two steps poll the (plan-agnostic) Vercel
-# REST API for the deployment matching the commit just pushed, and once it's
-# READY, call telegram-notify's "deploy" job directly — see
-# supabase/functions/telegram-bot/README.md ("Release notifications") for the
-# secrets this needs.
+# integration deploys — this workflow never calls Vercel to deploy anything,
+# and it doesn't observe or report on the result of that deploy.
 on:
   pull_request:
     types: [closed]
@@ -39,7 +33,6 @@ jobs:
           echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Commit and tag
-        id: release
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -48,75 +41,3 @@ jobs:
           git tag "v${{ steps.bump.outputs.version }}"
           git push origin main
           git push origin "v${{ steps.bump.outputs.version }}"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for Vercel deployment
-        id: deploy
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-          SHA: ${{ steps.release.outputs.sha }}
-        run: |
-          # Secrets can carry a trailing newline depending on how they were
-          # pasted into GitHub; an embedded newline in the URL makes curl
-          # fail with "URL rejected: Malformed input to a URL function".
-          VERCEL_PROJECT_ID=$(printf '%s' "$VERCEL_PROJECT_ID" | tr -d '\n\r')
-          VERCEL_TEAM_ID=$(printf '%s' "$VERCEL_TEAM_ID" | tr -d '\n\r')
-
-          if [ -z "$VERCEL_PROJECT_ID" ]; then
-            echo "VERCEL_PROJECT_ID secret is not set"
-            exit 1
-          fi
-
-          team_query=""
-          if [ -n "$VERCEL_TEAM_ID" ]; then
-            team_query="&teamId=$VERCEL_TEAM_ID"
-          fi
-
-          state=""
-          deploy_url=""
-          echo "Polling Vercel for the production deployment of $SHA"
-          for i in $(seq 1 40); do
-            response=$(curl -sS -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&target=production&limit=10$team_query")
-            # Filter client-side rather than trust a meta-githubCommitSha query
-            # param, since exact server-side metadata filtering isn't
-            # guaranteed across API versions.
-            deployment=$(echo "$response" | jq --arg sha "$SHA" -c \
-              '[.deployments[]? | select(.meta.githubCommitSha == $sha)][0] // empty')
-            if [ -n "$deployment" ]; then
-              state=$(echo "$deployment" | jq -r '.readyState // empty')
-              deploy_url=$(echo "$deployment" | jq -r '.url // empty')
-            else
-              state=""
-            fi
-            echo "attempt $i: state=${state:-not found yet}"
-
-            if [ "$state" = "READY" ]; then
-              break
-            fi
-            if [ "$state" = "ERROR" ] || [ "$state" = "CANCELED" ]; then
-              echo "Vercel deployment ended in state $state"
-              exit 1
-            fi
-            sleep 15
-          done
-
-          if [ "$state" != "READY" ]; then
-            echo "Timed out waiting for the Vercel deployment to become ready"
-            exit 1
-          fi
-          echo "url=$deploy_url" >> "$GITHUB_OUTPUT"
-
-      - name: Notify Telegram
-        env:
-          KHAOS_CRON_SECRET: ${{ secrets.KHAOS_CRON_SECRET }}
-          SUPABASE_FUNCTIONS_URL: ${{ secrets.SUPABASE_FUNCTIONS_URL }}
-          VERSION: ${{ steps.bump.outputs.version }}
-          URL: ${{ steps.deploy.outputs.url }}
-        run: |
-          curl -sS -X POST "$SUPABASE_FUNCTIONS_URL/telegram-notify" \
-            -H "Content-Type: application/json" \
-            -H "X-Khaos-Cron-Secret: $KHAOS_CRON_SECRET" \
-            -d "$(jq -n --arg v "$VERSION" --arg u "$URL" '{job:"deploy",version:$v,url:$u}')"

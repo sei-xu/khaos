@@ -4,7 +4,7 @@
 // / Supabase Cron), not by Telegram, so it authenticates with its own shared
 // secret (X-Khaos-Cron-Secret header) rather than the Telegram webhook secret.
 //
-// Three jobs, selected by the POST body { "job": "digest" | "reminders" | "deploy" }:
+// Two jobs, selected by the POST body { "job": "digest" | "reminders" }:
 //
 //   digest     Once each morning: hands the agent a briefing instruction and
 //              sends Khaos's summary of overdue / due / scheduled work, plus
@@ -16,14 +16,8 @@
 //              'scheduled') whose window starts within the lead time and sends
 //              a plain reminder. Deterministic — no model call.
 //
-//   deploy     Driven by CI (.github/workflows/bump-version.yml), not cron:
-//              takes { job: "deploy", version, url? } and sends "Deployed
-//              vX.Y.Z" once the release workflow confirms the Vercel
-//              deployment for that version is READY. Deterministic — no
-//              model call.
-//
 // Idempotent via the telegram_notifications table, so overlapping or retried
-// cron/CI fires never double-send.
+// cron fires never double-send.
 //
 // verify_jwt is OFF (see supabase/config.toml). See ../telegram-bot/README.md
 // for the cron setup.
@@ -174,18 +168,6 @@ async function runReminders(): Promise<void> {
   }
 }
 
-// --- deploy ------------------------------------------------------------
-
-async function runDeploy(version: string, url: string | undefined): Promise<void> {
-  if (!version) return;
-  const text = ['Deployed', `v${version}.`, url].filter(Boolean).join(' ');
-  for (const chatId of CHAT_IDS) {
-    if (await claim(chatId, 'deploy', version)) {
-      await sendMessage(chatId, text);
-    }
-  }
-}
-
 // --- entry point -----------------------------------------------------------
 
 Deno.serve(async (req) => {
@@ -197,7 +179,7 @@ Deno.serve(async (req) => {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  let body: { job?: string; version?: string; url?: string };
+  let body: { job?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -210,9 +192,7 @@ Deno.serve(async (req) => {
       ? runDigest()
       : job === 'reminders'
         ? runReminders()
-        : job === 'deploy'
-          ? runDeploy(body.version ?? '', body.url)
-          : null;
+        : null;
 
   if (!run) {
     return new Response('Unknown job', { status: 400 });

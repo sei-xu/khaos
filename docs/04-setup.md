@@ -105,13 +105,6 @@ lembretes) está em
 agent está comentado no topo de
 `supabase/functions/oversight-agent/index.ts`.
 
-- **Notificação de release** — `.github/workflows/bump-version.yml` sobe a
-  versão do `package.json` a cada merge em `main` e, depois que o deploy na
-  Vercel fica pronto, chama `telegram-notify` com o job `deploy`. Requer os
-  secrets do GitHub Actions `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`,
-  `KHAOS_CRON_SECRET`, `SUPABASE_FUNCTIONS_URL` (e `VERCEL_TEAM_ID` se o
-  projeto estiver sob um time).
-
 ## Testando o chat
 
 Com o app rodando (`npm run dev`), abra a página do Assistant e converse
