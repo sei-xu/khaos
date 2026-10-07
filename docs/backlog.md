@@ -49,6 +49,7 @@ work that grows out of them. Roadmap phases live in
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
+| [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
 
 ---
 
@@ -629,6 +630,51 @@ typecheck, não exercitado em produção. Da mesma forma, a cura da linha
 o saneamento na leitura foi comprovado isoladamente (script acima), mas não
 contra a linha real do banco. Recomendo testar os dois depois do merge,
 antes de considerar o item fechado.
+
+---
+
+## Remover envio de versão de deploy por Telegram
+
+started 2026-10-07
+
+Pedido do usuário: parar de mandar "Deployed vX.Y.Z" no Telegram a cada
+release. A feature existia em três camadas, todas removidas na mesma PR:
+
+- **CI** (`.github/workflows/bump-version.yml`) — o step final "Notify
+  Telegram" (POST `{job:"deploy",version,url}` em `telegram-notify`) saiu
+  junto com o step anterior "Wait for Vercel deployment", que só existia
+  para alimentar esse aviso (até 10 min de polling por merge, mais os
+  secrets `VERCEL_TOKEN`/`VERCEL_PROJECT_ID`/`VERCEL_TEAM_ID`). Sobrou só
+  bump de versão + commit `chore: release vX.Y.Z` + tag; a Vercel continua
+  deployando via integração própria do GitHub, sem o workflow observar o
+  resultado.
+- **Edge Function** (`supabase/functions/telegram-notify/index.ts`) —
+  `runDeploy()` e o ramo `job === 'deploy'` saíram; o body passou a ser só
+  `{ job?: string }`. `digest` e `reminders` não mudaram.
+- **Documentação** — `supabase/functions/telegram-bot/README.md` (tabela de
+  funções, seção "Release notifications" inteira removida — ficou só
+  "Release versioning" com a nota do commit de bump —, bullet "Cron
+  secret"), `docs/03-ai.md`, `docs/04-setup.md` (bullet "Notificação de
+  release" removido) e `docs/05-roadmap.md` (item de roadmap retirado de
+  Concluído, nota de remoção adicionada no lugar).
+
+**Sem migração de banco.** `telegram_notifications.kind` é `text` livre,
+sem `CHECK` — as linhas `kind='deploy'` já gravadas ficam como histórico
+inócuo.
+
+**Conflito com o roadmap, declarado em vez de silenciado:**
+`docs/05-roadmap.md:16` registrava "Notificação automática de deploy
+(Vercel + GitHub Actions → Telegram)" como concluído; a remoção contradiz
+esse item registrado, então o roadmap foi atualizado (retirado de
+Concluído, nota explicando a remoção) em vez de editado em silêncio.
+
+**Pendências manuais, fora do repo — a fazer pelo usuário:**
+1. `supabase functions deploy telegram-notify` para o ramo `deploy` sair
+   do ar de fato.
+2. Apagar os secrets de repo do GitHub Actions `VERCEL_TOKEN`,
+   `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` e `SUPABASE_FUNCTIONS_URL`
+   (Settings → Secrets) — `KHAOS_CRON_SECRET` continua necessário para o
+   cron, só não é mais usado pelo GitHub Actions.
 
 ---
 

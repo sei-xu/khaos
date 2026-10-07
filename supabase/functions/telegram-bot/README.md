@@ -10,7 +10,7 @@ Two Edge Functions, one shared brain:
 | Function | Trigger | Does |
 | --- | --- | --- |
 | `telegram-bot` | Telegram webhook | Answers your messages (the reactive chat) |
-| `telegram-notify` | cron, or a GitHub Actions release step | Morning digest, upcoming-task reminders, and "Deployed vX.Y.Z" notices |
+| `telegram-notify` | cron | Morning digest and upcoming-task reminders |
 
 Both import their agent brain, Telegram helpers, and tools from
 `supabase/functions/_shared`, which in turn reuses the app's own
@@ -79,9 +79,8 @@ npm run gen:edge-schema   # runs automatically as part of `npm run db:dump`
 
 ## Scheduled notifications (`telegram-notify`)
 
-Callers (cron, or CI — see Release notifications below) POST to the function
-with a `{ "job": ... }` body and the `X-Khaos-Cron-Secret` header (matching
-`KHAOS_CRON_SECRET`):
+Callers (cron) POST to the function with a `{ "job": ... }` body and the
+`X-Khaos-Cron-Secret` header (matching `KHAOS_CRON_SECRET`):
 
 - **`digest`** — once each morning. Khaos queries your current state and sends a
   concise briefing: overdue, due today, today's scheduled tasks, scheduled
@@ -93,12 +92,9 @@ with a `{ "job": ... }` body and the `X-Khaos-Cron-Secret` header (matching
 - **`reminders`** — every few minutes. Finds scheduled tasks whose window starts
   within the lead time (`REMINDER_LEAD_MINUTES`, default 10) and sends a plain
   reminder. Deterministic, no model call.
-- **`deploy`** — driven by CI, not cron. Takes `{ "job": "deploy", "version":
-  "1.2.3", "url": "khaos.example.com" }` and sends "Deployed v1.2.3." (plus
-  the URL, if given) verbatim — no model call.
 
-All three are idempotent (`telegram_notifications`), so overlapping/retried
-fires never double-send.
+Both are idempotent (`telegram_notifications`), so overlapping/retried fires
+never double-send.
 
 ### Wire up cron with pg_cron + pg_net
 
@@ -137,51 +133,13 @@ SQL.) To change the times later: `select cron.unschedule('khaos-digest');` then
 re-schedule. To harden the secret out of the job definition, store it in
 Supabase Vault and read it via `vault.decrypted_secrets` instead of inlining.
 
-## Release notifications
+## Release versioning
 
 Every PR merged into `main` bumps `package.json`'s patch version and commits
 it straight to `main` as `chore: release vX.Y.Z` (`.github/workflows/bump-version.yml`).
 That commit is a push to `main`, which Vercel's own GitHub integration
-already auto-deploys — the workflow doesn't drive the deploy itself.
-
-Vercel's outbound **Webhooks** feature (Project/Team → Settings → Webhooks)
-is Pro-plan-and-up, so on a Hobby project there's nothing for Vercel to call
-when a deploy finishes. Instead the same workflow polls the **Vercel REST
-API** — plain API access, available on every plan — for the deployment
-matching the commit it just pushed, waits for it to leave the
-QUEUED/BUILDING/INITIALIZING states, and on `READY` calls `telegram-notify`'s
-`deploy` job directly. No webhook, no extra Edge Function.
-
-**One-time setup:**
-
-1. **Vercel personal access token** — [vercel.com/account/tokens](https://vercel.com/account/tokens) →
-   Create Token (no special scope needed, read access is enough).
-2. **Vercel project ID** — Project → Settings → General → "Project ID".
-3. **`KHAOS_CRON_SECRET`** — the same value already set on the Supabase side
-   (`supabase secrets set KHAOS_CRON_SECRET=...`); the workflow needs it too,
-   to call `telegram-notify` the same way cron does.
-4. **Your project's Supabase function URL** — `https://<project-ref>.supabase.co/functions/v1/telegram-notify`.
-
-Add these as **GitHub Actions repo secrets** (Settings → Secrets and
-variables → Actions):
-
-| Secret | Value |
-| --- | --- |
-| `VERCEL_TOKEN` | the personal access token from step 1 |
-| `VERCEL_PROJECT_ID` | the project ID from step 2 |
-| `VERCEL_TEAM_ID` | only if the project lives under a team, not a personal account (Settings → General → "Team ID") |
-| `KHAOS_CRON_SECRET` | same value as the Supabase secret |
-| `SUPABASE_FUNCTIONS_URL` | `https://<project-ref>.supabase.co/functions/v1` |
-
-Nothing else to configure — the polling step is already part of
-`bump-version.yml`. Preview deployments (every branch push, every PR) are
-never polled for, since the workflow only ever looks for the one commit it
-just pushed to `main`.
-
-If the poll times out (10 minutes, checked every 15s) or Vercel reports
-`ERROR`, the workflow step fails loudly in the Actions log rather than
-silently sending nothing — check there if you don't get a Telegram message
-after a release.
+already auto-deploys — the workflow doesn't drive the deploy itself, and it
+doesn't observe or report on the result.
 
 If `main` has branch protection requiring PRs (no direct pushes), the bump
 workflow's push will be rejected — either allow the `github-actions[bot]`
@@ -201,9 +159,8 @@ instead of pushing directly (not what's implemented here).
 - **Webhook secret** — every `telegram-bot` request must carry the
   `X-Telegram-Bot-Api-Secret-Token` header matching `TELEGRAM_WEBHOOK_SECRET`,
   checked before the body is read.
-- **Cron secret** — every `telegram-notify` request (cron or the release
-  workflow's `deploy` job) must carry `X-Khaos-Cron-Secret` matching
-  `KHAOS_CRON_SECRET`.
+- **Cron secret** — every `telegram-notify` request must carry
+  `X-Khaos-Cron-Secret` matching `KHAOS_CRON_SECRET`.
 - **Allowlist** — only chat ids in `TELEGRAM_ALLOWED_CHAT_IDS` reach the agent
   or receive notifications. An empty allowlist denies everyone and just echoes
   the caller's chat id.
@@ -220,7 +177,7 @@ instead of pushing directly (not what's implemented here).
 | `TELEGRAM_BOT_TOKEN` | yes | — | @BotFather token |
 | `TELEGRAM_WEBHOOK_SECRET` | yes | — | Webhook auth; also passed to setWebhook |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | yes | — | Comma-separated chat ids allowed |
-| `KHAOS_CRON_SECRET` | for notify | — | Auth for the cron- and CI-triggered notifier |
+| `KHAOS_CRON_SECRET` | for notify | — | Auth for the cron-triggered notifier |
 | `ANTHROPIC_API_KEY` | yes | — | Shared with anthropic-proxy; set once |
 | `LLM_MODEL` | no | `claude-sonnet-5` | Model the bot uses |
 | `TELEGRAM_TIMEZONE` | no | `America/Sao_Paulo` | IANA tz for times & digest date |
