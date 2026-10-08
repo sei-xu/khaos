@@ -239,10 +239,18 @@ export default function SectionColumn({
               <div className="border-nyx-700 bg-nyx-800 shadow-panel absolute right-0 z-10 mt-1 w-52 rounded-md border py-1">
                 <button
                   onClick={() => {
+                    const nextInfinite = !section.is_infinite;
                     updateSection.mutate({
                       id: section.id,
-                      patch: { is_infinite: !section.is_infinite },
+                      // Infinite sections are a continuous list with no
+                      // planned window or deadline -- clear any existing
+                      // target/due in the same patch so nothing is left
+                      // orphaned (set, but no longer shown anywhere).
+                      patch: nextInfinite
+                        ? { is_infinite: true, target: null, due: null }
+                        : { is_infinite: false },
                     });
+                    if (nextInfinite) setTargetOpen(false);
                     setMenuOpen(false);
                   }}
                   className="text-nyx-400 hover:bg-nyx-700 flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-caption"
@@ -278,17 +286,19 @@ export default function SectionColumn({
             >
               <Info size={13} />
             </span>
-            <button
-              onClick={() => setTargetOpen((o) => !o)}
-              className="text-nyx-500 hover:text-nyx-200 flex shrink-0 items-center"
-              title={targetOpen ? 'Hide target editor' : 'Edit target'}
-            >
-              {section.target ? (
-                <TargetBadge target={section.target as string | null} />
-              ) : (
-                <CalendarRange size={14} />
-              )}
-            </button>
+            {!section.is_infinite && (
+              <button
+                onClick={() => setTargetOpen((o) => !o)}
+                className="text-nyx-500 hover:text-nyx-200 flex shrink-0 items-center"
+                title={targetOpen ? 'Hide target editor' : 'Edit target'}
+              >
+                {section.target ? (
+                  <TargetBadge target={section.target as string | null} />
+                ) : (
+                  <CalendarRange size={14} />
+                )}
+              </button>
+            )}
             <StatusPicker
               value={section.status}
               onChange={(status) =>
@@ -304,7 +314,7 @@ export default function SectionColumn({
           </div>
         )}
 
-        {targetOpen && !collapsed && (
+        {targetOpen && !collapsed && !section.is_infinite && (
           <div className="border-nyx-700 bg-nyx-900/50 rounded-md border p-2.5">
             <TargetEditor
               value={section.target as string | null}
