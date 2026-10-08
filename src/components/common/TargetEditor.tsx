@@ -158,14 +158,8 @@ function buildLocalDate(
 // same-day start+end no longer collapses to an empty (and DB-rejected)
 // range.
 function effectiveEnd(start: Date, end: Date | null): Date | null {
-  if (end) {
-    return end.getHours() === 0 && end.getMinutes() === 0
-      ? endOfLocalDay(end)
-      : end;
-  }
-  if (start.getHours() === 0 && start.getMinutes() === 0) {
-    return endOfLocalDay(start);
-  }
+  if (end) return hasExplicitTime(end) ? end : endOfLocalDay(end);
+  if (!hasExplicitTime(start)) return endOfLocalDay(start);
   return null;
 }
 
@@ -207,10 +201,14 @@ export default function TargetEditor({
   const startValues = useMemo(() => getLocalValues(start), [start]);
   const endValues = useMemo(() => getLocalValues(explicitEnd), [explicitEnd]);
 
+  // Whether the explicit end carries a time the user actually picked --
+  // 23:59 is the untimed-end sentinel, so it doesn't count (see
+  // hasExplicitEndTime). Shared by the initial state and the prop reset
+  // below instead of being spelled out twice.
+  const endHasTime = Boolean(explicitEnd && hasExplicitEndTime(explicitEnd));
+
   const [showStartTime, setShowStartTime] = useState(() => startValues.hasTime);
-  const [showEndTime, setShowEndTime] = useState(() =>
-    Boolean(explicitEnd && hasExplicitEndTime(explicitEnd))
-  );
+  const [showEndTime, setShowEndTime] = useState(() => endHasTime);
 
   // Tracks the last value this editor itself emitted via onChange, so the
   // reset below (which only applies when `value` changes from *outside*,
@@ -232,7 +230,7 @@ export default function TargetEditor({
       setForceShowEnd(false);
       setError(null);
       setShowStartTime(startValues.hasTime);
-      setShowEndTime(Boolean(explicitEnd && hasExplicitEndTime(explicitEnd)));
+      setShowEndTime(endHasTime);
     }
   }
 

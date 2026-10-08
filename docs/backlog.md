@@ -709,6 +709,48 @@ rápida pós-deploy, mesmo aviso já registrado em
 Não contradiz nenhuma fase registrada em `05-roadmap.md` — o roadmap só
 lista target como já entregue (moments/Dashboard); nada aqui muda isso.
 
+### Revisão do PR #78 (2026-10-08)
+
+Revisão automatizada do diff. Duas correções aplicadas direto no branch
+(reuso puro, sem mudança de comportamento): `hasExplicitEndTime` e
+`effectiveEnd` passaram a usar o `isUntimed`/`hasExplicitTime` que já
+existem em `range.ts` em vez de repetir a checagem de meia-noite inline, e
+o `Boolean(explicitEnd && hasExplicitEndTime(explicitEnd))` duplicado no
+`TargetEditor` virou um `endHasTime` único usado pelo estado inicial e
+pelo reset de prop.
+
+Dois achados bloqueantes comentados no PR, não corrigidos aqui:
+
+- **`validate()` passou a rejeitar um target de um dia que caia no próprio
+  due.** `effectiveEnd` devolve 23:59:59.999 e um due sem hora é gravado em
+  23:59:00.000 (`DueEditor`), então `endTarget > dueDate` dispara por 59,999s.
+  Antes do PR a checagem de fim só rodava quando havia um fim explícito, e um
+  target só-início no dia do due passava. Plano: elevar o limite do due para o
+  fim do dia quando ele carrega o sentinel 23:59 (`endOfLocalDay(dueDate)`),
+  o que também conserta o caso pré-existente do fim explícito no dia do due.
+- **A guarda `lastEmitted` nunca casa, então o reset de prop que ela deveria
+  suprimir continua rodando.** Não há optimistic update em nenhuma mutation
+  (`useHierarchy.ts` só invalida), então o `value` volta como texto
+  `tstzrange` do Postgres (`["… 00:00:00+00","… 23:59:59.999+00")`) enquanto
+  `lastEmitted` guarda o literal ISO sem aspas que `formatRange` produz —
+  strings que nunca são iguais. Efeito: `forceShowEnd` segue sendo zerado, e
+  o campo de fim aberto pelo "+ end" fecha sozinho se o usuário mexer no
+  início antes de escolher o fim. Plano: comparar semanticamente
+  (`parseRange` + os epochs de start/end) em vez de comparar as strings — ou,
+  se o reset agressivo for aceitável, remover o estado `lastEmitted`/`emit`
+  por ser inerte.
+
+Quatro achados não bloqueantes também comentados no PR: as três demos novas
+da `SigilsPage` usam literais `+00`, que num fuso diferente de UTC (UTC-3
+aqui) não representam meia-noite/23:59 locais e portanto mostram
+exatamente o "· hora" que seus rótulos dizem não aparecer; o botão de
+limpar e a linha do fim ocupam a mesma célula (`col-start-2 row-start-3`) no
+layout empilhado, colisão pré-existente que a container query de 512px
+tornou muito mais alcançável que a viewport query de 350px; ligar o modo
+infinito apaga `target`/`due` de forma irreversível; e um início movido para
+cima de um fim com hora igual continua dando erro em vez de deslocar o fim
+(o `nextEnd < nextStart` exclui o caso de igualdade).
+
 ---
 
 ## Resolved

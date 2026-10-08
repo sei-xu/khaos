@@ -93,7 +93,7 @@ export function hasExplicitTime(d: Date): boolean {
 // was pass the picked end straight through) — midnight reads the same as
 // 23:59 here, no data migration needed.
 export function hasExplicitEndTime(d: Date): boolean {
-  if (d.getHours() === 0 && d.getMinutes() === 0) return false;
+  if (isUntimed(d)) return false;
   return d.getHours() !== 23 || d.getMinutes() !== 59;
 }
 
