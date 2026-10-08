@@ -3,18 +3,27 @@ import { Sparkles } from 'lucide-react';
 import {
   useProjects,
   useSections,
+  useTasks,
   useTaskMutations,
 } from '../../hooks/useHierarchy';
 import { parseQuickAdd } from '../../lib/quickAdd';
-import { PRIORITIES } from '../../lib/constants';
-import { Modal, Select, TextInput, Button } from '../common/ui';
-import { toDatetimeLocalValue } from '../../lib/dateUtils';
-import type { Id, Priority } from '../../lib/types';
+import {
+  Modal,
+  Select,
+  TextInput,
+  Button,
+  PriorityPicker,
+  StatusPicker,
+} from '../common/ui';
+import DueEditor from '../common/DueEditor';
+import TaskDetailModal from './TaskDetailModal';
+import type { Id, Priority, Status, Task } from '../../lib/types';
 
 interface Draft {
   name: string;
   priority: Priority;
-  dueDate: Date | null;
+  status: Status;
+  due: string | null;
   projectId: Id | null;
   sectionId: Id | null;
 }
@@ -22,10 +31,12 @@ interface Draft {
 export default function QuickAddBar() {
   const { data: projects = [] } = useProjects();
   const { data: sections = [] } = useSections();
+  const { data: tasks = [] } = useTasks();
   const { create } = useTaskMutations();
 
   const [raw, setRaw] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [created, setCreated] = useState<Task | null>(null);
 
   const sectionsForProject = useMemo(
     () => sections.filter((s) => s.project_id === draft?.projectId),
@@ -36,14 +47,15 @@ export default function QuickAddBar() {
     e.preventDefault();
     if (!raw.trim()) return;
     const parsed = parseQuickAdd(raw, projects);
-    const defaultSections = sections.filter(
-      (s) => s.project_id === parsed.projectId
-    );
+    const defaultSections = parsed.projectId
+      ? sections.filter((s) => s.project_id === parsed.projectId)
+      : [];
     setDraft({
       name: parsed.name || raw,
       priority: parsed.priority || 'medium',
-      dueDate: parsed.dueDate,
-      projectId: parsed.projectId || defaultSections[0]?.project_id || null,
+      status: 'planning',
+      due: parsed.dueDate ? parsed.dueDate.toISOString() : null,
+      projectId: parsed.projectId,
       sectionId: defaultSections[0]?.id || null,
     });
   }
@@ -55,12 +67,22 @@ export default function QuickAddBar() {
         section_id: draft.sectionId,
         name: draft.name.trim(),
         priority: draft.priority,
-        due: draft.dueDate ? new Date(draft.dueDate).toISOString() : null,
+        status: draft.status,
+        due: draft.due,
       },
-      { onSuccess: () => setDraft(null) }
+      {
+        onSuccess: (task) => {
+          setDraft(null);
+          setRaw('');
+          setCreated(task);
+        },
+      }
     );
-    setRaw('');
   }
+
+  const openTask = created
+    ? (tasks.find((t) => t.id === created.id) ?? created)
+    : null;
 
   return (
     <>
@@ -73,7 +95,7 @@ export default function QuickAddBar() {
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           placeholder="Quick add: Finish report tomorrow 3pm #ProjectX !high"
-          className="border-nyx-700 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 w-full rounded-full border py-2 pr-3 pl-9 text-body focus:outline-hidden"
+          className="border-nyx-700 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 text-body w-full rounded-full border py-2 pr-3 pl-9 focus:outline-hidden"
         />
       </form>
 
@@ -101,7 +123,7 @@ export default function QuickAddBar() {
         {draft && (
           <div className="space-y-3">
             <div>
-              <label className="text-nyx-400 mb-1 block text-caption font-medium">
+              <label className="text-nyx-400 text-caption mb-1 block font-medium">
                 Name
               </label>
               <TextInput
@@ -112,7 +134,7 @@ export default function QuickAddBar() {
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-nyx-400 mb-1 block text-caption font-medium">
+                <label className="text-nyx-400 text-caption mb-1 block font-medium">
                   Project
                 </label>
                 <Select
@@ -141,7 +163,7 @@ export default function QuickAddBar() {
                 </Select>
               </div>
               <div>
-                <label className="text-nyx-400 mb-1 block text-caption font-medium">
+                <label className="text-nyx-400 text-caption mb-1 block font-medium">
                   Section
                 </label>
                 <Select
@@ -167,49 +189,56 @@ export default function QuickAddBar() {
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-nyx-400 mb-1 block text-caption font-medium">
+                <label className="text-nyx-400 text-caption mb-1 block font-medium">
                   Priority
                 </label>
-                <Select
+                <PriorityPicker
                   value={draft.priority}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      priority: e.target.value as Priority,
-                    })
-                  }
-                >
-                  {PRIORITIES.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <label className="text-nyx-400 mb-1 block text-caption font-medium">
-                  Due
-                </label>
-                <TextInput
-                  type="datetime-local"
-                  value={toDatetimeLocalValue(draft.dueDate)}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      dueDate: e.target.value ? new Date(e.target.value) : null,
-                    })
-                  }
+                  onChange={(priority) => setDraft({ ...draft, priority })}
                 />
               </div>
+              <div>
+                <label className="text-nyx-400 text-caption mb-1 block font-medium">
+                  Due
+                </label>
+                <DueEditor
+                  value={draft.due}
+                  status={draft.status}
+                  onChange={(due) => setDraft({ ...draft, due })}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-nyx-400 text-caption mb-1 block font-medium">
+                Status
+              </label>
+              <StatusPicker
+                value={draft.status}
+                onChange={(status) => setDraft({ ...draft, status })}
+              />
             </div>
             {!sectionsForProject.length && draft.projectId && (
               <p className="text-tartarus-500 text-caption">
                 This project has no sections yet — add one first.
               </p>
             )}
+            {create.isError && (
+              <p className="text-tartarus-500 text-caption">
+                Couldn&apos;t create the task — try again.
+              </p>
+            )}
           </div>
         )}
       </Modal>
+
+      {openTask && (
+        <TaskDetailModal
+          taskId={openTask.id}
+          task={openTask}
+          onClose={() => setCreated(null)}
+          onOpenTask={(task) => setCreated(task)}
+        />
+      )}
     </>
   );
 }

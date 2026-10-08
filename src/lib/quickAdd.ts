@@ -27,13 +27,20 @@ const PRIORITY_ALIASES: Record<string, Priority> = {
   low: 'low',
 };
 
+// A due date with no explicit time means "by end of that day" everywhere
+// else in the app (DueEditor, TaskDetailModal's Due field both store 23:59
+// for an untimed due) -- so when the quick-add text didn't name a time,
+// this stores 23:59 too instead of a 9am default that nothing else uses.
 function applyTimeOfDay(date: Date, timeStr: string | undefined): Date {
   if (!timeStr) {
-    date.setHours(9, 0, 0, 0); // sensible default
+    date.setHours(23, 59, 0, 0);
     return date;
   }
   const m = timeStr.match(/(\d{1,2})(?::(\d{2}))?\s?(am|pm)?/i);
-  if (!m) return date;
+  if (!m) {
+    date.setHours(23, 59, 0, 0);
+    return date;
+  }
   let hour = parseInt(m[1], 10);
   const minute = m[2] ? parseInt(m[2], 10) : 0;
   const meridiem = m[3]?.toLowerCase();

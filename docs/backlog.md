@@ -50,6 +50,7 @@ work that grows out of them. Roadmap phases live in
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
+| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 
 ---
 
@@ -675,6 +676,74 @@ Concluído, nota explicando a remoção) em vez de editado em silêncio.
    `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` e `SUPABASE_FUNCTIONS_URL`
    (Settings → Secrets) — `KHAOS_CRON_SECRET` continua necessário para o
    cron, só não é mais usado pelo GitHub Actions.
+
+---
+
+## Quick add — dialog atualizado e tarefa aberta após criar
+
+started 2026-10-07
+
+O dialog "New task" aberto pelo quick-add do header (`QuickAddBar.tsx`)
+estava defasado do vocabulário de componentes do round Theurgy — Priority
+era um `Select` cru em vez do `PriorityPicker`, e Due era um
+`TextInput type="datetime-local"` em vez do `DueEditor` (extraído do
+TaskDetailModal justamente para reuso, mas até aqui só consumido pela
+câmara de dev Sigils). Trazido ao padrão atual: Priority agora usa
+`PriorityPicker`, Due usa `DueEditor`, e um campo Status (`StatusPicker`,
+default `planning`) foi adicionado para bater com o conjunto de campos do
+TaskDetailModal.
+
+Três bugs reais corrigidos no mesmo dialog: (1) o texto digitado era
+limpo mesmo quando o insert falhava — `setRaw('')` agora só roda dentro do
+`onSuccess` da mutation; (2) uma falha de insert não mostrava nada — agora
+há uma mensagem inline (`create.isError`) e o draft permanece aberto com o
+texto preservado; (3) o default de projeto/seção nunca pegava quando o
+parser não reconhecia um `#projeto` no texto (o filtro comparava contra
+`project_id === null`, que nunca casava) — agora só pré-seleciona seção
+quando o parser de fato achou um projeto.
+
+Decisão de semântica de hora: o parser (`quickAdd.ts`) aplicava 09:00 como
+default para uma data sem hora explícita, enquanto `DueEditor` e o Due do
+TaskDetailModal tratam "sem hora" como 23:59 (fim do dia). `applyTimeOfDay`
+foi ajustado para gravar 23:59 também, eliminando a divergência — agora o
+quick-add e o resto do app concordam sobre o que "devido amanhã", sem hora,
+significa.
+
+Segunda metade do item: depois de criar, a tarefa agora abre — o
+`TaskDetailModal` é montado como filho do próprio `QuickAddBar` (estado
+local `created`, não a URL `?taskId=`), então funciona em qualquer página,
+inclusive as que não montam esse modal (`/calendar`, `/tags`, `/routines`)
+e sobrevive a troca de rota. A alternativa de navegar para
+`/tasks?taskId=<id>` (padrão do `CommandPalette`) foi considerada e
+descartada: tiraria o usuário da página em que estava, e `/dashboard` e
+`/projects/:id` resolvem `?taskId` só na lista filtrada da própria página —
+um id fora daquele escopo não abriria nada.
+
+Fora de escopo, por decisão explícita: Estimate/Target/Tags/Items não
+entraram no dialog de criação (Target em particular tem uma CHECK de banco
+amarrando `target < due`, o que o torna ruim para criação). Uma
+pré-seleção de projeto baseada na rota atual (`/projects/:id`) foi cogitada
+e descartada por ora — fica como ideia registrada, não implementada.
+
+Verificação: `npm run typecheck` limpo; `npx eslint` nos dois arquivos
+tocados limpo (`npm run lint` no repo inteiro continua falhando pelos 11
+erros pré-existentes do item "`npm run lint` fails on main", não
+relacionados); `npm run build` passa. Checagem manual no browser (sem
+suite de testes, conforme CLAUDE.md): parser com "tomorrow at 3pm !high"
+produz nome limpo, prioridade High, Due com toggle de hora ligado em
+15:00, Status em PLAN; botão "Create task" fica desabilitado sem seção
+escolhida; `/dev/vortex/sigils` renderiza sem regressão. **Limitação
+declarada:** o ambiente de verificação não tem credenciais reais do
+Supabase, então o fluxo completo de criar → ver a tarefa nova → abrir o
+modal não pôde ser exercitado fim a fim contra dados reais — só a lógica
+do dialog e seus estados.
+
+Achado incidental, fora de escopo: o parser não reconhece "tomorrow 3pm"
+sem a palavra "at" antes da hora (ex.: o texto do próprio placeholder do
+input, "Finish report tomorrow 3pm #ProjectX !high", na real cai no ramo
+"today/tomorrow" sem capturar a hora, porque a regex exige `at` antes do
+horário) — a hora fica no nome da tarefa em vez de virar Due. Não
+corrigido aqui; registrado para decisão futura.
 
 ---
 
