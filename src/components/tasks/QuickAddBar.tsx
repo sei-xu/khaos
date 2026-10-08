@@ -43,6 +43,11 @@ export default function QuickAddBar() {
     [sections, draft?.projectId]
   );
 
+  function firstSectionId(projectId: Id | null) {
+    if (!projectId) return null;
+    return sections.find((s) => s.project_id === projectId)?.id ?? null;
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!raw.trim()) return;
@@ -51,21 +56,19 @@ export default function QuickAddBar() {
     // own error state on the next mutate().
     create.reset();
     const parsed = parseQuickAdd(raw, projects);
-    const defaultSections = parsed.projectId
-      ? sections.filter((s) => s.project_id === parsed.projectId)
-      : [];
     setDraft({
       name: parsed.name || raw,
       priority: parsed.priority || 'medium',
       status: 'planning',
       due: parsed.dueDate ? parsed.dueDate.toISOString() : null,
       projectId: parsed.projectId,
-      sectionId: defaultSections[0]?.id || null,
+      sectionId: firstSectionId(parsed.projectId),
     });
   }
 
   function confirmCreate() {
     if (!draft || !draft.sectionId || !draft.name.trim()) return;
+    if (create.isPending) return;
     create.mutate(
       {
         section_id: draft.sectionId,
@@ -146,13 +149,10 @@ export default function QuickAddBar() {
                   className="w-full"
                   onChange={(e) => {
                     const projectId = e.target.value;
-                    const firstSection = sections.find(
-                      (s) => s.project_id === projectId
-                    );
                     setDraft({
                       ...draft,
                       projectId,
-                      sectionId: firstSection?.id ?? null,
+                      sectionId: firstSectionId(projectId),
                     });
                   }}
                 >

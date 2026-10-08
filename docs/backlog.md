@@ -772,6 +772,32 @@ exportá-la de `ui.tsx`) e usá-la nos dois lugares. Não aplicado aqui: muda
 comportamento visível de tarefas já existentes e mexe em arquivo fora do
 escopo deste PR.
 
+Segunda passada de revisão automatizada do PR #81 (2026-10-08): nenhum
+achado bloqueante novo. Dois ajustes aplicados direto no branch. (1) A
+busca da "primeira seção do projeto" estava duplicada em duas formas
+diferentes no mesmo arquivo — `sections.filter(...)[0]` em `handleSubmit`
+e `sections.find(...)` no `onChange` do select de Project; virou um único
+helper `firstSectionId(projectId)`, que também absorve a guarda de
+`projectId` nulo (um `find` contra `project_id === null` nunca casa, então
+o `? :` externo ficou redundante). (2) `confirmCreate` ganhou um
+`if (create.isPending) return;`: o botão "Create task" já é desabilitado
+durante o insert, mas o atalho Cmd/Ctrl+Enter do `Modal` chama
+`confirmCreate` direto, sem passar pelo botão — repetir o atalho com o
+insert em voo criava a tarefa duas vezes.
+
+Também notado, não alterado: o diff de `docs/backlog.md` traz ~150 linhas
+de reformatação whitespace-only (tabelas com colunas alinhadas, `*all*` →
+`_all_`, linha em branco antes de listas) misturadas ao conteúdo novo do
+item. `npm run format` cobre só `src/**`, então essa formatação não veio
+do script do projeto e sim de um prettier-on-save do editor. Duas saídas,
+ambas defensáveis: (a) reverter a parte whitespace-only deste PR, deixando
+o diff do doc só com o conteúdo novo — mantém o histórico do backlog
+legível, mas o churn volta no próximo editor que salve o arquivo; (b)
+aceitar e estender o glob de `format` para incluir `docs/**/*.md`, tornando
+a formatação intencional e estável — custa um commit único de churn grande
+agora, em troca de nunca mais acontecer por acidente. Fica como decisão do
+usuário.
+
 ---
 
 ## Resolved
