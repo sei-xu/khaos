@@ -325,7 +325,10 @@ export default function TargetEditor({
           // min-h-8.5 matches DueEditor's pill height -- was h-8.5 (fixed),
           // which clipped a second line instead of growing to fit it.
           'border-nyx-600 text-nyx-400 flex min-h-8.5 w-fit flex-wrap items-center gap-1.5 rounded-full border pr-2 pl-3 font-mono',
-          '@max-lg:grid @max-lg:h-auto @max-lg:grid-cols-[auto_1fr] @max-lg:items-center @max-lg:gap-x-2 @max-lg:gap-y-1 @max-lg:rounded-2xl @max-lg:px-3.5 @max-lg:py-2.5'
+          // no @max-lg:h-auto / @max-lg:items-center here: with min-h-8.5
+          // (instead of the old fixed h-8.5) there is no height to override,
+          // and items-center is already on the base class list.
+          '@max-lg:grid @max-lg:grid-cols-[auto_1fr] @max-lg:gap-x-2 @max-lg:gap-y-1 @max-lg:rounded-2xl @max-lg:px-3.5 @max-lg:py-2.5'
         )}
       >
         {/* Icon and input text both bumped to match the default input's
