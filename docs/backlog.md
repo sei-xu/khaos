@@ -38,19 +38,19 @@ work that grows out of them. Roadmap phases live in
 
 ## Open
 
-| title | started |
-|---|---|
-| [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend) | 2026-08-29 |
-| [Cosmogony compliance sweep (post-merge)](#cosmogony-compliance-sweep-post-merge) | 2026-07-23 |
-| [Components — column chips](#components--column-chips) | 2026-07-23 |
-| [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
-| [Components — entity chips](#components--entity-chips) | 2026-07-23 |
-| [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
-| [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
-| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
+| title                                                                                                                          | started    |
+| ------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend)                                              | 2026-08-29 |
+| [Cosmogony compliance sweep (post-merge)](#cosmogony-compliance-sweep-post-merge)                                              | 2026-07-23 |
+| [Components — column chips](#components--column-chips)                                                                         | 2026-07-23 |
+| [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue)             | 2026-07-23 |
+| [Components — entity chips](#components--entity-chips)                                                                         | 2026-07-23 |
+| [`npm run lint` fails on main](#npm-run-lint-fails-on-main)                                                                    | 2026-09-30 |
+| [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history)                               | 2026-09-30 |
+| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup)                               | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
-| [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
-| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
+| [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram)                              | 2026-10-07 |
+| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar)           | 2026-10-07 |
 
 ---
 
@@ -64,7 +64,7 @@ checklist item to a task silently did nothing, no visible error.
 Root cause found: `public.task_items.order` is a smallint backed by a
 single table-wide `IDENTITY` sequence (`task_items_order_seq`) plus a
 table-wide `UNIQUE` constraint (`task_items_order_key`) — enforcing
-uniqueness of `order` across *all* tasks combined, not per task. This
+uniqueness of `order` across _all_ tasks combined, not per task. This
 already broke once before (migration `20260812000000`): the sequence
 fell behind `max(order)`, so every insert collided with a `409 duplicate
 key` error. That fix only did a one-time resync, so it was structurally
@@ -81,6 +81,7 @@ PR [#66](https://github.com/sei-xu/khaos/pull/66) on branch
 `claude/task-items-frontend-inclusion-kqu4tm`.~~ (done)
 
 **Still open:**
+
 - The frontend's silent-error pattern (no toast/alert anywhere in the
   app) is a separate, broader issue — not fixed here, flagged for a
   future pass.
@@ -223,6 +224,7 @@ question, not a sign-off on the chamber's content). Wired into the nav,
 chamber index, and routes. Pushed as `9c091a7`.
 
 **Done this round:**
+
 - Fixed the icon spinning off-center (was rotating around the glyph's
   own asymmetric font-metrics box, not a true-square container).
 - Fixed the password-gate hero not spinning at all (referenced a CSS
@@ -300,6 +302,7 @@ is really an expanded task chip, not a gap needing a new atomic one).
 Pushed as `9c091a7`, `0f276f8`, `c9d46e6`.
 
 Entity outcomes confirmed with the user:
+
 - **Event** already had a chat card (`InlineEventPreview` +
   `EntityChip`); all three `event_type` variants demoed live (solid
   Pontus border fixed, dotted Hypnos scheduled, dotted Pontus routine).
@@ -362,7 +365,7 @@ Entity outcomes confirmed with the user:
   request.~~
 - ~~Project name bold wherever it renders as a reference (`ProjectChip`,
   `ProjectRow`, `SectionRow` breadcrumb) — color unchanged. Project name
-  *input* in `ProjectDetailPage.tsx` given `font-normal` (it had inherited
+  _input_ in `ProjectDetailPage.tsx` given `font-normal` (it had inherited
   the display font's heavy default). Pushed as `ee76dfb` / `0012676` /
   `af1a976`.~~
 - ~~Spacing normalized to the spacing ladder: `pl-2.5` → `px-2` in
@@ -486,6 +489,7 @@ changelog from the history later, not in the same change.
 The rebuild looks feasible from the history alone: 31 commits touched
 `version` in `package.json` (`chore: release v1.0.1` … `v1.0.30`), out of
 ~430 commits since 2026-06-22. Plan when picked up:
+
 - Create `docs/history/CHANGELOG.md` (same location the other managed apps
   use — Etto and Ḫprj), one entry per released version, newest first, with
   date, what changed and why, taken from the release commits and the PRs
@@ -511,23 +515,23 @@ future but not the backlog of 56 remote branches it left.
 
 **46 of them are already merged into `main`.** Those are pure clutter and are
 safe to delete in bulk — the content is all on `main`. Not done yet: a 46-branch
-deletion is worth doing deliberately, and it should come *after* the triage
+deletion is worth doing deliberately, and it should come _after_ the triage
 below, not before.
 
 **Nine are NOT merged.** This is the part that matters — it is work that never
 reached `main`, and deleting them would lose it:
 
-| branch | last commit | commits ahead | files vs main |
-|---|---|---|---|
-| `claude/anthropic-proxy-cleanup` | 2026-07-13 | 1 | 1 |
-| `claude/khaos-telegram-bot-yolc9z` | 2026-07-23 | 2 | **0** |
-| `claude/review-tasks-stale-priority-f02xyi` | 2026-08-07 | 1 | 1 |
-| `claude/task-logging-broken-5b9exk` | 2026-08-07 | 1 | 1 |
-| `claude/infinite-sections-sorting-na7nql` | 2026-08-29 | 1 | 3 |
-| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29 | 1 | 1 |
-| `claude/task-logs-editable-18yaqw` | 2026-08-30 | 3 | 1 |
-| `claude/mobile-task-drag-today-opaf6k` | 2026-09-04 | 1 | 6 |
-| `claude/unificar-targets-view-zm599h` | 2026-09-19 | 2 | 4 |
+| branch                                        | last commit | commits ahead | files vs main |
+| --------------------------------------------- | ----------- | ------------- | ------------- |
+| `claude/anthropic-proxy-cleanup`              | 2026-07-13  | 1             | 1             |
+| `claude/khaos-telegram-bot-yolc9z`            | 2026-07-23  | 2             | **0**         |
+| `claude/review-tasks-stale-priority-f02xyi`   | 2026-08-07  | 1             | 1             |
+| `claude/task-logging-broken-5b9exk`           | 2026-08-07  | 1             | 1             |
+| `claude/infinite-sections-sorting-na7nql`     | 2026-08-29  | 1             | 3             |
+| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29  | 1             | 1             |
+| `claude/task-logs-editable-18yaqw`            | 2026-08-30  | 3             | 1             |
+| `claude/mobile-task-drag-today-opaf6k`        | 2026-09-04  | 1             | 6             |
+| `claude/unificar-targets-view-zm599h`         | 2026-09-19  | 2             | 4             |
 
 Three things stand out:
 
@@ -670,6 +674,7 @@ esse item registrado, então o roadmap foi atualizado (retirado de
 Concluído, nota explicando a remoção) em vez de editado em silêncio.
 
 **Pendências manuais, fora do repo — a fazer pelo usuário:**
+
 1. `supabase functions deploy telegram-notify` para o ramo `deploy` sair
    do ar de fato.
 2. Apagar os secrets de repo do GitHub Actions `VERCEL_TOKEN`,
@@ -745,19 +750,41 @@ input, "Finish report tomorrow 3pm #ProjectX !high", na real cai no ramo
 horário) — a hora fica no nome da tarefa em vez de virar Due. Não
 corrigido aqui; registrado para decisão futura.
 
+Revisão automatizada do PR #81 (2026-10-08): nenhum achado bloqueante no
+diff — typecheck, eslint nos dois arquivos tocados e build limpos. Três
+ajustes aplicados direto no branch: `applyTimeOfDay` teve os dois ramos
+idênticos de 23:59 colapsados em um (`timeStr?.match(...)`); o
+`onOpenTask={(task) => setCreated(task)}` do TaskDetailModal passou a ser
+`onOpenTask={setCreated}`; e `create.reset()` passou a rodar ao abrir um
+novo draft, porque a mensagem de erro inline (`create.isError`) só zera no
+próximo `mutate()` e por isso reaparecia num dialog recém-aberto depois de
+uma falha anterior.
+
+Achado pré-existente levantado na revisão, fora do diff: o heurístico que
+decide se o toggle de hora do Due começa ligado compara **substring da ISO
+string** contra `'23:59:00'` (`DueEditor.tsx:40` e
+`TaskDetailModal.tsx:554`). Como a ISO está em UTC, num fuso UTC-3 um due
+sem hora (23:59 local) vira `...T02:59:00Z` e o toggle abre ligado
+mostrando 23:59 — exatamente o oposto da convenção. O `ui.tsx` já tem a
+versão correta, em hora local (`hasExplicitDueTime`, linha 625), só não
+exportada. Plano: mover `hasExplicitDueTime` para `dateUtils` (ou
+exportá-la de `ui.tsx`) e usá-la nos dois lugares. Não aplicado aqui: muda
+comportamento visível de tarefas já existentes e mexe em arquivo fora do
+escopo deste PR.
+
 ---
 
 ## Resolved
 
-| title | started | resolved |
-|---|---|---|
-| [Forge — second critique round](#forge--second-critique-round) | 2026-07-23 | 2026-07-23 |
-| [Forge — missing inputs, divider, chevron](#forge--missing-inputs-divider-chevron) | 2026-07-23 | 2026-07-23 |
-| [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish) | 2026-07-23 | 2026-07-23 |
+| title                                                                                          | started    | resolved   |
+| ---------------------------------------------------------------------------------------------- | ---------- | ---------- |
+| [Forge — second critique round](#forge--second-critique-round)                                 | 2026-07-23 | 2026-07-23 |
+| [Forge — missing inputs, divider, chevron](#forge--missing-inputs-divider-chevron)             | 2026-07-23 | 2026-07-23 |
+| [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish)                 | 2026-07-23 | 2026-07-23 |
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 | 2026-08-07 |
-| [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible) | 2026-08-12 | 2026-08-14 |
-| [Unify target pill + input view](#unify-target-pill--input-view) | 2026-09-19 | 2026-09-19 |
-| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 | 2026-09-30 |
+| [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible)                 | 2026-08-12 | 2026-08-14 |
+| [Unify target pill + input view](#unify-target-pill--input-view)                               | 2026-09-19 | 2026-09-19 |
+| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos)                               | 2026-09-30 | 2026-09-30 |
 
 Round 1 (the token layer) is archived separately in
 [`backlog-round-1.md`](./backlog-round-1.md).
@@ -820,7 +847,7 @@ with `textAnchor="middle"` + `dominantBaseline="central"`. Then the user
 caught it genuinely orbiting: timelapse screenshots showed the wrapping
 span had no explicit size, so a non-square box rotated around its own
 center. Forced to exactly 1em × 1em and re-verified — no drift. Pushed as
-`567e3e7`. (This item was later reopened — see *The Emblem* in Open.)
+`567e3e7`. (This item was later reopened — see _The Emblem_ in Open.)
 
 A compliance sweep checked site-wide before approval: zero rename residue in `src/`,
 Emblem swatches re-verified against real usage.
@@ -931,7 +958,7 @@ from Chrome on macOS — `~/Applications/Chrome Apps.localized/Khaos.app` showed
 Chrome's grey "K" monogram fallback instead of the copper star.
 
 **Root cause: environment, not code.** The app for the `Default` profile had
-been installed *before* the manifest existed, so Chrome committed the monogram
+been installed _before_ the manifest existed, so Chrome committed the monogram
 as the app's icon. The later manifest update then sat in Chrome's `Pending`
 stage, which is only promoted once every window of the app is closed.
 
@@ -1015,7 +1042,7 @@ Because A and B are out, nothing about the icon files changes, so the
 close-every-window caveat above does not apply to this round, and the
 verification narrows to: typecheck, lint, build, the manifest parsing with
 both new fields, and — the one that matters — confirming after deploy that the
-installed app is still the *same* app (no second `Khaos.app`, same profile
+installed app is still the _same_ app (no second `Khaos.app`, same profile
 directory `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, star icon intact). If a duplicate
 app appears or the monogram returns, `"id"` wasn't neutral and C gets reverted.
 

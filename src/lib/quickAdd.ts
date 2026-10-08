@@ -32,11 +32,7 @@ const PRIORITY_ALIASES: Record<string, Priority> = {
 // for an untimed due) -- so when the quick-add text didn't name a time,
 // this stores 23:59 too instead of a 9am default that nothing else uses.
 function applyTimeOfDay(date: Date, timeStr: string | undefined): Date {
-  if (!timeStr) {
-    date.setHours(23, 59, 0, 0);
-    return date;
-  }
-  const m = timeStr.match(/(\d{1,2})(?::(\d{2}))?\s?(am|pm)?/i);
+  const m = timeStr?.match(/(\d{1,2})(?::(\d{2}))?\s?(am|pm)?/i);
   if (!m) {
     date.setHours(23, 59, 0, 0);
     return date;

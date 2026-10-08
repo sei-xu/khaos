@@ -46,6 +46,10 @@ export default function QuickAddBar() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!raw.trim()) return;
+    // Clear a previous failure, otherwise the inline error below stays on
+    // screen in the freshly opened dialog -- the mutation only resets its
+    // own error state on the next mutate().
+    create.reset();
     const parsed = parseQuickAdd(raw, projects);
     const defaultSections = parsed.projectId
       ? sections.filter((s) => s.project_id === parsed.projectId)
@@ -236,7 +240,7 @@ export default function QuickAddBar() {
           taskId={openTask.id}
           task={openTask}
           onClose={() => setCreated(null)}
-          onOpenTask={(task) => setCreated(task)}
+          onOpenTask={setCreated}
         />
       )}
     </>
