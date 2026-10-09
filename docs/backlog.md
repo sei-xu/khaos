@@ -751,6 +751,51 @@ infinito apaga `target`/`due` de forma irreversível; e um início movido para
 cima de um fim com hora igual continua dando erro em vez de deslocar o fim
 (o `nextEnd < nextStart` exclui o caso de igualdade).
 
+### Terceira passada de revisão do PR #78 (2026-10-08)
+
+Nova passada sobre o mesmo diff (HEAD `40c16a0`). Os seis achados das
+passadas anteriores seguem válidos e já ancorados no commit atual — nada
+deles foi corrigido no código ainda, então os três bloqueantes continuam
+travando o merge.
+
+Uma simplificação aplicada direto no branch (sem mudança de
+comportamento): os dois `useMemo` de `startValues`/`endValues` eram inertes
+— `start`/`explicitEnd` saem de `parseRange` a cada render, logo são
+instâncias novas de `Date` toda vez e o memo nunca acertava; só somava a
+checagem de dependência em cima do mesmo trabalho. Viraram chamadas
+diretas a `getLocalValues`, e o import de `useMemo` saiu.
+
+Dois achados novos, comentados no PR:
+
+- **BLOQUEANTE — o `CHECK` do Postgres aplica o mesmo limite de due que o
+  `validate()` cliente.** `projects_schedule_valid`/`sections_schedule_valid`/
+  `tasks_schedule_valid` (`schema.sql:1292`, `:1408`, `:1540`) exigem
+  `upper(target) <= due`. Então o plano proposto no primeiro achado
+  bloqueante — relaxar só o limite cliente para `endOfLocalDay(dueDate)` —
+  troca o erro de validação por um erro vindo do banco: um target de um dia
+  no próprio dia do due grava `upper` = 23:59:59.999 contra um due em
+  23:59:00.000. A correção precisa mexer no valor gravado (travar o fim
+  efetivo em `min(effectiveEnd, due)`) ou alinhar os dois sentinelas, não
+  só na checagem do cliente.
+- **BLOQUEANTE — o bug 5 ("· 23:59") volta pelo caminho remover-fim →
+  adicionar-fim.** `handleRemoveEnd` não zera `showEndTime` (nem
+  `handleClear` zera os dois toggles). Com o toggle de hora do fim ligado,
+  remover o fim e adicionar de novo deixa `showEndTime` verdadeiro; ao
+  escolher a data de fim, `endValues.time` ainda é `''`, o
+  `buildLocalDate` cai em meia-noite, `effectiveEnd` normaliza para 23:59 e
+  o campo passa a exibir exatamente "· 23:59". Esse caminho não é coberto
+  pela correção proposta no achado do `lastEmitted` (que mexe só no commit
+  do toggle). Plano: zerar `setShowEndTime(false)` em `handleRemoveEnd` e
+  `setShowStartTime(false)`/`setShowEndTime(false)` em `handleClear` — ou,
+  mais estrutural, derivar os toggles de `startValues.hasTime`/`endHasTime`
+  mais um "o usuário pediu hora" em vez de manter dois booleanos soltos.
+
+Verificação desta passada: `npm run typecheck` limpo; `npx eslint` nos seis
+arquivos tocados pelo PR sem nenhum apontamento; `npm run lint` no repo
+inteiro em 20 problemas (11 erros, 9 avisos), todos fora dos arquivos
+tocados — a contagem registrada acima (16) estava desatualizada, mas a
+conclusão é a mesma: o PR não adiciona nenhum problema de lint.
+
 ---
 
 ## Resolved

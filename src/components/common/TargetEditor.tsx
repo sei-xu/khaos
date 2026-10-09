@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Plus, Target, X } from 'lucide-react';
 import clsx from 'clsx';
 import { TextInput, TimeToggle } from './ui';
@@ -198,8 +198,12 @@ export default function TargetEditor({
   const endDateRef = useRef<HTMLInputElement>(null);
   const endTimeRef = useRef<HTMLInputElement>(null);
 
-  const startValues = useMemo(() => getLocalValues(start), [start]);
-  const endValues = useMemo(() => getLocalValues(explicitEnd), [explicitEnd]);
+  // No useMemo around these: `start`/`explicitEnd` come out of parseRange on
+  // every render, so they're fresh Date instances each time and a memo keyed
+  // on them would never hit -- it only added a dependency check on top of the
+  // same work.
+  const startValues = getLocalValues(start);
+  const endValues = getLocalValues(explicitEnd);
 
   // Whether the explicit end carries a time the user actually picked --
   // 23:59 is the untimed-end sentinel, so it doesn't count (see
