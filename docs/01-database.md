@@ -106,7 +106,7 @@ Uma fase, capítulo ou sub-produto dentro de um projeto.
 | name | text | |
 | status | status | default `planning` |
 | due, priority, target, deleted_at | — | mesmo formato de `projects` |
-| is_infinite | boolean | default `false` — seção sem fim natural (uma lista contínua); tarefas `done`/`cancelled` "desbotam" e somem no client em vez de se acumular |
+| is_infinite | boolean | default `false` — seção sem fim natural (uma lista contínua); tarefas `done`/`cancelled` "desbotam" e somem no client em vez de se acumular; não tem `due` nem `target` (client limpa os dois ao ligar o modo) |
 
 ### `tasks`
 

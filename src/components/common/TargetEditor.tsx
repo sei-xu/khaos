@@ -171,6 +171,20 @@ export default function TargetEditor({
   const [error, setError] = useState<string | null>(null);
   const [forceShowEnd, setForceShowEnd] = useState(false);
   const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
+  const startTimeRef = useRef<HTMLInputElement>(null);
+  const endTimeRef = useRef<HTMLInputElement>(null);
+
+  // Shared trigger for every picker button in the pill -- showPicker() is
+  // the standards way to open a date/time input programmatically; .click()
+  // is the fallback for browsers that don't support it yet (e.g. older
+  // Safari).
+  function openPicker(ref: React.RefObject<HTMLInputElement | null>) {
+    const input = ref.current;
+    if (!input) return;
+    if (typeof input.showPicker === 'function') input.showPicker();
+    else input.click();
+  }
 
   const startValues = useMemo(() => getLocalValues(start), [start]);
   const endValues = useMemo(() => getLocalValues(end), [end]);
@@ -189,7 +203,12 @@ export default function TargetEditor({
     setError(null);
   }
 
-  const showEndInput = Boolean(end) || forceShowEnd;
+  // A target with no explicit end stores a synthetic 23:59-same-day end
+  // (see effectiveEnd below) -- that's a single day, not a real end date,
+  // so it shouldn't make the end field reappear on its own (same rule
+  // TargetBadge already applies via isAllDayRange).
+  const showEndInput =
+    (Boolean(end) && !isAllDayRange(start, end)) || forceShowEnd;
 
   function commitRange(
     startDateStr: string,
@@ -204,7 +223,7 @@ export default function TargetEditor({
       startTimeStr,
       isStartTimeActive
     );
-    const nextEnd = showEndInput
+    let nextEnd = showEndInput
       ? buildLocalDate(endDateStr, endTimeStr, isEndTimeActive)
       : null;
 
@@ -212,6 +231,17 @@ export default function TargetEditor({
       setError(null);
       onChange(null);
       return;
+    }
+
+    // Moving the start past the current end would otherwise write an
+    // inverted range (Postgres rejects lower > upper) -- pull the end
+    // along with it instead: onto the start's own day first (keeping its
+    // own time of day), and if it's still behind (an end time earlier in
+    // the day than the start time), mirror the start's time too.
+    if (nextEnd && nextEnd < nextStart) {
+      const carried = new Date(nextStart);
+      carried.setHours(nextEnd.getHours(), nextEnd.getMinutes(), 0, 0);
+      nextEnd = carried < nextStart ? new Date(nextStart) : carried;
     }
 
     const problem = validate(nextStart, nextEnd, due);
@@ -232,6 +262,7 @@ export default function TargetEditor({
   // target is 23:59 of that day).
   function handleRemoveEnd() {
     setForceShowEnd(false);
+    setShowEndTime(false);
     const nextStart = buildLocalDate(
       startValues.date,
       startValues.time,
@@ -250,18 +281,22 @@ export default function TargetEditor({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="@container space-y-1.5">
       {/* one bordered pill, matching TargetBadge exactly — icon on the
           left, dates auto-sized (not stretched full width), no "Start
-          Date"/"End Date" labels. Below 350px it switches to a 2-column
-          grid: the icon spans both stacked lines, the arrow sits centered
-          and rotated between them (see max-[350px]: variants below). */}
+          Date"/"End Date" labels. Below 350px of AVAILABLE WIDTH (a
+          container query on the wrapper above, not the viewport -- hosts
+          like ProjectDetailPage/SectionColumn can be narrower than the
+          pill's full-width content well before the viewport is) it
+          switches to a 2-column grid: the icon spans both stacked lines,
+          the arrow sits centered and rotated between them (see @max-[350px]:
+          variants below). */}
       <div
         className={clsx(
           // h-8.5 matches DueEditor's pill height -- was py-1 (no fixed
           // height), which read shorter than the app's other inputs.
           'border-nyx-600 text-nyx-400 flex h-8.5 w-fit flex-wrap items-center gap-1.5 rounded-full border pr-2 pl-3 font-mono',
-          'max-[350px]:grid max-[350px]:grid-cols-[auto_1fr] max-[350px]:items-center max-[350px]:gap-x-2 max-[350px]:gap-y-1 max-[350px]:h-auto max-[350px]:rounded-2xl max-[350px]:px-3.5 max-[350px]:py-2.5'
+          '@max-[350px]:grid @max-[350px]:grid-cols-[auto_1fr] @max-[350px]:items-center @max-[350px]:gap-x-2 @max-[350px]:gap-y-1 @max-[350px]:h-auto @max-[350px]:rounded-2xl @max-[350px]:px-3.5 @max-[350px]:py-2.5'
         )}
       >
         {/* Icon and input text both bumped to match the default input's
@@ -274,14 +309,9 @@ export default function TargetEditor({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => {
-            const input = startDateRef.current;
-            if (!input) return;
-            if (typeof input.showPicker === 'function') input.showPicker();
-            else input.click();
-          }}
-          title="Open date picker"
-          className="text-nyx-400 hover:text-nyx-200 flex shrink-0 items-center disabled:cursor-not-allowed max-[350px]:col-start-1 max-[350px]:row-span-3 max-[350px]:self-center"
+          onClick={() => openPicker(startDateRef)}
+          title="Open start date picker"
+          className="text-nyx-400 hover:text-nyx-200 flex shrink-0 items-center disabled:cursor-not-allowed @max-[350px]:col-start-1 @max-[350px]:row-span-3 @max-[350px]:self-center"
         >
           <Target size={15} />
         </button>
@@ -290,7 +320,7 @@ export default function TargetEditor({
             time, then the TimeToggle last -- was icon-first with the
             toggle leading the date, a different order than Due's for no
             real reason. Widths match Due's too (w-[11ch]/w-13). */}
-        <span className="inline-flex shrink-0 items-center gap-1.5 max-[350px]:col-start-2 max-[350px]:row-start-1">
+        <span className="inline-flex shrink-0 items-center gap-1.5 @max-[350px]:col-start-2 @max-[350px]:row-start-1">
           <TextInput
             ref={startDateRef}
             type="date"
@@ -310,8 +340,17 @@ export default function TargetEditor({
           />
           {showStartTime && startValues.date && (
             <>
-              <span className="opacity-50">·</span>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => openPicker(startTimeRef)}
+                title="Open start time picker"
+                className="opacity-50 disabled:cursor-not-allowed"
+              >
+                ·
+              </button>
               <TextInput
+                ref={startTimeRef}
                 type="time"
                 value={startValues.time || '09:00'}
                 disabled={disabled}
@@ -352,15 +391,22 @@ export default function TargetEditor({
             whose end target is 23:59 of that day — there is no open-ended
             target, so no ∞ glyph. */}
         {showEndInput && (
-          <span className="text-nyx-600 shrink-0 max-[350px]:col-start-2 max-[350px]:row-start-2 max-[350px]:justify-self-center max-[350px]:rotate-90">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => openPicker(endDateRef)}
+            title="Open end date picker"
+            className="text-nyx-600 shrink-0 disabled:cursor-not-allowed @max-[350px]:col-start-2 @max-[350px]:row-start-2 @max-[350px]:justify-self-center @max-[350px]:rotate-90"
+          >
             →
-          </span>
+          </button>
         )}
 
-        <span className="inline-flex shrink-0 items-center gap-1.5 max-[350px]:col-start-2 max-[350px]:row-start-3">
+        <span className="inline-flex shrink-0 items-center gap-1.5 @max-[350px]:col-start-2 @max-[350px]:row-start-3">
           {showEndInput ? (
             <>
               <TextInput
+                ref={endDateRef}
                 type="date"
                 value={endValues.date}
                 disabled={disabled}
@@ -378,8 +424,17 @@ export default function TargetEditor({
               />
               {showEndTime && endValues.date && (
                 <>
-                  <span className="opacity-50">·</span>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => openPicker(endTimeRef)}
+                    title="Open end time picker"
+                    className="opacity-50 disabled:cursor-not-allowed"
+                  >
+                    ·
+                  </button>
                   <TextInput
+                    ref={endTimeRef}
                     type="time"
                     value={endValues.time || '18:00'}
                     disabled={disabled}
@@ -447,7 +502,7 @@ export default function TargetEditor({
             disabled={disabled}
             onClick={handleClear}
             title="Clear target"
-            className="text-nyx-500 hover:text-tartarus-500 ml-1 flex shrink-0 items-center max-[350px]:col-start-2 max-[350px]:row-start-3 max-[350px]:ml-auto"
+            className="text-nyx-500 hover:text-tartarus-500 ml-1 flex shrink-0 items-center @max-[350px]:col-start-2 @max-[350px]:row-start-3 @max-[350px]:ml-auto"
           >
             <X size={12} />
           </button>
