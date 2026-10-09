@@ -49,6 +49,8 @@ work that grows out of them. Roadmap phases live in
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
+| [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
+| [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
 
 ---
 
@@ -847,6 +849,108 @@ lint no CI, então nada impede o problema nº 17 de entrar; e o
 `vite.config.ts`. Também não rodei `npm run format`: os três arquivos maiores
 que toquei já estavam fora do padrão do prettier **antes** desta mudança, e
 formatá-los agora inflaria o diff com linhas que nada têm a ver com o lint.
+
+---
+
+## Remover envio de versão de deploy por Telegram
+
+started 2026-10-07
+
+Pedido do usuário: parar de mandar "Deployed vX.Y.Z" no Telegram a cada
+release. A feature existia em três camadas, todas removidas na mesma PR:
+
+- **CI** (`.github/workflows/bump-version.yml`) — o step final "Notify
+  Telegram" (POST `{job:"deploy",version,url}` em `telegram-notify`) saiu
+  junto com o step anterior "Wait for Vercel deployment", que só existia
+  para alimentar esse aviso (até 10 min de polling por merge, mais os
+  secrets `VERCEL_TOKEN`/`VERCEL_PROJECT_ID`/`VERCEL_TEAM_ID`). Sobrou só
+  bump de versão + commit `chore: release vX.Y.Z` + tag; a Vercel continua
+  deployando via integração própria do GitHub, sem o workflow observar o
+  resultado.
+- **Edge Function** (`supabase/functions/telegram-notify/index.ts`) —
+  `runDeploy()` e o ramo `job === 'deploy'` saíram; o body passou a ser só
+  `{ job?: string }`. `digest` e `reminders` não mudaram.
+- **Documentação** — `supabase/functions/telegram-bot/README.md` (tabela de
+  funções, seção "Release notifications" inteira removida — ficou só
+  "Release versioning" com a nota do commit de bump —, bullet "Cron
+  secret"), `docs/03-ai.md`, `docs/04-setup.md` (bullet "Notificação de
+  release" removido) e `docs/05-roadmap.md` (item de roadmap retirado de
+  Concluído, nota de remoção adicionada no lugar).
+
+**Sem migração de banco.** `telegram_notifications.kind` é `text` livre,
+sem `CHECK` — as linhas `kind='deploy'` já gravadas ficam como histórico
+inócuo.
+
+**Conflito com o roadmap, declarado em vez de silenciado:**
+`docs/05-roadmap.md:16` registrava "Notificação automática de deploy
+(Vercel + GitHub Actions → Telegram)" como concluído; a remoção contradiz
+esse item registrado, então o roadmap foi atualizado (retirado de
+Concluído, nota explicando a remoção) em vez de editado em silêncio.
+
+**Pendências manuais, fora do repo — a fazer pelo usuário:**
+1. `supabase functions deploy telegram-notify` para o ramo `deploy` sair
+   do ar de fato.
+2. Apagar os secrets de repo do GitHub Actions `VERCEL_TOKEN`,
+   `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` e `SUPABASE_FUNCTIONS_URL`
+   (Settings → Secrets) — `KHAOS_CRON_SECRET` continua necessário para o
+   cron, só não é mais usado pelo GitHub Actions.
+
+---
+
+## Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas
+
+started 2026-10-07
+
+Pedido do usuário, seis pontos no mesmo item (`src/components/common/TargetEditor.tsx`):
+
+1. **Pickers.** Só o ícone Target abria o date picker nativo; a seta `→` e
+   os `·` (middot de hora) eram `<span>` sem handler. Agora cada um é um
+   `<button>` com `openPicker()` próprio (`showPicker()`, fallback
+   `.click()`): seta abre o date picker de fim, cada `·` abre o time picker
+   do seu lado. `endDateRef`/`startTimeRef`/`endTimeRef` acrescentados ao
+   `startDateRef` que já existia.
+2. **Largura.** O pill usava `max-[350px]:` (viewport), nunca disparava nos
+   hosts onde o container é mais estreito que a viewport (`ProjectDetailPage`
+   tinha `max-w-sm`, `SectionColumn` fica dentro da coluna da seção) — com
+   data+hora dos dois lados o conteúdo cortava. Trocado por `@container` no
+   wrapper + variantes `@max-[350px]:` (Tailwind v4 nativo), que reagem à
+   largura real do container; `max-w-sm` removido de `ProjectDetailPage`.
+3. **Clamp início/fim.** Nada impedia escolher um início depois do fim —
+   gravava um tstzrange invertido (Postgres rejeitava o `UPDATE`).
+   `commitRange` agora empurra o fim junto: primeiro para o dia do novo
+   início mantendo a hora do fim, e se ainda ficar atrás (hora do fim antes
+   da hora do início no mesmo dia) espelha a hora do início.
+4. **Remover fim não removia.** Causa raiz comum com o item 5 — ver abaixo;
+   junto com isso, `handleRemoveEnd` passou a resetar `showEndTime` também,
+   para que um `+ end` seguinte não reabra já com uma hora marcada.
+5. **23:59 fantasma.** `effectiveEnd()` grava um target de um dia só como
+   `[início 00:00, início 23:59]` para as queries de overlap não
+   considerarem o target ainda ativo no dia seguinte — mas o editor derivava
+   `showEndInput` direto do range gravado, então esse fim sintético sempre
+   reaparecia como segunda data (`· 23:59`), e `handleRemoveEnd` virava
+   no-op porque regravava o mesmo range. `showEndInput` agora usa
+   `isAllDayRange()` (`src/lib/range.ts`) — a mesma checagem que o
+   `TargetBadge` já usava — então o fim sintético deixa de aparecer e
+   `handleRemoveEnd` volta a ter efeito visível.
+6. **Seções infinitas sem due/target.** Uma seção `is_infinite` é uma lista
+   contínua sem janela planejada nem prazo — `SectionColumn.tsx` deixou de
+   renderizar o botão/badge de target e o `TargetEditor`, `SectionRow.tsx`
+   deixou de renderizar `TargetBadge`/`DueBadge`. Ligar o modo infinito pelo
+   menu agora limpa `target`/`due` no mesmo patch (`is_infinite: true,
+   target: null, due: null`), para não deixar valor órfão invisível;
+   desligar não restaura nada. `docs/01-database.md` (nota da coluna
+   `is_infinite`) atualizado para registrar isso.
+
+Verificação: `npm run typecheck` e `npm run lint` limpos (mesmos 16
+problemas pré-existentes em arquivos não tocados, confirmados com/sem o
+diff via stash — nada novo). Check manual no browser: `/dev/vortex/sigils`
+para os quatro estados do editor (pickers confirmados via
+`HTMLInputElement.prototype.showPicker` instrumentado — cada botão abre o
+input certo; clamp testado nos dois ramos, inclusive o de espelhar a hora;
+remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
+estado "range + time" sem corte de layout); projeto real (`Geral` →
+seção `Consertos`, já `is_infinite`) confirmando que o controle de target
+não aparece mais na seção expandida.
 
 ---
 
