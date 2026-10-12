@@ -53,7 +53,6 @@ work that grows out of them. Roadmap phases live in
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
 | [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 | [Backlog ordenado de tarefas (ordem do Today)](#backlog-ordenado-de-tarefas-ordem-do-today) | 2026-10-08 |
-| [Cmd + Enter should submit and close the task modal](#cmd--enter-should-submit-and-close-the-task-modal) | 2026-10-12 |
 
 ---
 
@@ -1229,49 +1228,6 @@ backlog?"). `npm run typecheck`, `npm run lint` (`--max-warnings 0`) e
 
 ---
 
-## Cmd + Enter should submit and close the task modal
-
-started 2026-10-12
-
-Pedido do usuário: Cmd+Enter (ou Ctrl+Enter) deve "submeter e fechar" o
-modal de detalhe de task — hoje só funcionava no modal "New task" do
-QuickAddBar.
-
-`Modal` (`src/components/common/ui.tsx`) já tinha o atalho — se a prop
-opcional `onSubmit` existisse, Cmd/Ctrl+Enter chamava e fechava — mas
-`TaskDetailModal.tsx` nunca passava `onSubmit`, porque salva campo a campo
-(debounce de 500ms + flush no blur) em vez de ter uma ação de "save" única.
-
-Mudanças:
-
-1. `TaskDetailModal.tsx` ganhou `submitAndClose()`: tira o foco do elemento
-   ativo dentro do modal (reaproveita todo caminho de commit por `onBlur` —
-   nome, estimate, item de checklist, log de tempo — sem duplicar lógica),
-   chama `flushName()`/`flushEstimate()` como rede de segurança para o
-   debounce ainda pendente, cria o item pendente em "Add a task item..." (
-   extraído de `addItem` para `createPendingItem()`, reusado pelo `<form>`
-   normal) e só então chama `onClose()`. Passado como `onSubmit` do
-   `<Modal>`.
-2. `Modal` (`ui.tsx`) passou a exigir que o Cmd/Ctrl+Enter se origine
-   dentro do dialog (`dialogRef.current?.contains(e.target)`) — o listener
-   é global no `document`, e o composer do `ChatPanel` (sempre montado no
-   rail direito) também usa Cmd+Enter; sem essa checagem, um Cmd+Enter no
-   composer dispararia o submit do modal de task aberto por cima.
-
-Verificação: `npm run typecheck`, `npm run lint` e `npm run build` limpos
-(sem suite de testes no repo). Manual no `npm run dev`, numa task real:
-editar o campo Estimate e apertar Cmd+Enter antes dos 500ms do debounce —
-modal fechou e o valor novo persistiu ao reabrir (confirmado por ciclo
-completo: 60→75→reload→75→de volta a 60); digitar em "Add a task item..."
-e Cmd+Enter — item criado e modal fechado (confirmado reabrindo, depois
-removido o item de teste); Escape ainda fecha o modal normalmente. Não
-testado via chat real contra o `ChatPanel` para evitar efeito colateral no
-bot/dados do usuário — mas a sobreposição do modal (`z-50`, cobre a tela
-inteira) já impede o composer de receber o Cmd+Enter enquanto o modal está
-aberto, o que a mudança 2 reforça para qualquer handler global futuro.
-
----
-
 ## Resolved
 
 | title | started | resolved |
@@ -1283,6 +1239,7 @@ aberto, o que a mudança 2 reforça para qualquer handler global futuro.
 | [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible) | 2026-08-12 | 2026-08-14 |
 | [Unify target pill + input view](#unify-target-pill--input-view) | 2026-09-19 | 2026-09-19 |
 | [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 | 2026-09-30 |
+| [Cmd + Enter should submit and close the task modal](#cmd--enter-should-submit-and-close-the-task-modal) | 2026-10-12 | 2026-10-12 |
 
 Round 1 (the token layer) is archived separately in
 [`backlog-round-1.md`](./backlog-round-1.md).
@@ -1584,3 +1541,45 @@ Nothing technical was left outstanding, and the user approved the item on
 Roadmap check: `05-roadmap.md` lists the PWA under "Concluído" and puts a
 native mobile app explicitly out of scope. This only hardens the existing PWA,
 so it contradicts no registered phase.
+
+### Cmd + Enter should submit and close the task modal
+
+2026-10-12 → 2026-10-12 · approved by the user (merge of
+[PR #83](https://github.com/sei-xu/khaos/pull/83))
+
+Pedido do usuário: Cmd+Enter (ou Ctrl+Enter) deve "submeter e fechar" o
+modal de detalhe de task — hoje só funcionava no modal "New task" do
+QuickAddBar.
+
+`Modal` (`src/components/common/ui.tsx`) já tinha o atalho — se a prop
+opcional `onSubmit` existisse, Cmd/Ctrl+Enter chamava e fechava — mas
+`TaskDetailModal.tsx` nunca passava `onSubmit`, porque salva campo a campo
+(debounce de 500ms + flush no blur) em vez de ter uma ação de "save" única.
+
+Mudanças:
+
+1. `TaskDetailModal.tsx` ganhou `submitAndClose()`: tira o foco do elemento
+   ativo dentro do modal (reaproveita todo caminho de commit por `onBlur` —
+   nome, estimate, item de checklist, log de tempo — sem duplicar lógica),
+   chama `flushName()`/`flushEstimate()` como rede de segurança para o
+   debounce ainda pendente, cria o item pendente em "Add a task item..." (
+   extraído de `addItem` para `createPendingItem()`, reusado pelo `<form>`
+   normal) e só então chama `onClose()`. Passado como `onSubmit` do
+   `<Modal>`.
+2. `Modal` (`ui.tsx`) passou a exigir que o Cmd/Ctrl+Enter se origine
+   dentro do dialog (`dialogRef.current?.contains(e.target)`) — o listener
+   é global no `document`, e o composer do `ChatPanel` (sempre montado no
+   rail direito) também usa Cmd+Enter; sem essa checagem, um Cmd+Enter no
+   composer dispararia o submit do modal de task aberto por cima.
+
+Verificação: `npm run typecheck`, `npm run lint` e `npm run build` limpos
+(sem suite de testes no repo). Manual no `npm run dev`, numa task real:
+editar o campo Estimate e apertar Cmd+Enter antes dos 500ms do debounce —
+modal fechou e o valor novo persistiu ao reabrir (confirmado por ciclo
+completo: 60→75→reload→75→de volta a 60); digitar em "Add a task item..."
+e Cmd+Enter — item criado e modal fechado (confirmado reabrindo, depois
+removido o item de teste); Escape ainda fecha o modal normalmente. Não
+testado via chat real contra o `ChatPanel` para evitar efeito colateral no
+bot/dados do usuário — mas a sobreposição do modal (`z-50`, cobre a tela
+inteira) já impede o composer de receber o Cmd+Enter enquanto o modal está
+aberto, o que a mudança 2 reforça para qualquer handler global futuro.
