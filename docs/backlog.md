@@ -51,6 +51,7 @@ work that grows out of them. Roadmap phases live in
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
+| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 | [Cmd + Enter should submit and close the task modal](#cmd--enter-should-submit-and-close-the-task-modal) | 2026-10-12 |
 
 ---
@@ -952,6 +953,181 @@ remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
 estado "range + time" sem corte de layout); projeto real (`Geral` →
 seção `Consertos`, já `is_infinite`) confirmando que o controle de target
 não aparece mais na seção expandida.
+
+### Segunda passada — extras do PR #78 portados (2026-10-12)
+
+O PR #78 resolvia os mesmos seis pontos por um caminho paralelo ao que
+entrou no `main` primeiro (`1290a1b`), e conflitava em tudo. Decisão do
+usuário: manter a implementação do `main` e portar só o que o #78 tinha a
+mais, em vez de fazer merge das duas.
+
+Portado para `TargetEditor.tsx`/`range.ts`:
+
+- **Fim sem hora vira 23:59** — `effectiveEnd` normaliza também um fim
+  explícito sem hora para `endOfLocalDay`, fechando o range vazio/invertido
+  quando início e fim caem no mesmo dia.
+- **`início < fim`** em `validate()`, comparado sobre o fim efetivo.
+- **Fim acompanha o início preservando a duração**, no lugar do clamp do
+  `main`; compara pelo fim efetivo, então um fim sem hora no próprio dia do
+  início (válido) não é deslocado.
+- **Limite do due** — um due sem hora fica em 23:59:00 e um fim sem hora em
+  23:59:59.999; agora compara contra o fim do dia do due, o que o #78 deixava
+  rejeitando um target que terminava no próprio dia do due (achado
+  bloqueante da revisão).
+- **Toggle de hora do fim** — `hasExplicitEndTime` (novo, `range.ts`) evita
+  abrir o toggle com o 23:59 sentinela, e `TargetBadge` passa a usá-lo
+  (tolera registros legados gravados à meia-noite).
+- **Sigils** — duas demos (um dia só, vários dias sem hora), montadas com
+  `Date` local em vez de literais `+00`, que mostrariam "· hora" fora do UTC.
+
+**Deixado de fora de propósito:** o estado `lastEmitted`/`emit` (a revisão
+mostrou que nunca casava e o reset que ele deveria suprimir não existe no
+`main`), a container query `@max-lg` (512px; o `main` mantém 350px, sem a
+colisão do botão de limpar apontada na revisão), o demo "narrow host" e o
+`max-w-2xl` do `ProjectDetailPage`. Verificação: typecheck e lint limpos
+(zero avisos); sem checagem manual no browser neste sandbox.
+
+---
+
+## Quick add — dialog atualizado e tarefa aberta após criar
+
+started 2026-10-07
+
+O dialog "New task" aberto pelo quick-add do header (`QuickAddBar.tsx`)
+estava defasado do vocabulário de componentes do round Theurgy — Priority
+era um `Select` cru em vez do `PriorityPicker`, e Due era um
+`TextInput type="datetime-local"` em vez do `DueEditor` (extraído do
+TaskDetailModal justamente para reuso, mas até aqui só consumido pela
+câmara de dev Sigils). Trazido ao padrão atual: Priority agora usa
+`PriorityPicker`, Due usa `DueEditor`, e um campo Status (`StatusPicker`,
+default `planning`) foi adicionado para bater com o conjunto de campos do
+TaskDetailModal.
+
+Três bugs reais corrigidos no mesmo dialog: (1) o texto digitado era
+limpo mesmo quando o insert falhava — `setRaw('')` agora só roda dentro do
+`onSuccess` da mutation; (2) uma falha de insert não mostrava nada — agora
+há uma mensagem inline (`create.isError`) e o draft permanece aberto com o
+texto preservado; (3) o default de projeto/seção nunca pegava quando o
+parser não reconhecia um `#projeto` no texto (o filtro comparava contra
+`project_id === null`, que nunca casava) — agora só pré-seleciona seção
+quando o parser de fato achou um projeto.
+
+Decisão de semântica de hora: o parser (`quickAdd.ts`) aplicava 09:00 como
+default para uma data sem hora explícita, enquanto `DueEditor` e o Due do
+TaskDetailModal tratam "sem hora" como 23:59 (fim do dia). `applyTimeOfDay`
+foi ajustado para gravar 23:59 também, eliminando a divergência — agora o
+quick-add e o resto do app concordam sobre o que "devido amanhã", sem hora,
+significa.
+
+Segunda metade do item: depois de criar, a tarefa agora abre — o
+`TaskDetailModal` é montado como filho do próprio `QuickAddBar` (estado
+local `created`, não a URL `?taskId=`), então funciona em qualquer página,
+inclusive as que não montam esse modal (`/calendar`, `/tags`, `/routines`)
+e sobrevive a troca de rota. A alternativa de navegar para
+`/tasks?taskId=<id>` (padrão do `CommandPalette`) foi considerada e
+descartada: tiraria o usuário da página em que estava, e `/dashboard` e
+`/projects/:id` resolvem `?taskId` só na lista filtrada da própria página —
+um id fora daquele escopo não abriria nada.
+
+Fora de escopo, por decisão explícita: Estimate/Target/Tags/Items não
+entraram no dialog de criação (Target em particular tem uma CHECK de banco
+amarrando `target < due`, o que o torna ruim para criação). Uma
+pré-seleção de projeto baseada na rota atual (`/projects/:id`) foi cogitada
+e descartada por ora — fica como ideia registrada, não implementada.
+
+Verificação: `npm run typecheck` limpo; `npx eslint` nos dois arquivos
+tocados limpo (`npm run lint` no repo inteiro continua falhando pelos 11
+erros pré-existentes do item "`npm run lint` fails on main", não
+relacionados); `npm run build` passa. Checagem manual no browser (sem
+suite de testes, conforme CLAUDE.md): parser com "tomorrow at 3pm !high"
+produz nome limpo, prioridade High, Due com toggle de hora ligado em
+15:00, Status em PLAN; botão "Create task" fica desabilitado sem seção
+escolhida; `/dev/vortex/sigils` renderiza sem regressão. **Limitação
+declarada:** o ambiente de verificação não tem credenciais reais do
+Supabase, então o fluxo completo de criar → ver a tarefa nova → abrir o
+modal não pôde ser exercitado fim a fim contra dados reais — só a lógica
+do dialog e seus estados.
+
+Achado incidental, fora de escopo: o parser não reconhece "tomorrow 3pm"
+sem a palavra "at" antes da hora (ex.: o texto do próprio placeholder do
+input, "Finish report tomorrow 3pm #ProjectX !high", na real cai no ramo
+"today/tomorrow" sem capturar a hora, porque a regex exige `at` antes do
+horário) — a hora fica no nome da tarefa em vez de virar Due. Não
+corrigido aqui; registrado para decisão futura.
+
+Revisão automatizada do PR #81 (2026-10-08): nenhum achado bloqueante no
+diff — typecheck, eslint nos dois arquivos tocados e build limpos. Três
+ajustes aplicados direto no branch: `applyTimeOfDay` teve os dois ramos
+idênticos de 23:59 colapsados em um (`timeStr?.match(...)`); o
+`onOpenTask={(task) => setCreated(task)}` do TaskDetailModal passou a ser
+`onOpenTask={setCreated}`; e `create.reset()` passou a rodar ao abrir um
+novo draft, porque a mensagem de erro inline (`create.isError`) só zera no
+próximo `mutate()` e por isso reaparecia num dialog recém-aberto depois de
+uma falha anterior.
+
+Achado pré-existente levantado na revisão, fora do diff: o heurístico que
+decide se o toggle de hora do Due começa ligado compara **substring da ISO
+string** contra `'23:59:00'` (`DueEditor.tsx:40` e
+`TaskDetailModal.tsx:554`). Como a ISO está em UTC, num fuso UTC-3 um due
+sem hora (23:59 local) vira `...T02:59:00Z` e o toggle abre ligado
+mostrando 23:59 — exatamente o oposto da convenção. O `ui.tsx` já tem a
+versão correta, em hora local (`hasExplicitDueTime`, linha 625), só não
+exportada. Plano: mover `hasExplicitDueTime` para `dateUtils` (ou
+exportá-la de `ui.tsx`) e usá-la nos dois lugares. Não aplicado aqui: muda
+comportamento visível de tarefas já existentes e mexe em arquivo fora do
+escopo deste PR.
+
+Segunda passada de revisão automatizada do PR #81 (2026-10-08): nenhum
+achado bloqueante novo. Dois ajustes aplicados direto no branch. (1) A
+busca da "primeira seção do projeto" estava duplicada em duas formas
+diferentes no mesmo arquivo — `sections.filter(...)[0]` em `handleSubmit`
+e `sections.find(...)` no `onChange` do select de Project; virou um único
+helper `firstSectionId(projectId)`, que também absorve a guarda de
+`projectId` nulo (um `find` contra `project_id === null` nunca casa, então
+o `? :` externo ficou redundante). (2) `confirmCreate` ganhou um
+`if (create.isPending) return;`: o botão "Create task" já é desabilitado
+durante o insert, mas o atalho Cmd/Ctrl+Enter do `Modal` chama
+`confirmCreate` direto, sem passar pelo botão — repetir o atalho com o
+insert em voo criava a tarefa duas vezes.
+
+Também notado, não alterado: o diff de `docs/backlog.md` traz ~150 linhas
+de reformatação whitespace-only (tabelas com colunas alinhadas, `*all*` →
+`_all_`, linha em branco antes de listas) misturadas ao conteúdo novo do
+item. `npm run format` cobre só `src/**`, então essa formatação não veio
+do script do projeto e sim de um prettier-on-save do editor. Duas saídas,
+ambas defensáveis: (a) reverter a parte whitespace-only deste PR, deixando
+o diff do doc só com o conteúdo novo — mantém o histórico do backlog
+legível, mas o churn volta no próximo editor que salve o arquivo; (b)
+aceitar e estender o glob de `format` para incluir `docs/**/*.md`, tornando
+a formatação intencional e estável — custa um commit único de churn grande
+agora, em troca de nunca mais acontecer por acidente. Fica como decisão do
+usuário.
+
+Terceira passada de revisão automatizada do PR #81 (2026-10-12): nenhum
+achado bloqueante. Um ajuste aplicado direto no branch — o
+`TaskDetailModal` montado pelo `QuickAddBar` ganhou `key={openTask.id}`. O
+modal guarda estado local por tarefa que nenhum efeito reseta (o toggle de
+hora do Due, inicializado via `useState` preguiçoso a partir de
+`task.due`; os drafts debounced de nome/descrição, cujo `dirtyRef` impede
+o efeito de ressincronizar; o `seqPicker`). Como `onOpenTask={setCreated}`
+permite navegar de tarefa em tarefa pelos chips de sequência sem
+desmontar, o estado da tarefa anterior era carregado para a seguinte — o
+caso visível é o toggle de hora, e no pior caso um nome digitado e ainda
+não commitado aparece no campo da outra tarefa. `ProjectDetailPage` já
+passa a mesma `key` no seu próprio `TaskDetailModal`; `TasksPage` e
+`DashboardPage` não (mesmo bug pré-existente, fora do escopo deste PR).
+
+Notado, não alterado: os seis `<label>` do dialog usam
+`text-nyx-400 … font-medium`, sem caixa alta, enquanto a convenção de
+field label do app — a única usada de verdade, documentada na Forge — é
+`text-nyx-500 … font-semibold tracking-wide uppercase` (`TaskDetailModal`
+nos campos Due/Target/Tags/Moments, `ForgePage.tsx:144`). Os labels são
+anteriores a este PR e só foram reordenados pelo prettier-tailwind, mas o
+objetivo declarado do item é justamente trazer este dialog ao vocabulário
+atual, então a divergência fica mais visível agora. Plano, se quiser:
+trocar a classe nos seis labels (ou extrair um `FieldLabel` em `ui.tsx`,
+já que a string se repete seis vezes aqui e cinco no `TaskDetailModal`).
+Não aplicado por ser mudança visível de aparência, não refatoração neutra.
 
 ---
 
