@@ -521,6 +521,7 @@ export type Database = {
       }
       tasks: {
         Row: {
+          backlog_rank: number | null
           deleted_at: string | null
           due: string | null
           estimate: number | null
@@ -532,6 +533,7 @@ export type Database = {
           target: unknown
         }
         Insert: {
+          backlog_rank?: number | null
           deleted_at?: string | null
           due?: string | null
           estimate?: number | null
@@ -543,6 +545,7 @@ export type Database = {
           target?: unknown
         }
         Update: {
+          backlog_rank?: number | null
           deleted_at?: string | null
           due?: string | null
           estimate?: number | null
@@ -812,6 +815,7 @@ export type Database = {
         | "definition"
         | "today"
         | "notToday"
+        | "backlog"
       priority: "urgent" | "high" | "medium" | "low"
       status:
         | "planning"
@@ -964,6 +968,7 @@ export const Constants = {
         "definition",
         "today",
         "notToday",
+        "backlog",
       ],
       priority: ["urgent", "high", "medium", "low"],
       status: [

@@ -187,7 +187,9 @@ export function useTaskMutations() {
       mutationFn: (id: Id) => tasksApi.remove(id),
       onSuccess: invalidate,
     }),
-    // reorder foi removido — ver comentário em tasksApi (hierarchy.ts).
+    // reorder (linked-list) foi removido — ver comentário em tasksApi
+    // acima. Ordem manual de tasks agora é useBacklogMutations().reorder,
+    // em src/hooks/useBacklog.ts.
   };
 }
 

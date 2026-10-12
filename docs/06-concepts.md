@@ -92,6 +92,7 @@ distintas (coluna `authored_by`: `user`, `system`, `assistant`,
 | `stopped` | Um `task_log` é fechado |
 | `scheduled` | Um `event` é criado ou tem sua janela alterada |
 | `target` | A janela planejada (`target`) muda |
+| `backlog` | `tasks.backlog_rank` cruza a fronteira NULL (entrou ou saiu da fila do backlog) — nunca disparado por um reorder dentro da fila |
 
 ### Escritos por usuário ou IA
 
@@ -142,3 +143,27 @@ Três conceitos de tempo distintos, fáceis de confundir:
 O usuário pode "marcar" uma tarefa para um dia específico (toggle na UI, um
 moment `today`/`notToday`) antes de qualquer uma dessas três colunas
 existir — é uma declaração de intenção, não um agendamento.
+
+---
+
+## Backlog
+
+`tasks.backlog_rank` é a ordem explícita e persistida em que o usuário
+pretende fazer as tarefas pendentes — uma fila global única, não por
+projeto/seção. É o que falta nos três conceitos acima: due/target/schedule
+dizem *quando* uma tarefa deveria acontecer; marcar para hoje diz *que dia*;
+nada dizia *em que ordem*, dentro de um mesmo dia ou grupo, ela deveria ser
+feita. `NULL` significa "fora da fila"; menor rank aparece primeiro.
+
+A fila é editável na view Backlog (`src/components/tasks/BacklogList.tsx`,
+arrastar para reordenar) e, a partir de qualquer lugar, pelo toggle ao lado
+da estrela de "hoje" (`TaskRow`/`TaskDetailModal`). Dentro do Today, o rank
+é a chave de ordenação primária de cada grupo (Marked/Target/Due),
+com o critério de data de cada grupo como fallback para tarefas sem rank —
+ver [Status](#status) e `DashboardPage`.
+
+Rank não é o mesmo que dependência: uma tarefa com um predecessor em aberto
+em `tasks_sequence` continua `waiting` e aparece esmaecida como "blocked" na
+fila, sem ser reordenada automaticamente. Rank é preferência; a sequência é
+bloqueio — ver a nota em
+[Banco de dados](01-database.md#tasks_sequence--sections_sequence).
