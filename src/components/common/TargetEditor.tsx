@@ -112,6 +112,12 @@ function validate(start: Date | null, end: Date | null, due?: string | null) {
   return null;
 }
 
+// Defaults the time fields fall back to when the time toggle is on but the
+// value carries no time yet -- named here instead of repeated inline at each
+// of the four use sites (display value + commit, for start and for end).
+const DEFAULT_START_TIME = '09:00';
+const DEFAULT_END_TIME = '18:00';
+
 // Extracts local year, month, day, hour, and minute values without timezone shifts
 function getLocalValues(d: Date | null) {
   if (!d || isNaN(d.getTime())) return { date: '', time: '', hasTime: false };
@@ -121,12 +127,12 @@ function getLocalValues(d: Date | null) {
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
 
-  // Active time is assumed if it's not exactly midnight (00:00)
-  const hasTime = !(hours === '00' && minutes === '00');
   return {
     date: `${year}-${month}-${day}`,
     time: `${hours}:${minutes}`,
-    hasTime,
+    // Active time is assumed if it's not exactly midnight (00:00) -- via the
+    // shared range.ts check rather than a second local copy of it.
+    hasTime: hasExplicitTime(d),
   };
 }
 
@@ -384,7 +390,7 @@ export default function TargetEditor({
               <TextInput
                 ref={startTimeRef}
                 type="time"
-                value={startValues.time || '09:00'}
+                value={startValues.time || DEFAULT_START_TIME}
                 disabled={disabled}
                 onChange={(e) => {
                   commitRange(
@@ -408,7 +414,7 @@ export default function TargetEditor({
               setShowStartTime(nextState);
               commitRange(
                 startValues.date,
-                nextState ? startValues.time || '09:00' : '00:00',
+                nextState ? startValues.time || DEFAULT_START_TIME : '00:00',
                 nextState,
                 endValues.date,
                 endValues.time,
@@ -468,7 +474,7 @@ export default function TargetEditor({
                   <TextInput
                     ref={endTimeRef}
                     type="time"
-                    value={endValues.time || '18:00'}
+                    value={endValues.time || DEFAULT_END_TIME}
                     disabled={disabled}
                     onChange={(e) => {
                       commitRange(
@@ -495,7 +501,7 @@ export default function TargetEditor({
                     startValues.time,
                     showStartTime,
                     endValues.date,
-                    nextState ? endValues.time || '18:00' : '00:00',
+                    nextState ? endValues.time || DEFAULT_END_TIME : '00:00',
                     nextState
                   );
                 }}

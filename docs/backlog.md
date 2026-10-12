@@ -796,6 +796,53 @@ inteiro em 20 problemas (11 erros, 9 avisos), todos fora dos arquivos
 tocados — a contagem registrada acima (16) estava desatualizada, mas a
 conclusão é a mesma: o PR não adiciona nenhum problema de lint.
 
+### Quarta passada de revisão do PR #78 (2026-10-12)
+
+Mais uma passada sobre o mesmo diff (HEAD `6330318`). Os oito achados das
+passadas anteriores seguem de pé e nenhum foi corrigido no código ainda —
+os quatro bloqueantes continuam travando o merge. Reconferidos aqui e
+confirmados: o `lastEmitted` que nunca casa (ISO do `formatRange` vs. texto
+`tstzrange` do Postgres, sem optimistic update em nenhuma das três
+mutations), o retorno do "· 23:59" pelo caminho remover-fim →
+adicionar-fim (`handleRemoveEnd` não zera `showEndTime`, e o `onChange` da
+data de fim commita `endValues.time` vazio enquanto a tela mostra o default
+`18:00`) e o auto-shift que ignora o caso de igualdade.
+
+Uma simplificação aplicada direto no branch (sem mudança de
+comportamento): `getLocalValues` repetia a checagem de meia-noite inline —
+passou a usar o `hasExplicitTime` de `range.ts`, que o arquivo já importa;
+e os horários default `09:00`/`18:00`, repetidos em quatro lugares (valor
+exibido + commit, no início e no fim), viraram as constantes
+`DEFAULT_START_TIME`/`DEFAULT_END_TIME`.
+
+Dois achados novos, ambos não bloqueantes, comentados no PR:
+
+- **Uma hora de fim escolhida como 23:59 some da tela.** `hasExplicitEndTime`
+  só olha hora/minuto, então não distingue o sentinel que `effectiveEnd`
+  grava (`endOfLocalDay` = 23:59:**59.999**) de um 23:59 que o usuário
+  escolheu de propósito (23:59:**00.000**) — este PR troca `hasExplicitTime`
+  por `hasExplicitEndTime` no `TargetBadge`, então esse caso, que antes
+  aparecia, passa a ficar escondido. Plano: checar também
+  segundos/milissegundos (`getSeconds() === 59 && getMilliseconds() === 999`),
+  seguro porque nenhum caminho de gravação produz 23:59:00.000 sozinho.
+- **Seções já infinitas antes deste PR ficam com `target`/`due` órfãos.** A
+  limpeza só acontece no clique do toggle; para quem já estava infinito as
+  datas continuam no banco, agora sem nenhuma UI que as mostre ou permita
+  apagá-las (badge e editor passaram a ser escondidos). Pareia com o achado
+  oposto já aberto (a limpeza no toggle ser destrutiva e sem confirmação):
+  as duas pontas pedem a mesma decisão — se o dado deve sumir, falta uma
+  migração para as linhas existentes; se deve ser preservado, a UI precisa
+  de um caminho de leitura/edição mesmo em modo infinito.
+
+Verificação desta passada: `npm run typecheck` limpo; `npx eslint
+--max-warnings 0` no `TargetEditor.tsx` sem nenhum apontamento. O
+`npm run format` não foi rodado no arquivo: o Prettier deste sandbox
+reordena classes Tailwind e reflui linhas que o PR não tocou, o que
+poluiria o diff — as linhas editadas aqui já saíram no formato do arquivo.
+Nota de merge: o branch está em `1.2.0` enquanto `origin/main` já foi para
+`1.1.2`, e o branch não tem main mergeado desde `1.0.36` — o
+`docs/backlog.md` deve conflitar no merge.
+
 ---
 
 ## Resolved
