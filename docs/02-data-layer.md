@@ -22,11 +22,16 @@ Supabase ou retorna os dados tipados.
 | `tasksSequenceApi` | `list` |
 | `taskItemsApi` | `listByTask`, `create`, `update`, `remove` (hard delete) |
 
-`tasksApi` não tem `persistOrder`: a ordem manual de tasks dentro de uma
-seção foi removida — a ordem visual é hoje calculada no client,
-cronologicamente, a partir de `schedule`/`due` (ver `ProjectDetailPage`).
-`tasks_sequence` continua existindo, mas só representa dependência real
-("esta tarefa só faz sentido depois daquela"), não posição de exibição.
+`tasksApi` não tem `persistOrder` por linked-list: essa ordenação manual de
+tasks dentro de uma seção foi removida de propósito — a ordem visual de uma
+seção é calculada no client, cronologicamente, a partir de `schedule`/`due`
+(ver `ProjectDetailPage`). `tasks_sequence` continua existindo, mas só
+representa dependência real ("esta tarefa só faz sentido depois daquela"),
+não posição de exibição.
+
+Ordem manual de tasks voltou, mas por um caminho diferente: um rank
+numérico (`tasks.backlog_rank`), não uma linked-list — ver `backlog.ts`
+abaixo.
 
 ## `sequence.ts` — dependência entre tasks
 
@@ -35,6 +40,27 @@ ou remove uma aresta em `tasks_sequence`. Ver
 [Banco de dados](01-database.md#tasks_sequence--sections_sequence) para o
 efeito colateral de status (`waiting` → `todo`) que os triggers do banco
 aplicam a partir dessas arestas.
+
+## `backlog.ts` — fila global de ordem (`tasks.backlog_rank`)
+
+| Export | Operações |
+| --- | --- |
+| `backlogApi` | `add` (acrescenta ao fim, rank = máximo atual + `RANK_STEP`), `move(taskId, rank)` (grava um rank já calculado), `removeFromBacklog` (seta `backlog_rank = NULL`), `rebalance(updates)` (reescreve ranks em lote), `listOrdered` |
+
+A aritmética pura (não depende de React nem do Supabase) vive em
+`src/lib/backlogRank.ts`: `RANK_STEP`, `orderByRank`, `rankBetween`,
+`rankForIndex`, `needsRebalance`, `rebalanceRanks`. Mover uma task escreve
+uma única linha (o novo rank é o ponto médio entre os vizinhos); quando o
+gap entre vizinhos colapsa, `rebalanceRanks` reatribui ranks igualmente
+espaçados para a lista inteira.
+
+Diferente de `sections_sequence`/a antiga ordenação de tasks, isto não é uma
+linked-list — é um rank numérico esparso, escolhido deliberadamente para
+não reabrir o `persistOrder` de `tasks_sequence` que foi removido (ver
+acima). O hook `useBacklogMutations` (em `src/hooks/useBacklog.ts`) expõe
+`reorder` (índice-baseado, com rebalanceamento — usa a fila inteira) e
+`move` (grava um rank já calculado, sem rebalancear — para quando o chamador
+só vê uma vizinhança parcial, como o grupo Marked do Today).
 
 ## `events.ts`
 

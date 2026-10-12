@@ -19,6 +19,13 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   useTasks,
   useSections,
   useProjects,
@@ -30,6 +37,8 @@ import {
   useMarkedPastTaskIds,
   useTodayMutations,
 } from '../hooks/useMoments';
+import { useBacklogTasks, useBacklogMutations } from '../hooks/useBacklog';
+import { rankForIndex } from '../lib/backlogRank';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
 import { parseRange, targetEnd } from '../lib/range';
@@ -53,6 +62,25 @@ const AUTO_REFRESH_MS = 30_000;
 // through midnight so a late-scheduled task is still droppable.
 const CALENDAR_START_HOUR = 6;
 
+// backlog_rank is the primary sort key within each Today group (lower
+// first); tasks without a rank fall back to the group's own date-based
+// comparator and sort after every ranked task. Scheduled is excluded — its
+// pills render by calendar hour below, not in list order, so a rank
+// wouldn't change anything visible there.
+function byBacklogRank<T extends { task: Task }>(
+  items: T[],
+  fallback: (a: T, b: T) => number
+): T[] {
+  return [...items].sort((a, b) => {
+    const ra = a.task.backlog_rank;
+    const rb = b.task.backlog_rank;
+    if (ra != null && rb != null) return ra - rb;
+    if (ra != null) return -1;
+    if (rb != null) return 1;
+    return fallback(a, b);
+  });
+}
+
 interface TaskPillProps {
   task: Task;
   onOpen: (task: Task) => void;
@@ -73,14 +101,79 @@ interface TaskPillProps {
 // rounded-full, since a fully round corner reads wrong once the content
 // wraps to two rows. `faded` dims a pill that's stale (e.g. marked on a
 // past day, never resolved).
+interface TaskPillBodyProps extends TaskPillProps {
+  isDragging: boolean;
+}
+
+// backlog_rank's position badge: only shown when the task is actually
+// queued (null means "not in the backlog", not "rank 0"). Position is
+// 1-based and computed by the caller (it depends on the group's full
+// sorted order, not just this task's raw rank value).
+function RankBadge({ position }: { position: number }) {
+  return (
+    <span
+      title="Position in the backlog"
+      className="bg-nyx-900 text-hypnos-400 flex shrink-0 items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold"
+    >
+      {position}
+    </span>
+  );
+}
+
+function TaskPillBody({
+  task,
+  projectName,
+  projectField,
+  rankPosition,
+  isDragging,
+  children,
+}: TaskPillBodyProps & { rankPosition?: number }) {
+  return (
+    <>
+      <span className="flex w-full items-center gap-1.5">
+        {rankPosition != null && <RankBadge position={rankPosition} />}
+        <span className="min-w-0 flex-1 truncate">{task.name}</span>
+        {!isDragging && (
+          <span className="flex shrink-0 items-center gap-1">
+            <StatusIcon status={task.status} size={14} />
+            <PriorityBadge priority={task.priority} />
+          </span>
+        )}
+      </span>
+      {isDragging ? null : (
+        <span className="flex w-full flex-wrap items-center gap-1.5">
+          {children}
+          <ProjectChip
+            name={projectName}
+            fieldName={projectField}
+            className="min-w-0 flex-1 justify-end"
+          />
+        </span>
+      )}
+    </>
+  );
+}
+
+// Draggable pill matching the app's existing badge language (DueBadge /
+// TargetBadge: chrome-less or thin-bordered rounded chip, small mono/body
+// text). Dragging one onto the "Marked" group or a calendar slot below
+// changes that task's state — see DashboardPage's handleDragEnd. A plain
+// click (one that never crosses the drag activation distance) opens the
+// task, same as clicking a Kanban card. Two rows: the task name on top
+// (left) with status/priority on the same line (right), and the group's
+// own badge/project below — rounded-lg rather than the single-line pill's
+// rounded-full, since a fully round corner reads wrong once the content
+// wraps to two rows. `faded` dims a pill that's stale (e.g. marked on a
+// past day, never resolved).
 function TaskPill({
   task,
   onOpen,
   projectName,
   projectField,
   faded,
+  rankPosition,
   children,
-}: TaskPillProps) {
+}: TaskPillProps & { rankPosition?: number }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
   const style = {
@@ -100,25 +193,72 @@ function TaskPill({
       onClick={() => !isDragging && onOpen(task)}
       className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
     >
-      <span className="flex w-full items-center gap-1.5">
-        <span className="min-w-0 flex-1 truncate">{task.name}</span>
-        {!isDragging && (
-          <span className="flex shrink-0 items-center gap-1">
-            <StatusIcon status={task.status} size={14} />
-            <PriorityBadge priority={task.priority} />
-          </span>
-        )}
-      </span>
-      {isDragging ? null : (
-        <span className="flex w-full flex-wrap items-center gap-1.5">
-          {children}
-          <ProjectChip
-            name={projectName}
-            fieldName={projectField}
-            className="min-w-0 flex-1 justify-end"
-          />
-        </span>
-      )}
+      <TaskPillBody
+        task={task}
+        onOpen={onOpen}
+        projectName={projectName}
+        projectField={projectField}
+        faded={faded}
+        rankPosition={rankPosition}
+        isDragging={isDragging}
+      >
+        {children}
+      </TaskPillBody>
+    </button>
+  );
+}
+
+// Same visuals as TaskPill, but sortable within the Marked group (dropping
+// one pill above/below another there writes its backlog_rank — see
+// DashboardPage's handleDragEnd) instead of only draggable onto other drop
+// targets. Only the Marked group uses this: Target/Due/Scheduled stay
+// read-only order (their own date-based criteria), matching the plan's
+// "backlog_rank primary, current criteria fallback" rule without adding
+// drag-reorder everywhere.
+function SortableTaskPill({
+  task,
+  onOpen,
+  projectName,
+  projectField,
+  faded,
+  rankPosition,
+  children,
+}: TaskPillProps & { rankPosition?: number }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    touchAction: 'none' as const,
+  };
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      title={task.name}
+      onClick={() => !isDragging && onOpen(task)}
+      className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
+    >
+      <TaskPillBody
+        task={task}
+        onOpen={onOpen}
+        projectName={projectName}
+        projectField={projectField}
+        faded={faded}
+        rankPosition={rankPosition}
+        isDragging={isDragging}
+      >
+        {children}
+      </TaskPillBody>
     </button>
   );
 }
@@ -175,6 +315,8 @@ export default function DashboardPage() {
   const { data: markedPastTaskIds } = useMarkedPastTaskIds();
   const { mark } = useTodayMutations();
   const { create: createEvent } = useEventMutations();
+  const backlogTasks = useBacklogTasks();
+  const { move: moveBacklogRank } = useBacklogMutations();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isMutating = useIsMutating();
@@ -196,6 +338,12 @@ export default function DashboardPage() {
   const tasksById = useMemo(
     () => new Map(tasks.map((t) => [t.id, t])),
     [tasks]
+  );
+  // 1-based position in the global backlog queue, shown as RankBadge on a
+  // pill — the same number the Backlog view's own position column shows.
+  const backlogPositionById = useMemo(
+    () => new Map(backlogTasks.map((t, i) => [t.id, i + 1])),
+    [backlogTasks]
   );
   const sectionsById = useMemo(
     () => new Map(sections.map((s) => [s.id, s])),
@@ -247,10 +395,16 @@ export default function DashboardPage() {
 
   // Marked pairs today's marks (full opacity) with tasks left marked on a
   // past day and never resolved (faded, see TaskPill's `faded` prop below).
-  const markedPills = openTasks
-    .filter((t) => markedTaskIds.has(t.id) && !scheduledTodayTaskIds.has(t.id))
-    .map((t) => ({ task: t, faded: false }))
-    .concat(
+  // backlog_rank sorts each of those two subgroups (current/past), rather
+  // than the whole list, so a highly-ranked stale task still doesn't jump
+  // ahead of today's current marks — see byBacklogRank above.
+  const markedPills = byBacklogRank(
+    openTasks
+      .filter((t) => markedTaskIds.has(t.id) && !scheduledTodayTaskIds.has(t.id))
+      .map((t) => ({ task: t, faded: false })),
+    () => 0
+  ).concat(
+    byBacklogRank(
       openTasks
         .filter(
           (t) =>
@@ -258,15 +412,28 @@ export default function DashboardPage() {
             pastMarkedTaskIds.has(t.id) &&
             !scheduledTodayTaskIds.has(t.id)
         )
-        .map((t) => ({ task: t, faded: true }))
-    );
-  const firstPastMarkedIndex = markedPills.findIndex((p) => p.faded);
+        .map((t) => ({ task: t, faded: true })),
+      () => 0
+    )
+  );
   const markedShownIds = new Set(markedPills.map((p) => p.task.id));
+  // Drag-reorder within Marked is restricted to today's current marks that
+  // are already in the backlog queue — their backlog_rank gives a real
+  // neighborhood to compute a new rank from (see handleDragEnd below).
+  // Unranked current marks and stale past marks still show, just not
+  // sortable (add them to the backlog first via BacklogToggle).
+  const markedRankedCurrent = markedPills
+    .filter((p) => !p.faded && p.task.backlog_rank !== null)
+    .map((p) => p.task);
+  const markedUnrankedCurrent = markedPills.filter(
+    (p) => !p.faded && p.task.backlog_rank === null
+  );
+  const markedPast = markedPills.filter((p) => p.faded);
 
   // Target shows tasks whose window covers today (current) plus tasks whose
   // window already ended with work still open (past, rendered yellowish via
   // TargetBadge's `past` prop below) — future-only targets stay hidden.
-  const targetPills = openTasks
+  const targetPillsUnsorted = openTasks
     .filter(
       (t) =>
         t.target &&
@@ -282,22 +449,27 @@ export default function DashboardPage() {
       const { start } = parseRange(t.target as string);
       const end = targetEnd(t.target as string);
       return Boolean(start && end && start <= todayEnd && end >= todayStart);
-    })
-    // In-range targets first (soonest end date first), then a divider,
-    // then past-due targets (also soonest end date first).
-    .sort((a, b) => {
-      if (a.past !== b.past) return a.past ? 1 : -1;
-      return (
-        (targetEnd(a.task.target as string)?.getTime() ?? 0) -
-        (targetEnd(b.task.target as string)?.getTime() ?? 0)
-      );
     });
+  // In-range targets first, then a divider, then past-due targets — each
+  // subgroup sorted by backlog_rank primary, soonest end date as fallback
+  // (same split reasoning as markedPills above).
+  const targetEndKey = (p: { task: Task }) =>
+    targetEnd(p.task.target as string)?.getTime() ?? 0;
+  const targetPills = byBacklogRank(
+    targetPillsUnsorted.filter((p) => !p.past),
+    (a, b) => targetEndKey(a) - targetEndKey(b)
+  ).concat(
+    byBacklogRank(
+      targetPillsUnsorted.filter((p) => p.past),
+      (a, b) => targetEndKey(a) - targetEndKey(b)
+    )
+  );
   const firstPastTargetIndex = targetPills.findIndex((p) => p.past);
   const targetShownIds = new Set(targetPills.map((p) => p.task.id));
 
-  // Due today/future first (soonest due date first), then a divider, then
-  // overdue (also soonest due date first) — same grouping as Target above.
-  const duePills = openTasks
+  // Due today/future first, then a divider, then overdue — same grouping
+  // and backlog_rank-primary/date-fallback split as Target above.
+  const duePillsUnsorted = openTasks
     .filter(
       (t) =>
         t.due &&
@@ -305,11 +477,17 @@ export default function DashboardPage() {
         !markedShownIds.has(t.id) &&
         !targetShownIds.has(t.id)
     )
-    .map((t) => ({ task: t, overdue: isOverdue(t.due, t.status) }))
-    .sort((a, b) => {
-      if (a.overdue !== b.overdue) return a.overdue ? 1 : -1;
-      return new Date(a.task.due!).getTime() - new Date(b.task.due!).getTime();
-    });
+    .map((t) => ({ task: t, overdue: isOverdue(t.due, t.status) }));
+  const dueDateKey = (p: { task: Task }) => new Date(p.task.due!).getTime();
+  const duePills = byBacklogRank(
+    duePillsUnsorted.filter((p) => !p.overdue),
+    (a, b) => dueDateKey(a) - dueDateKey(b)
+  ).concat(
+    byBacklogRank(
+      duePillsUnsorted.filter((p) => p.overdue),
+      (a, b) => dueDateKey(a) - dueDateKey(b)
+    )
+  );
   const firstOverdueIndex = duePills.findIndex((p) => p.overdue);
 
   const scheduledPills = openTasks.filter((t) => scheduledTodayTaskIds.has(t.id));
@@ -352,6 +530,25 @@ export default function DashboardPage() {
     if (!over) return;
     const task = tasksById.get(String(active.id));
     if (!task) return;
+
+    // Reordering within the Marked group's ranked subset (dragged onto
+    // another ranked marked pill, not onto 'marked-zone' or a calendar
+    // slot) writes a new backlog_rank between its new neighbors.
+    if (
+      over.id !== active.id &&
+      markedRankedCurrent.some((t) => t.id === active.id) &&
+      markedRankedCurrent.some((t) => t.id === over.id)
+    ) {
+      const oldIndex = markedRankedCurrent.findIndex((t) => t.id === active.id);
+      const newIndex = markedRankedCurrent.findIndex((t) => t.id === over.id);
+      const reordered = arrayMove(markedRankedCurrent, oldIndex, newIndex);
+      const rank = rankForIndex(
+        reordered.filter((t) => t.id !== task.id),
+        reordered.findIndex((t) => t.id === task.id)
+      );
+      moveBacklogRank.mutate({ taskId: task.id, rank });
+      return;
+    }
 
     if (over.id === 'marked-zone') {
       if (!markedTaskIds.has(task.id)) mark.mutate(task.id);
@@ -420,17 +617,18 @@ export default function DashboardPage() {
             emptyLabel="Drag a task here to mark it for today."
             droppableId="marked-zone"
           >
-            {markedPills.map(({ task, faded }, i) => {
-              const project = projectForTask(task);
-              return (
-                <Fragment key={task.id}>
-                  {i === firstPastMarkedIndex && (
-                    <hr className="border-nyx-700 my-1 w-full" />
-                  )}
-                  <TaskPill
+            <SortableContext
+              items={markedRankedCurrent.map((t) => t.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {markedRankedCurrent.map((task) => {
+                const project = projectForTask(task);
+                return (
+                  <SortableTaskPill
+                    key={task.id}
                     task={task}
                     onOpen={openTask_}
-                    faded={faded}
+                    rankPosition={backlogPositionById.get(task.id)}
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >
@@ -438,8 +636,43 @@ export default function DashboardPage() {
                     {task.due && (
                       <DueBadge due={task.due} status={task.status} />
                     )}
-                  </TaskPill>
-                </Fragment>
+                  </SortableTaskPill>
+                );
+              })}
+            </SortableContext>
+            {markedUnrankedCurrent.map(({ task }) => {
+              const project = projectForTask(task);
+              return (
+                <TaskPill
+                  key={task.id}
+                  task={task}
+                  onOpen={openTask_}
+                  projectName={project?.name}
+                  projectField={fieldNameForProject(project)}
+                >
+                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  {task.due && <DueBadge due={task.due} status={task.status} />}
+                </TaskPill>
+              );
+            })}
+            {Boolean(markedPast.length) && (
+              <hr className="border-nyx-700 my-1 w-full" />
+            )}
+            {markedPast.map(({ task }) => {
+              const project = projectForTask(task);
+              return (
+                <TaskPill
+                  key={task.id}
+                  task={task}
+                  onOpen={openTask_}
+                  faded
+                  rankPosition={backlogPositionById.get(task.id)}
+                  projectName={project?.name}
+                  projectField={fieldNameForProject(project)}
+                >
+                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  {task.due && <DueBadge due={task.due} status={task.status} />}
+                </TaskPill>
               );
             })}
           </PillGroup>
@@ -461,6 +694,7 @@ export default function DashboardPage() {
                   <TaskPill
                     task={task}
                     onOpen={openTask_}
+                    rankPosition={backlogPositionById.get(task.id)}
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >
@@ -491,6 +725,7 @@ export default function DashboardPage() {
                   <TaskPill
                     task={task}
                     onOpen={openTask_}
+                    rankPosition={backlogPositionById.get(task.id)}
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >

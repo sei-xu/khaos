@@ -5,6 +5,7 @@ import {
   DueBadge,
   ScheduledBadge,
   TodayToggle,
+  BacklogToggle,
   ProjectChip,
 } from '../common/ui';
 import { TargetBadge } from '../common/TargetEditor';
@@ -12,6 +13,7 @@ import { minutesToHuman } from '../../lib/dateUtils';
 import { useSequenceCounts } from '../../hooks/useSequence';
 import { useScheduledTaskIds } from '../../hooks/useEvents';
 import { useTodayTaskIds, useTodayMutations } from '../../hooks/useMoments';
+import { useBacklogMutations } from '../../hooks/useBacklog';
 import type { Task } from '../../lib/types';
 
 const DIMMED: Task['status'][] = ['done', 'cancelled'];
@@ -45,7 +47,9 @@ export default function TaskRow({
   const scheduledAt = useScheduledTaskIds().get(task.id);
   const { data: todayTaskIds } = useTodayTaskIds();
   const { mark, unmark } = useTodayMutations();
+  const { add: addToBacklog, removeFromBacklog } = useBacklogMutations();
   const markedToday = Boolean(todayTaskIds?.has(task.id));
+  const inBacklog = task.backlog_rank !== null;
   const opacity = dimmed ? (fadeOpacity ?? 0.38) : 1;
 
   return (
@@ -63,10 +67,16 @@ export default function TaskRow({
         </span>
       )}
 
-      <span className="mt-1 shrink-0">
+      <span className="mt-1 flex shrink-0 flex-col items-center gap-1">
         <TodayToggle
           marked={markedToday}
           onToggle={() => (markedToday ? unmark.mutate(task.id) : mark.mutate(task.id))}
+        />
+        <BacklogToggle
+          queued={inBacklog}
+          onToggle={() =>
+            inBacklog ? removeFromBacklog.mutate(task.id) : addToBacklog.mutate(task.id)
+          }
         />
       </span>
 
