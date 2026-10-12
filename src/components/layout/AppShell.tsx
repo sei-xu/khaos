@@ -269,10 +269,10 @@ function Sidebar({
         {!collapsed && <span className="font-mono">⌘K</span>}
       </button>
 
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-      />
+      {/* Montado só enquanto aberto, de propósito: cada abertura é uma
+          montagem nova, então o useState('') da busca já nasce vazio e o
+          efeito que limpava a query deixou de ser necessário. */}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
     </>
   );
 }
@@ -280,6 +280,7 @@ function Sidebar({
 const SIDEBAR_COLLAPSED_KEY = 'khaos.sidebarCollapsed';
 
 export default function AppShell() {
+  const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [chatSheetOpen, setChatSheetOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -295,12 +296,23 @@ export default function AppShell() {
   const isFetching = useIsFetching();
   const isMutating = useIsMutating();
   const spinning = isAssistantProcessing || isFetching > 0 || isMutating > 0;
-  const location = useLocation();
 
-  // Close drawer/sheet on route change
+  // Fecha o drawer/sheet ao trocar de rota. É um reset deliberado de estado
+  // efêmero de UI na navegação, e a regra está suprimida aqui de propósito.
+  //
+  // As duas saídas sem efeito não servem: ajustar o estado durante o render
+  // cai em react-hooks/set-state-in-render, que também é erro na mesma config;
+  // e derivar o aberto/fechado de uma comparação com `location.pathname` faz o
+  // estado velho voltar a casar — abrir a sheet em /dashboard, sair e voltar
+  // para /dashboard a reabriria sozinha (o mesmo vale para `location.key`, que
+  // o botão Voltar restaura). A saída idiomática de verdade seria remontar uma
+  // subárvore via `key`, mas as regiões que dependem destes dois estados estão
+  // espalhadas pelo render, então isso é uma reestruturação, não um ajuste.
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     setDrawerOpen(false);
     setChatSheetOpen(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [location.pathname]);
 
   // Cmd+K palette shortcut, Esc closes any overlay

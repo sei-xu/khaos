@@ -88,17 +88,17 @@ export interface CallRpcArgs {
   args?: Record<string, unknown>;
 }
 
-function cleanPayload(obj: any): any {
-  if (Array.isArray(obj)) {
-    return obj.map(cleanPayload);
-  } else if (obj !== null && typeof obj === 'object') {
+function cleanPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cleanPayload);
+  } else if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(obj)
-        .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, v]) => v !== null && v !== undefined && v !== '')
         .map(([k, v]) => [k, cleanPayload(v)])
     );
   }
-  return obj;
+  return value;
 }
 
 // Defensive typing: models occasionally emit `filters` as a JSON *string*
@@ -338,9 +338,16 @@ export const OVERSIGHT_TOOLS = new Set(
   OVERSIGHT_TOOL_DEFINITIONS.map((t) => t.name)
 );
 
-function assertAllowedTable(table: string): asserts table is AllowedTable {
-  if (!(ALLOWED_TABLES as readonly string[]).includes(table)) {
-    throw new Error(`"${table}" is not a recognized table.`);
+// Recebe `unknown` em vez de `string` de propósito: o que chega aqui vem dos
+// argumentos que o modelo emitiu, e esta é justamente a checagem de runtime que
+// os promove a AllowedTable. Exigir `string` na entrada só empurraria um cast
+// para cada chamador.
+function assertAllowedTable(table: unknown): asserts table is AllowedTable {
+  if (
+    typeof table !== 'string' ||
+    !(ALLOWED_TABLES as readonly string[]).includes(table)
+  ) {
+    throw new Error(`"${String(table)}" is not a recognized table.`);
   }
 }
 
@@ -529,17 +536,28 @@ export async function executeTool(
       return { date, tasks: cleanPayload(tasks ?? []) };
     }
     case 'search_schema': {
-      return cleanPayload(searchSchema((args as any).query));
+      const a = args as { query?: unknown };
+      const query = typeof a.query === 'string' ? a.query : '';
+      return cleanPayload(searchSchema(query));
     }
     case 'query_rows': {
-      const a = args as any;
+      const a = args as {
+        table?: unknown;
+        select?: unknown;
+        filters?: unknown;
+        orderBy?: unknown;
+        ascending?: unknown;
+        limit?: unknown;
+      };
       assertAllowedTable(a.table);
-      let q = db.from(a.table).select(a.select || '*');
+      let q = db
+        .from(a.table)
+        .select(typeof a.select === 'string' && a.select ? a.select : '*');
 
       const safeFilters = coerceFilters(a.filters);
       if (safeFilters.length) q = applyFilters(q, safeFilters);
 
-      if (a.orderBy) {
+      if (typeof a.orderBy === 'string' && a.orderBy) {
         q = q.order(a.orderBy, { ascending: coerceBoolean(a.ascending, true) });
       }
 
@@ -551,22 +569,26 @@ export async function executeTool(
       return { rows: cleanPayload(data ?? []), count: data?.length ?? 0 };
     }
     case 'insert_row': {
-      const a = args as any;
+      const a = args as { table?: unknown; reason?: unknown };
       assertAllowedTable(a.table);
       const since = new Date().toISOString();
       const { data, error } = await db
         .from(a.table)
-        .insert(coerceValues(a) as never)
+        .insert(coerceValues(args) as never)
         .select();
       if (error) throw new Error(error.message);
       await backfillReason(db, a.table, data, a.reason, since);
       return { inserted: cleanPayload(data ?? []) };
     }
     case 'update_rows': {
-      const a = args as any;
+      const a = args as {
+        table?: unknown;
+        filters?: unknown;
+        reason?: unknown;
+      };
       assertAllowedTable(a.table);
       const since = new Date().toISOString();
-      let q = db.from(a.table).update(coerceValues(a) as never);
+      let q = db.from(a.table).update(coerceValues(args) as never);
       q = applyFilters(q, coerceFilters(a.filters));
       const { data, error } = await q.select();
       if (error) throw new Error(error.message);
@@ -574,7 +596,7 @@ export async function executeTool(
       return { updated: cleanPayload(data ?? []), count: data?.length ?? 0 };
     }
     case 'delete_rows': {
-      const a = args as any;
+      const a = args as { table?: unknown; filters?: unknown };
       assertAllowedTable(a.table);
       let q = db.from(a.table).delete();
       q = applyFilters(q, coerceFilters(a.filters));
@@ -584,12 +606,12 @@ export async function executeTool(
     }
     case 'call_rpc': {
       const a = args as unknown as CallRpcArgs;
-      const { data, error } = await db.rpc(a.name as any, a.args || {});
+      const { data, error } = await db.rpc(a.name, a.args || {});
       if (error) throw new Error(error.message);
       return { result: cleanPayload(data) };
     }
     case 'recall_oversight_notes': {
-      const a = args as any;
+      const a = args as { since?: unknown; limit?: unknown };
       const since =
         typeof a.since === 'string'
           ? a.since
