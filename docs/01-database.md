@@ -60,8 +60,9 @@ Máquina de estado compartilhada por `projects`, `sections` e `tasks`.
 ### `moment_types`
 
 `created`, `due`, `estimate`, `status`, `started`, `stopped`, `scheduled`,
-`target`, `note`, `priority`, `definition`. Ver [Concepts](06-concepts.md)
-para o que cada um significa e quando é disparado.
+`target`, `note`, `priority`, `definition`, `today`, `notToday`, `backlog`.
+Ver [Concepts](06-concepts.md) para o que cada um significa e quando é
+disparado.
 
 ## Tabelas
 
@@ -120,6 +121,7 @@ Uma ação executável pertencente a uma seção.
 | status | status | default `planning` |
 | due, priority, target, deleted_at | — | mesmo formato acima |
 | estimate | integer | Minutos estimados |
+| backlog_rank | double precision, NULL | Posição na fila global do backlog (menor primeiro); `NULL` = fora da fila. Rank numérico esparso (não linked-list — ver nota em [Data Layer](02-data-layer.md)), mandando a ordem de exibição dentro dos grupos Marked/Target/Due no Today. Trigger `moment_backlog_tasks` registra um moment `backlog` só na transição NULL ↔ não-NULL, nunca num reorder. |
 
 ### `task_items`
 
@@ -143,6 +145,12 @@ o item "previous" é concluído (`done`) ou cancelado/soft-deletado, triggers
 (`check_and_unlock_next_tasks` / `check_and_unlock_next_sections`)
 reavaliam a cadeia e promovem o próximo item de `waiting` para `todo` assim
 que todas as dependências anteriores estiverem resolvidas.
+
+`tasks_sequence` é dependência (o que desbloqueia o quê), não ordem de
+exibição — isso é `tasks.backlog_rank` (ver acima e
+[Data Layer](02-data-layer.md)). Uma task em `waiting` aparece esmaecida na
+view Backlog em vez de ser reordenada automaticamente: rank é preferência,
+a sequência é bloqueio.
 
 ### `events`
 

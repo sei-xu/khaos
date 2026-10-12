@@ -221,11 +221,14 @@ export const tasksApi = {
       .single();
     return unwrap(response);
   },
-  // persistOrder foi removido: tasks_sequence agora representa relações de
-  // sequência entre tasks (task_previous vem antes de task_next) — ver
-  // src/lib/api/sequence.ts. Não é mais usada para reordenação manual; a
-  // ordem visual de uma seção é calculada cronologicamente a partir de
-  // schedule/due, no client — ver ProjectDetailPage.jsx.
+  // persistOrder (linked-list reordering) foi removido: tasks_sequence
+  // representa dependência entre tasks (task_previous desbloqueia
+  // task_next), não ordem de exibição — ver src/lib/api/sequence.ts. A
+  // ordem visual de uma seção segue sendo calculada cronologicamente a
+  // partir de schedule/due, no client — ver ProjectDetailPage.jsx. Ordem
+  // manual voltou, mas por um caminho diferente: um rank numérico em
+  // tasks.backlog_rank, mandando a fila global do backlog — ver
+  // src/lib/api/backlog.ts e src/lib/backlogRank.ts.
 };
 
 export const tasksSequenceApi = {

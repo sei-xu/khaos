@@ -27,6 +27,7 @@ import {
   Clock,
   CalendarClock,
   Star,
+  ListOrdered,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -726,6 +727,34 @@ export function TodayToggle({
       )}
     >
       <Star size={12} fill={marked ? 'currentColor' : 'none'} />
+    </button>
+  );
+}
+
+// Same shape as TodayToggle above, for tasks.backlog_rank instead of the
+// today/notToday moment — queued toggles the task in/out of the backlog
+// order (see src/hooks/useBacklog.ts); it carries no date, just a boolean.
+export function BacklogToggle({
+  queued,
+  onToggle,
+}: {
+  queued: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={queued ? 'In the backlog' : 'Add to backlog'}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={clsx(
+        'inline-flex shrink-0 items-center transition-colors',
+        queued ? 'text-hypnos-400' : 'text-nyx-700 hover:text-nyx-400'
+      )}
+    >
+      <ListOrdered size={12} />
     </button>
   );
 }

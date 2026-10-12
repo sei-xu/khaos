@@ -36,6 +36,10 @@ export const MOMENT_TYPES: MomentType[] = [
   'target',
   'note',
   'priority',
+  'definition',
+  'today',
+  'notToday',
+  'backlog',
 ];
 
 // Each status has:

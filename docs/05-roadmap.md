@@ -15,6 +15,7 @@
 - [x] Oversight agent — análise em segundo plano de lotes de moments, lido pelo chat via `recall_oversight_notes`
 - [x] PWA / gate de senha simples para acesso mobile
 - [x] Dashboard com pills agrupadas (scheduled/marked/targeted/due), drag-and-drop e auto-refresh
+- [x] Backlog — fila global e persistida (`tasks.backlog_rank`) da ordem em que as tarefas pendentes serão feitas, mandando a ordem de exibição dentro do Today; pré-requisito de "Planejamento assistido" abaixo
 
 > Nota: "Notificação automática de deploy (Vercel + GitHub Actions →
 > Telegram)" foi removida em 2026-10-07 por decisão do usuário (histórico
@@ -30,7 +31,9 @@ para discussão, não um compromisso:
   `task_logs`, o que o usuário mais adia (via moments `due`), sugestão de
   estimativas
 - Planejamento assistido — a IA sugerir ordem do dia respeitando
-  `tasks_sequence`, `due`, `estimate` e eventos já marcados
+  `tasks_sequence`, `due`, `estimate` e eventos já marcados (agora que existe
+  `tasks.backlog_rank` como lugar onde essa ordem mora, a IA pode também
+  escrever a sugestão diretamente nele em vez de só descrevê-la em texto)
 - Comparação planejado × realizado (target/schedule vs. `task_logs`)
 - Visualização de sequences como grafo de dependências
 - Inbox de ideias soltas, promovidas a projeto/tarefa pela IA

@@ -16,6 +16,7 @@ import {
   Bot,
   Layers,
   Star,
+  ListOrdered,
 } from 'lucide-react';
 import {
   Modal,
@@ -33,6 +34,7 @@ import {
   PriorityBadge,
   TimeToggle,
   TodayToggle,
+  BacklogToggle,
 } from '../common/ui';
 import TargetEditor from '../common/TargetEditor';
 import {
@@ -69,6 +71,7 @@ import {
   useTodayTaskIds,
   useTodayMutations,
 } from '../../hooks/useMoments';
+import { useBacklogMutations } from '../../hooks/useBacklog';
 import { useTaskSequence, useSequenceMutations } from '../../hooks/useSequence';
 import { wouldCreateCycle } from '../../lib/sequenceGraph';
 import type {
@@ -93,9 +96,15 @@ const MOMENT_TYPE_LABELS: Partial<Record<MomentType, string>> = {
   priority: 'Priority',
   today: 'Marked for day',
   notToday: 'Unmarked for day',
+  backlog: 'Backlog',
 };
 
+function describeBacklogMoment(moment: Moment): string {
+  return moment.value !== null ? 'Added to backlog' : 'Removed from backlog';
+}
+
 function describeMoment(moment: Moment): string {
+  if (moment.moment_type === 'backlog') return describeBacklogMoment(moment);
   const label = MOMENT_TYPE_LABELS[moment.moment_type] ?? moment.moment_type;
   if (moment.previous_value && moment.value) {
     return `${label}: ${moment.previous_value} → ${moment.value}`;
@@ -140,6 +149,16 @@ function MomentIcon({ moment }: { moment: Moment }) {
       );
     case 'notToday':
       return <Star size={12} className="text-nyx-500 mt-0.5 shrink-0" />;
+    case 'backlog':
+      return (
+        <ListOrdered
+          size={12}
+          className={clsx(
+            'mt-0.5 shrink-0',
+            moment.value !== null ? 'text-hypnos-400' : 'text-nyx-500'
+          )}
+        />
+      );
     default:
       return null;
   }
@@ -532,6 +551,8 @@ export default function TaskDetailModal({
   const { data: todayTaskIds } = useTodayTaskIds();
   const { mark, unmark } = useTodayMutations();
   const markedToday = Boolean(todayTaskIds?.has(taskId));
+  const { add: addToBacklog, removeFromBacklog } = useBacklogMutations();
+  const inBacklog = task.backlog_rank !== null;
 
   const { data: allTasks = [] } = useTasks();
   const { data: seqEdges = [] } = useTasksSequence();
@@ -724,6 +745,14 @@ export default function TaskDetailModal({
             marked={markedToday}
             onToggle={() =>
               markedToday ? unmark.mutate(taskId) : mark.mutate(taskId)
+            }
+          />
+          <BacklogToggle
+            queued={inBacklog}
+            onToggle={() =>
+              inBacklog
+                ? removeFromBacklog.mutate(taskId)
+                : addToBacklog.mutate(taskId)
             }
           />
           <TextInput

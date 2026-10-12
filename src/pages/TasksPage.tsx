@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { List, Columns3, BarChart3, type LucideIcon } from 'lucide-react';
+import {
+  List,
+  Columns3,
+  BarChart3,
+  ListOrdered,
+  type LucideIcon,
+} from 'lucide-react';
 import clsx from 'clsx';
 import {
   useTasks,
@@ -14,15 +20,17 @@ import { Select, TextInput } from '../components/common/ui';
 import TaskList, { type ProjectInfo } from '../components/tasks/TaskList';
 import KanbanBoard from '../components/tasks/KanbanBoard';
 import PriorityBoard from '../components/tasks/PriorityBoard';
+import BacklogList from '../components/tasks/BacklogList';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import type { Id, Priority, Status, Task } from '../lib/types';
 
-type ViewId = 'list' | 'kanban' | 'priority';
+type ViewId = 'list' | 'kanban' | 'priority' | 'backlog';
 
 const VIEWS: { id: ViewId; label: string; icon: LucideIcon }[] = [
   { id: 'list', label: 'List', icon: List },
   { id: 'kanban', label: 'Board', icon: Columns3 },
   { id: 'priority', label: 'Priority', icon: BarChart3 },
+  { id: 'backlog', label: 'Backlog', icon: ListOrdered },
 ];
 
 export default function TasksPage() {
@@ -237,6 +245,13 @@ export default function TasksPage() {
       )}
       {view === 'priority' && (
         <PriorityBoard
+          tasks={filtered}
+          projectInfoById={projectInfoById}
+          onOpenTask={openTask_}
+        />
+      )}
+      {view === 'backlog' && (
+        <BacklogList
           tasks={filtered}
           projectInfoById={projectInfoById}
           onOpenTask={openTask_}

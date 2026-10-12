@@ -51,6 +51,7 @@ work that grows out of them. Roadmap phases live in
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
+| [Backlog ordenado de tarefas (ordem do Today)](#backlog-ordenado-de-tarefas-ordem-do-today) | 2026-10-08 |
 
 ---
 
@@ -951,6 +952,103 @@ remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
 estado "range + time" sem corte de layout); projeto real (`Geral` →
 seção `Consertos`, já `is_infinite`) confirmando que o controle de target
 não aparece mais na seção expandida.
+
+---
+
+## Backlog ordenado de tarefas (ordem do Today)
+
+started 2026-10-08
+
+Pedido do usuário (requisito, não bug): criar uma maneira de organizar as
+tarefas pendentes numa fila, com uma ordem explícita em que serão feitas, e
+essa ordem refletida no Today.
+
+**Investigação.** O app não tinha nenhuma noção de "ordem de execução"
+persistida. `tasks_sequence` foi deliberadamente removida como ordenação
+manual de tasks (vira dependência: desbloqueia/bloqueia, não exibição —
+comentários em `sequence.ts`/`hierarchy.ts`/`useHierarchy.ts`/
+`02-data-layer.md` documentam isso). `tasks.priority` é um enum de 4
+baldes, grosso demais para expressar ordem. `src/lib/taskOrder.ts` tem
+ordenações derivadas no client (cronológica e por status/urgência), nenhuma
+persistida. Conclusão: reintroduzir ordem manual precisa de um mecanismo
+novo — um rank numérico, não a linked-list que foi removida de propósito.
+Confirmado que não contradiz `05-roadmap.md`: "Planejamento assistido" (IA
+sugerir ordem do dia) ainda não foi construído e passa a ter, com este
+item, um lugar para escrever essa ordem.
+
+**Plano aprovado (v1).** `tasks.backlog_rank` (`double precision`, `NULL` =
+fora da fila), rank esparso (não linked-list) com inserção por ponto médio e
+rebalanceamento quando o gap colapsa. Fila global (não por projeto/seção).
+O Today mantém os quatro grupos atuais (Scheduled/Marked/Target/Due);
+`backlog_rank` entra como chave de ordenação primária dentro de cada grupo,
+com fallback para o critério de data atual. Moment `backlog` novo, gravado
+só na transição NULL ↔ não-NULL (nunca em um reorder). Dependência
+(`tasks_sequence`) continua mandando no bloqueio — uma task `waiting`
+aparece esmaecida como "blocked" na fila, sem reordenação automática.
+
+**Implementado.**
+
+- **Banco** — duas migrations (`ALTER TYPE` em transação própria, por regra
+  do Supabase): `20261008000000_backlog_moment_type.sql` (enum
+  `moment_types` ganha `backlog`) e `20261008010000_task_backlog_rank.sql`
+  (`tasks.backlog_rank`, índice parcial `tasks_backlog_rank_idx`, trigger
+  `moment_backlog_tasks`/`trg_moment_backlog`). `database.types.ts` e
+  `constants.ts` atualizados a mão (sem script de geração neste repo); de
+  passagem, corrigida uma defasagem pré-existente em `MOMENT_TYPES`
+  (faltavam `definition`/`today`/`notToday`).
+- **Aritmética pura** — `src/lib/backlogRank.ts` (`RANK_STEP`,
+  `orderByRank`, `rankBetween`, `rankForIndex`, `needsRebalance`,
+  `rebalanceRanks`), sem React/Supabase, no mesmo estilo de `reorder.ts`/
+  `taskOrder.ts`.
+- **Camada de dados** — `src/lib/api/backlog.ts` (`add`/`move`/
+  `removeFromBacklog`/`rebalance`/`listOrdered`), updates comuns na tabela
+  `tasks`. Comentários desatualizados em `hierarchy.ts`/`useHierarchy.ts`
+  corrigidos para apontar para este novo caminho em vez de só dizer "foi
+  removido".
+- **Hook** — `src/hooks/useBacklog.ts`: `useBacklogTasks()` derivado do
+  cache de `useTasks()`; `useBacklogMutations()` com `add`/
+  `removeFromBacklog`/`move` (grava um rank já calculado, sem rebalancear —
+  para quem só vê uma vizinhança parcial) e `reorder` (índice-baseado, com
+  rebalanceamento — vê a fila inteira).
+- **UI — view Backlog** — quarta aba em `TasksPage.tsx` + novo
+  `src/components/tasks/BacklogList.tsx`: lista ordenável por
+  `@dnd-kit/sortable`, número de posição, badges reaproveitados de
+  `common/ui.tsx`, remover da fila, e um painel de tarefas abertas sem rank
+  para adicionar.
+- **UI — toggle global** — `BacklogToggle` novo em `common/ui.tsx` (mesmo
+  formato do `TodayToggle`), ao lado da estrela de "hoje" em `TaskRow.tsx` e
+  `TaskDetailModal.tsx`.
+- **UI — Today** — `DashboardPage.tsx`: `backlog_rank` como chave primária
+  de ordenação dentro de Marked/Target/Due (fallback no critério de data de
+  cada grupo, dividers preservados); badge de posição (`RankBadge`) nas
+  pills com rank; grupo Marked ganhou reordenação por arraste
+  (`SortableTaskPill` + `SortableContext`), restrita ao subconjunto de
+  marcas de hoje que já estão na fila (as sem rank e as marcas antigas
+  esmaecidas não são arrastáveis — adicionar à fila primeiro pelo toggle).
+  Scheduled não entrou: suas pills renderizam por hora do evento, não por
+  lista, então um rank não mudaria nada visível ali.
+- **Assistente** — parágrafo novo em `src/lib/chat/prompts.ts` explicando
+  `backlog_rank`, como lê-lo/escrevê-lo via `query_rows`/`update_rows`, e
+  que reordenar é escrever um rank entre dois vizinhos. Tool dedicada
+  `list_backlog` fica como follow-up, fora do v1.
+- **Docs** — `01-database.md`, `02-data-layer.md` (corrige a nota antiga
+  sobre ordenação manual removida), `06-concepts.md` (seção "Backlog"),
+  `05-roadmap.md` (registrado como concluído/pré-requisito).
+
+**Pendência explícita — não verificado nesta sessão.** A sessão de
+implementação correu num ambiente sem acesso a rede/Supabase linkado:
+`npm run db:push` e `npm run db:dump` (que regenera `schema.sql` e
+`supabase/functions/_shared/schema.sql.ts` via `gen:edge-schema`, para o
+`search_schema` do assistente/bot ver a coluna) **não foram executados**.
+As migrations foram escritas e revisadas por leitura, seguindo o estilo das
+já existentes, mas não aplicadas contra o banco real. Depois do merge e do
+push: aplicar as migrations, rodar o dump, e então rodar a checagem manual
+completa do plano (setar/mover/limpar `backlog_rank` em algumas tasks e
+conferir a ordem e os moments gravados; checagem no navegador — arrastar
+para reordenar na view Backlog e dentro de Marked no Today, recarregar e
+confirmar persistência; perguntar ao assistente "o que está no meu
+backlog?"). `npm run typecheck`, `npm run lint` (`--max-warnings 0`) e
+`npm run build` foram verificados limpos nesta sessão.
 
 ---
 

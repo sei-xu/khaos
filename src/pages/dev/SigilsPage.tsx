@@ -71,6 +71,7 @@ const SAMPLE_TASK: Task = {
   target: null,
   section_id: null,
   deleted_at: null,
+  backlog_rank: null,
 };
 
 // Every field populated at once -- not a realistic task, a stress test for
