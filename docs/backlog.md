@@ -46,13 +46,14 @@ work that grows out of them. Roadmap phases live in
 | [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
 | [Components — entity chips](#components--entity-chips) | 2026-07-23 |
 | [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
-| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
 | [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 | [Backlog ordenado de tarefas (ordem do Today)](#backlog-ordenado-de-tarefas-ordem-do-today) | 2026-10-08 |
+| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
+| [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 |
 
 ---
 
@@ -468,58 +469,6 @@ The rebuild looks feasible from the history alone: 31 commits touched
   when the file is created.
 
 Not started; no code change involved.
-
----
-
-## Nine unmerged branches — triage before cleanup
-
-started 2026-09-30
-
-`delete_branch_on_merge` was off on `sei-xu/khaos` until 2026-09-30, so every
-branch ever merged stayed behind. Turning it on (done, same day) fixes the
-future but not the backlog of 56 remote branches it left.
-
-**46 of them are already merged into `main`.** Those are pure clutter and are
-safe to delete in bulk — the content is all on `main`. Not done yet: a 46-branch
-deletion is worth doing deliberately, and it should come *after* the triage
-below, not before.
-
-**Nine are NOT merged.** This is the part that matters — it is work that never
-reached `main`, and deleting them would lose it:
-
-| branch | last commit | commits ahead | files vs main |
-|---|---|---|---|
-| `claude/anthropic-proxy-cleanup` | 2026-07-13 | 1 | 1 |
-| `claude/khaos-telegram-bot-yolc9z` | 2026-07-23 | 2 | **0** |
-| `claude/review-tasks-stale-priority-f02xyi` | 2026-08-07 | 1 | 1 |
-| `claude/task-logging-broken-5b9exk` | 2026-08-07 | 1 | 1 |
-| `claude/infinite-sections-sorting-na7nql` | 2026-08-29 | 1 | 3 |
-| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29 | 1 | 1 |
-| `claude/task-logs-editable-18yaqw` | 2026-08-30 | 3 | 1 |
-| `claude/mobile-task-drag-today-opaf6k` | 2026-09-04 | 1 | 6 |
-| `claude/unificar-targets-view-zm599h` | 2026-09-19 | 2 | 4 |
-
-Three things stand out:
-
-- `khaos-telegram-bot-yolc9z` shows **zero file difference** against `main`. Its
-  content already landed by another route, so it is merge-unreachable but
-  functionally dead — the one clearly safe deletion of the nine.
-- `task-items-frontend-inclusion-kqu4tm` maps to the still-open item
-  [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend).
-  Worth checking whether it holds an attempted fix before anyone restarts that
-  work from scratch.
-- `unificar-targets-view-zm599h` maps to
-  [Unify target pill + input view](#unify-target-pill--input-view), which is
-  marked **resolved**. So either the branch is an abandoned earlier take, or a
-  slice of that work never made it in. Worth a look either way.
-
-There is also a merged branch literally named
-`claude/lost-unmerged-branches-ctk3d3`, which suggests work has been lost this
-way before.
-
-Suggested order: triage these nine first (recover, re-open, or confirm dead),
-then delete the 46 merged ones in one pass. Nothing has been deleted yet apart
-from the two branches of PRs #72 and #74.
 
 ---
 
@@ -1228,6 +1177,117 @@ backlog?"). `npm run typecheck`, `npm run lint` (`--max-warnings 0`) e
 
 ---
 
+## Nine unmerged branches — triage before cleanup
+
+started 2026-09-30
+
+`delete_branch_on_merge` was off on `sei-xu/khaos` until 2026-09-30, so every
+branch ever merged stayed behind. Turning it on (done, same day) fixes the
+future but not the backlog of 56 remote branches it left.
+
+**46 of them are already merged into `main`.** Those are pure clutter and are
+safe to delete in bulk — the content is all on `main`. Not done yet: a 46-branch
+deletion is worth doing deliberately, and it should come *after* the triage
+below, not before.
+
+**Nine are NOT merged.** This is the part that matters — it is work that never
+reached `main`, and deleting them would lose it:
+
+| branch | last commit | commits ahead | files vs main |
+|---|---|---|---|
+| `claude/anthropic-proxy-cleanup` | 2026-07-13 | 1 | 1 |
+| `claude/khaos-telegram-bot-yolc9z` | 2026-07-23 | 2 | **0** |
+| `claude/review-tasks-stale-priority-f02xyi` | 2026-08-07 | 1 | 1 |
+| `claude/task-logging-broken-5b9exk` | 2026-08-07 | 1 | 1 |
+| `claude/infinite-sections-sorting-na7nql` | 2026-08-29 | 1 | 3 |
+| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29 | 1 | 1 |
+| `claude/task-logs-editable-18yaqw` | 2026-08-30 | 3 | 1 |
+| `claude/mobile-task-drag-today-opaf6k` | 2026-09-04 | 1 | 6 |
+| `claude/unificar-targets-view-zm599h` | 2026-09-19 | 2 | 4 |
+
+Three things stand out:
+
+- `khaos-telegram-bot-yolc9z` shows **zero file difference** against `main`. Its
+  content already landed by another route, so it is merge-unreachable but
+  functionally dead — the one clearly safe deletion of the nine.
+- `claude/review-tasks-stale-priority-f02xyi` is **recovered** — its one
+  commit, `add0de3`, is the fix for
+  [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization)
+  (reopened; it had been marked resolved in 2026-08-07 but never reached
+  `main`). Only that commit's `DIGEST_INSTRUCTION` hunk was applied, not a
+  merge of the branch — the branch's version of the file still has the
+  `deploy` job (`runDeploy` + the three-job doc comment), which was removed
+  from `main` on 2026-10-07 per
+  [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram);
+  merging the branch wholesale would have silently reintroduced it. The
+  branch itself is now safe to delete.
+- `task-items-frontend-inclusion-kqu4tm` maps to the still-open item
+  [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend).
+  Worth checking whether it holds an attempted fix before anyone restarts that
+  work from scratch.
+- `unificar-targets-view-zm599h` maps to
+  [Unify target pill + input view](#unify-target-pill--input-view), which is
+  marked **resolved**. So either the branch is an abandoned earlier take, or a
+  slice of that work never made it in. Worth a look either way.
+
+There is also a merged branch literally named
+`claude/lost-unmerged-branches-ctk3d3`, which suggests work has been lost this
+way before.
+
+Suggested order: triage these nine first (recover, re-open, or confirm dead),
+then delete the 46 merged ones in one pass. Nothing has been deleted yet apart
+from the two branches of PRs #72 and #74.
+
+---
+
+## Daily review — stale in-review prioritization
+
+started 2026-08-06 · reopened 2026-10-12
+
+Originally approved 2026-08-07 and marked resolved — but the fix
+(`add0de3`, "Surface stale in-review tasks first in the morning digest")
+never reached `main`. `git merge-base --is-ancestor add0de3 main` came back
+false; the commit only ever lived on
+`origin/claude/review-tasks-stale-priority-f02xyi`, one of the nine
+branches in [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup).
+Confirmed on `main`: `DIGEST_INSTRUCTION` in
+`supabase/functions/telegram-notify/index.ts` has no mention of
+`in_review` at all. The backlog recorded this as done for over two months
+while it never ran.
+
+User request this time (phrased generically — "tarefas em review devem
+ser colocadas no drop diário após certo tempo"): same surface as before,
+confirmed against this session — "drop diário" is the Telegram morning
+digest, not the web `TaskList` sort UI.
+
+~~Recovered the `add0de3` hunk into `DIGEST_INSTRUCTION`: a new "stale
+in-review" section, listed first ahead of every other section, most stale
+first — staleness read from the task's most recent `moments` row with
+`moment_type = 'status'`, `value = 'in_review'` (its `created_at` is the
+entry time). Applied as a targeted patch of just that hunk, not a merge of
+the branch (see the branch note above for why). The 3-day default is
+unchanged from what the user accepted in August, but it's no longer
+hardcoded in the prompt text — added `STALE_REVIEW_DAYS` (env var, default
+`'3'`, same pattern as the existing `REMINDER_LEAD_MINUTES`), so the
+threshold is adjustable via `supabase secrets set` without a code
+redeploy. Documented in `supabase/functions/telegram-bot/README.md` (the
+`digest` bullet and the secrets table).~~
+
+**Still pending — not done in this PR, part of the delivery, not an
+afterthought:** the change only takes effect after
+`supabase functions deploy telegram-notify` is run; today's digest is
+unaffected until then. Also pending: the manual end-to-end check (a task
+4+ days in `in_review` appears first, oldest-first; a task ~1 day in
+`in_review` does not appear; no `deploy`-job message reappears; repeat
+with `STALE_REVIEW_DAYS=1` and confirm the ~1-day task now shows). No test
+suite exists in this repo (`CLAUDE.md`): verification here is
+`npm run typecheck` (clean, but doesn't cover `supabase/functions` —
+`tsconfig.json`'s `include` is `["src"]`), `npm run lint` (clean on this
+branch), and `deno check supabase/functions/telegram-notify/index.ts`
+(clean — the only check that actually covers the edited file).
+
+---
+
 ## Resolved
 
 | title | started | resolved |
@@ -1235,7 +1295,6 @@ backlog?"). `npm run typecheck`, `npm run lint` (`--max-warnings 0`) e
 | [Forge — second critique round](#forge--second-critique-round) | 2026-07-23 | 2026-07-23 |
 | [Forge — missing inputs, divider, chevron](#forge--missing-inputs-divider-chevron) | 2026-07-23 | 2026-07-23 |
 | [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish) | 2026-07-23 | 2026-07-23 |
-| [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 | 2026-08-07 |
 | [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible) | 2026-08-12 | 2026-08-14 |
 | [Unify target pill + input view](#unify-target-pill--input-view) | 2026-09-19 | 2026-09-19 |
 | [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 | 2026-09-30 |
@@ -1306,24 +1365,6 @@ center. Forced to exactly 1em × 1em and re-verified — no drift. Pushed as
 
 A compliance sweep checked site-wide before approval: zero rename residue in `src/`,
 Emblem swatches re-verified against real usage.
-
-### Daily review — stale in-review prioritization
-
-2026-08-06 → 2026-08-07
-
-Tasks sitting in `in_review` too long are now pulled to the front of the
-**morning digest** (`telegram-notify`'s `runDigest`/`DIGEST_INSTRUCTION`)
-— not the web `TaskList` sort UI, per the user's clarification. The
-user's answers: (1) it's the existing morning digest message, (2) no
-fixed threshold — 3 days picked as a default, (3) staleness read from the
-`moments` table.
-
-Implemented as a prompt instruction, not new code (the digest is
-LLM-composed from live queries and the agent already has `query_rows`
-access to `moments`): each `in_review` task's most recent `status` moment
-with `value = 'in_review'` gives the entry time (`created_at`); anything
-3+ days stale is listed first, ahead of overdue/due/scheduled, most stale
-first. Pushed as `add0de3`.
 
 ### Sequence rail — sometimes not visible
 
