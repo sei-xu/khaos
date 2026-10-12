@@ -543,7 +543,10 @@ export function Modal({
       if (e.key === 'Escape') {
         onCloseRef.current();
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        if (onSubmitRef.current) {
+        if (
+          onSubmitRef.current &&
+          dialogRef.current?.contains(e.target as Node)
+        ) {
           e.preventDefault();
           onSubmitRef.current();
         }
