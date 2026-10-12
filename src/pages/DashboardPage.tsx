@@ -87,22 +87,22 @@ interface TaskPillProps {
   projectName?: string | null;
   projectField?: string | null;
   faded?: boolean;
+  // 1-based position in the backlog queue, when the task is queued.
+  rankPosition?: number;
   children: ReactNode;
 }
 
-// Draggable pill matching the app's existing badge language (DueBadge /
-// TargetBadge: chrome-less or thin-bordered rounded chip, small mono/body
-// text). Dragging one onto the "Marked" group or a calendar slot below
-// changes that task's state — see DashboardPage's handleDragEnd. A plain
-// click (one that never crosses the drag activation distance) opens the
-// task, same as clicking a Kanban card. Two rows: the task name on top
-// (left) with status/priority on the same line (right), and the group's
-// own badge/project below — rounded-lg rather than the single-line pill's
-// rounded-full, since a fully round corner reads wrong once the content
-// wraps to two rows. `faded` dims a pill that's stale (e.g. marked on a
-// past day, never resolved).
-interface TaskPillBodyProps extends TaskPillProps {
-  isDragging: boolean;
+// What TaskPillBody itself renders: the subset of TaskPillProps that ends
+// up as markup, plus the drag state that hides the second row.
+type TaskPillBodyProps = Pick<
+  TaskPillProps,
+  'task' | 'projectName' | 'projectField' | 'rankPosition' | 'children'
+> & { isDragging: boolean };
+
+// Shared chrome for both pill variants below (plain draggable and
+// sortable) — same look either way; `faded` dims a stale pill.
+function pillClassName(faded?: boolean): string {
+  return `border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`;
 }
 
 // backlog_rank's position badge: only shown when the task is actually
@@ -127,7 +127,7 @@ function TaskPillBody({
   rankPosition,
   isDragging,
   children,
-}: TaskPillBodyProps & { rankPosition?: number }) {
+}: TaskPillBodyProps) {
   return (
     <>
       <span className="flex w-full items-center gap-1.5">
@@ -173,7 +173,7 @@ function TaskPill({
   faded,
   rankPosition,
   children,
-}: TaskPillProps & { rankPosition?: number }) {
+}: TaskPillProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: task.id });
   const style = {
@@ -191,14 +191,12 @@ function TaskPill({
       {...attributes}
       title={task.name}
       onClick={() => !isDragging && onOpen(task)}
-      className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
+      className={pillClassName(faded)}
     >
       <TaskPillBody
         task={task}
-        onOpen={onOpen}
         projectName={projectName}
         projectField={projectField}
-        faded={faded}
         rankPosition={rankPosition}
         isDragging={isDragging}
       >
@@ -223,7 +221,7 @@ function SortableTaskPill({
   faded,
   rankPosition,
   children,
-}: TaskPillProps & { rankPosition?: number }) {
+}: TaskPillProps) {
   const {
     attributes,
     listeners,
@@ -246,14 +244,12 @@ function SortableTaskPill({
       {...attributes}
       title={task.name}
       onClick={() => !isDragging && onOpen(task)}
-      className={`border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`}
+      className={pillClassName(faded)}
     >
       <TaskPillBody
         task={task}
-        onOpen={onOpen}
         projectName={projectName}
         projectField={projectField}
-        faded={faded}
         rankPosition={rankPosition}
         isDragging={isDragging}
       >

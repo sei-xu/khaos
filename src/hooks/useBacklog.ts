@@ -13,7 +13,7 @@ import { useTasks } from './useHierarchy';
 import type { Id, Task } from '../lib/types';
 
 export function useBacklogTasks(): Task[] {
-  const { data: tasks = [] } = useTasks() as { data: Task[] };
+  const { data: tasks = [] } = useTasks();
   return orderByRank(tasks.filter((t) => t.deleted_at === null));
 }
 

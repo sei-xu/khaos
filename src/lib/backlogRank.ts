@@ -4,7 +4,7 @@
 // the moved task's rank becomes the midpoint of its new neighbors. Ranks
 // start RANK_STEP apart so many inserts fit between any two neighbors
 // before a gap collapses and a rebalance is needed.
-import type { Task } from './types';
+import type { Id } from './types';
 
 export const RANK_STEP = 1024;
 
@@ -59,7 +59,7 @@ export function needsRebalance(
 // (RANK_STEP apart), preserving relative order. Returns only the tasks
 // whose rank actually changed, so the caller can skip no-op writes.
 export function rebalanceRanks<
-  T extends Task | { id: string; backlog_rank: number | null },
+  T extends { id: Id; backlog_rank: number | null },
 >(ordered: T[]): { id: T['id']; backlog_rank: number }[] {
   const updates: { id: T['id']; backlog_rank: number }[] = [];
   ordered.forEach((task, index) => {
