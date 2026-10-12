@@ -85,10 +85,13 @@ Callers (cron) POST to the function with a `{ "job": ... }` body and the
 - **`digest`** — once each morning. Khaos queries your current state and sends a
   concise briefing: overdue, due today, today's scheduled tasks, scheduled
   windows that elapsed while unfinished, tasks whose **target** window has
-  passed, and important **unscheduled** tasks. For the last two it only
-  *suggests* ("want me to move these targets / schedule these?") — nothing is
-  changed until you reply approving, which the webhook then acts on (the digest
-  is threaded into the chat history so the follow-up has context).
+  passed, important **unscheduled** tasks, and **stale in-review** tasks —
+  ones sitting in `in_review` for `STALE_REVIEW_DAYS`+ days, surfaced first,
+  oldest first, so they don't get forgotten. For the elapsed-target and
+  unscheduled sections it only *suggests* ("want me to move these targets /
+  schedule these?") — nothing is changed until you reply approving, which the
+  webhook then acts on (the digest is threaded into the chat history so the
+  follow-up has context).
 - **`reminders`** — every few minutes. Finds scheduled tasks whose window starts
   within the lead time (`REMINDER_LEAD_MINUTES`, default 10) and sends a plain
   reminder. Deterministic, no model call.
@@ -182,3 +185,4 @@ instead of pushing directly (not what's implemented here).
 | `LLM_MODEL` | no | `claude-sonnet-5` | Model the bot uses |
 | `TELEGRAM_TIMEZONE` | no | `America/Sao_Paulo` | IANA tz for times & digest date |
 | `REMINDER_LEAD_MINUTES` | no | `10` | How early to send task reminders |
+| `STALE_REVIEW_DAYS` | no | `3` | Days in `in_review` before a task is surfaced as stale in the digest |
