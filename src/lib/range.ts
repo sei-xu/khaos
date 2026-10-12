@@ -84,6 +84,16 @@ export function hasExplicitTime(d: Date): boolean {
   return !isUntimed(d);
 }
 
+// Target end's counterpart to ui.tsx's hasExplicitDueTime: an untimed end is
+// stored at 23:59 of its day (see effectiveEnd in TargetEditor), so 23:59
+// itself doesn't count as an explicit time — only a different hour/minute
+// does. Midnight reads the same way, which tolerates rows written before
+// effectiveEnd normalized an untimed end to 23:59 (no data migration needed).
+export function hasExplicitEndTime(d: Date): boolean {
+  if (isUntimed(d)) return false;
+  return d.getHours() !== 23 || d.getMinutes() !== 59;
+}
+
 // A range reads as a single all-day window when it starts at local midnight
 // and ends at 23:59 of that same local day — the shape TargetEditor already
 // produces for a target given only a start date (see effectiveEnd above).

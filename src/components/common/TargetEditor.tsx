@@ -7,6 +7,7 @@ import {
   formatRange,
   endOfLocalDay,
   hasExplicitTime,
+  hasExplicitEndTime,
   isAllDayRange,
   targetEnd,
 } from '../../lib/range';
@@ -72,7 +73,7 @@ export function TargetBadge({ target, past }: TargetBadgeProps) {
             <span className="font-bold">{endParts.day}</span>
             {endParts.month}
           </span>
-          {end && hasExplicitTime(end) && (
+          {end && hasExplicitEndTime(end) && (
             <span className="opacity-70">{formatTimeOnly(end)}</span>
           )}
         </>
@@ -95,18 +96,22 @@ interface TargetEditorProps {
 
 function validate(start: Date | null, end: Date | null, due?: string | null) {
   if (!start) return 'Target window needs a start date.';
+  // Check the effective end (an untimed end lands at 23:59 of its day, the
+  // convention effectiveEnd stores) so an inverted range is caught here
+  // instead of reaching Postgres.
+  const endTarget = effectiveEnd(start, end);
+  if (endTarget && start >= endTarget) return 'Start must be before the end.';
   if (due) {
     const dueDate = new Date(due);
     if (start >= dueDate) return 'Start must be before the due date.';
-    // Compare the effective end target: an untimed end date lands at the end
-    // of its day (23:59), not midnight, so that's what must fit before the due.
-    if (end) {
-      const endTarget =
-        end.getHours() === 0 && end.getMinutes() === 0
-          ? endOfLocalDay(end)
-          : end;
-      if (endTarget > dueDate) return 'End must be on or before the due date.';
-    }
+    // An untimed due is stored at 23:59:00 and means "by end of that day",
+    // while an untimed end lands at 23:59:59.999 -- compare against the end
+    // of the due's day in that case, or a target ending on the due's own
+    // day would overshoot it by 59.999s.
+    const dueUntimed = dueDate.getHours() === 23 && dueDate.getMinutes() === 59;
+    const dueLimit = dueUntimed ? endOfLocalDay(dueDate) : dueDate;
+    if (endTarget && endTarget > dueLimit)
+      return 'End must be on or before the due date.';
   }
   return null;
 }
@@ -153,7 +158,9 @@ function buildLocalDate(
 // so range-overlap queries elsewhere don't treat the target as still active
 // on every later day.
 function effectiveEnd(start: Date, end: Date | null): Date | null {
-  if (end) return end;
+  // An explicit end with no time picked follows the same convention as the
+  // single-day case (23:59 of that day) instead of midnight.
+  if (end) return hasExplicitTime(end) ? end : endOfLocalDay(end);
   if (start.getHours() === 0 && start.getMinutes() === 0) {
     return endOfLocalDay(start);
   }
@@ -190,7 +197,11 @@ export default function TargetEditor({
   const endValues = useMemo(() => getLocalValues(end), [end]);
 
   const [showStartTime, setShowStartTime] = useState(() => startValues.hasTime);
-  const [showEndTime, setShowEndTime] = useState(() => endValues.hasTime);
+  // 23:59 is the untimed-end sentinel, so a stored end at 23:59 must not
+  // open the end time toggle (the ghost "· 23:59").
+  const [showEndTime, setShowEndTime] = useState(() =>
+    Boolean(end && hasExplicitEndTime(end))
+  );
 
   // Resets forceShowEnd/error whenever `value` changes from outside (e.g.
   // switching between tasks) -- adjusted during render rather than in a
@@ -233,15 +244,17 @@ export default function TargetEditor({
       return;
     }
 
-    // Moving the start past the current end would otherwise write an
-    // inverted range (Postgres rejects lower > upper) -- pull the end
-    // along with it instead: onto the start's own day first (keeping its
-    // own time of day), and if it's still behind (an end time earlier in
-    // the day than the start time), mirror the start's time too.
-    if (nextEnd && nextEnd < nextStart) {
-      const carried = new Date(nextStart);
-      carried.setHours(nextEnd.getHours(), nextEnd.getMinutes(), 0, 0);
-      nextEnd = carried < nextStart ? new Date(nextStart) : carried;
+    // The start moved and left the previous end at or behind it (writing an
+    // inverted range, which Postgres rejects) -- shift the end by the same
+    // delta, preserving the window's duration. Compared on the effective
+    // end so an untimed end on the start's own day (valid) isn't shifted.
+    if (start && nextEnd && nextStart.getTime() !== start.getTime()) {
+      const endNow = effectiveEnd(nextStart, nextEnd);
+      if (endNow && endNow <= nextStart) {
+        nextEnd = new Date(
+          nextEnd.getTime() + (nextStart.getTime() - start.getTime())
+        );
+      }
     }
 
     const problem = validate(nextStart, nextEnd, due);

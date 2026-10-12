@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Chamber, Section, Swatch } from './vaultUI';
+import { formatRange } from '../../lib/range';
 import {
   StatusBadge,
   PriorityBadge,
@@ -149,6 +150,21 @@ export default function SigilsPage() {
   );
   const [targetRangeTime, setTargetRangeTime] = useState<string | null>(
     '["2026-08-01 09:00:00+00","2026-08-15 18:00:00+00")'
+  );
+  // Built from local Date parts (not "+00" literals) so the stored shapes
+  // are local midnight / 23:59 in any timezone.
+  // Single-day target as effectiveEnd stores it -- should show just the
+  // start date plus "+ end", never a "· 23:59".
+  const [targetSingleDayStored, setTargetSingleDayStored] = useState<
+    string | null
+  >(() =>
+    formatRange(new Date(2026, 7, 1), new Date(2026, 7, 1, 23, 59, 59, 999))
+  );
+  // Multi-day target with no time on either end -- the end date shows with
+  // no "· 23:59" next to it.
+  const [targetRangeNoTime, setTargetRangeNoTime] = useState<string | null>(
+    () =>
+      formatRange(new Date(2026, 7, 1), new Date(2026, 7, 15, 23, 59, 59, 999))
   );
   const [estimateDraft, setEstimateDraft] = useState('120');
   const fieldNames = Object.keys(FIELDS_CONFIG);
@@ -752,6 +768,24 @@ export default function SigilsPage() {
             <TargetEditor
               value={targetRangeTime}
               onChange={setTargetRangeTime}
+              hideClear
+            />
+          </Swatch>
+        </Section>
+        <Section title="Target input, single day (stored shape)">
+          <Swatch label="input, single day — no end field, no · 23:59">
+            <TargetEditor
+              value={targetSingleDayStored}
+              onChange={setTargetSingleDayStored}
+              hideClear
+            />
+          </Swatch>
+        </Section>
+        <Section title="Target input, range (no explicit time)">
+          <Swatch label="input, range — end date with no · time">
+            <TargetEditor
+              value={targetRangeNoTime}
+              onChange={setTargetRangeNoTime}
               hideClear
             />
           </Swatch>

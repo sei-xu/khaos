@@ -952,6 +952,39 @@ estado "range + time" sem corte de layout); projeto real (`Geral` →
 seção `Consertos`, já `is_infinite`) confirmando que o controle de target
 não aparece mais na seção expandida.
 
+### Segunda passada — extras do PR #78 portados (2026-10-12)
+
+O PR #78 resolvia os mesmos seis pontos por um caminho paralelo ao que
+entrou no `main` primeiro (`1290a1b`), e conflitava em tudo. Decisão do
+usuário: manter a implementação do `main` e portar só o que o #78 tinha a
+mais, em vez de fazer merge das duas.
+
+Portado para `TargetEditor.tsx`/`range.ts`:
+
+- **Fim sem hora vira 23:59** — `effectiveEnd` normaliza também um fim
+  explícito sem hora para `endOfLocalDay`, fechando o range vazio/invertido
+  quando início e fim caem no mesmo dia.
+- **`início < fim`** em `validate()`, comparado sobre o fim efetivo.
+- **Fim acompanha o início preservando a duração**, no lugar do clamp do
+  `main`; compara pelo fim efetivo, então um fim sem hora no próprio dia do
+  início (válido) não é deslocado.
+- **Limite do due** — um due sem hora fica em 23:59:00 e um fim sem hora em
+  23:59:59.999; agora compara contra o fim do dia do due, o que o #78 deixava
+  rejeitando um target que terminava no próprio dia do due (achado
+  bloqueante da revisão).
+- **Toggle de hora do fim** — `hasExplicitEndTime` (novo, `range.ts`) evita
+  abrir o toggle com o 23:59 sentinela, e `TargetBadge` passa a usá-lo
+  (tolera registros legados gravados à meia-noite).
+- **Sigils** — duas demos (um dia só, vários dias sem hora), montadas com
+  `Date` local em vez de literais `+00`, que mostrariam "· hora" fora do UTC.
+
+**Deixado de fora de propósito:** o estado `lastEmitted`/`emit` (a revisão
+mostrou que nunca casava e o reset que ele deveria suprimir não existe no
+`main`), a container query `@max-lg` (512px; o `main` mantém 350px, sem a
+colisão do botão de limpar apontada na revisão), o demo "narrow host" e o
+`max-w-2xl` do `ProjectDetailPage`. Verificação: typecheck e lint limpos
+(zero avisos); sem checagem manual no browser neste sandbox.
+
 ---
 
 ## Resolved
