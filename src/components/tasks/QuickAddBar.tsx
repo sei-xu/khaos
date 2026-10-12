@@ -237,6 +237,13 @@ export default function QuickAddBar() {
 
       {openTask && (
         <TaskDetailModal
+          // Remount on task change: TaskDetailModal keeps per-task local
+          // state (the Due time toggle, the debounced name/description
+          // drafts, the sequence picker), none of it reset by an effect --
+          // so navigating task-to-task via onOpenTask without a key would
+          // carry the previous task's state over. Same key as
+          // ProjectDetailPage's own TaskDetailModal.
+          key={openTask.id}
           taskId={openTask.id}
           task={openTask}
           onClose={() => setCreated(null)}

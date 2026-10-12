@@ -50,8 +50,8 @@ work that grows out of them. Roadmap phases live in
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup)                               | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
-| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar)           | 2026-10-07 |
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
+| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar)           | 2026-10-07 |
 
 ---
 
@@ -685,6 +685,63 @@ Concluído, nota explicando a remoção) em vez de editado em silêncio.
 
 ---
 
+## Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas
+
+started 2026-10-07
+
+Pedido do usuário, seis pontos no mesmo item (`src/components/common/TargetEditor.tsx`):
+
+1. **Pickers.** Só o ícone Target abria o date picker nativo; a seta `→` e
+   os `·` (middot de hora) eram `<span>` sem handler. Agora cada um é um
+   `<button>` com `openPicker()` próprio (`showPicker()`, fallback
+   `.click()`): seta abre o date picker de fim, cada `·` abre o time picker
+   do seu lado. `endDateRef`/`startTimeRef`/`endTimeRef` acrescentados ao
+   `startDateRef` que já existia.
+2. **Largura.** O pill usava `max-[350px]:` (viewport), nunca disparava nos
+   hosts onde o container é mais estreito que a viewport (`ProjectDetailPage`
+   tinha `max-w-sm`, `SectionColumn` fica dentro da coluna da seção) — com
+   data+hora dos dois lados o conteúdo cortava. Trocado por `@container` no
+   wrapper + variantes `@max-[350px]:` (Tailwind v4 nativo), que reagem à
+   largura real do container; `max-w-sm` removido de `ProjectDetailPage`.
+3. **Clamp início/fim.** Nada impedia escolher um início depois do fim —
+   gravava um tstzrange invertido (Postgres rejeitava o `UPDATE`).
+   `commitRange` agora empurra o fim junto: primeiro para o dia do novo
+   início mantendo a hora do fim, e se ainda ficar atrás (hora do fim antes
+   da hora do início no mesmo dia) espelha a hora do início.
+4. **Remover fim não removia.** Causa raiz comum com o item 5 — ver abaixo;
+   junto com isso, `handleRemoveEnd` passou a resetar `showEndTime` também,
+   para que um `+ end` seguinte não reabra já com uma hora marcada.
+5. **23:59 fantasma.** `effectiveEnd()` grava um target de um dia só como
+   `[início 00:00, início 23:59]` para as queries de overlap não
+   considerarem o target ainda ativo no dia seguinte — mas o editor derivava
+   `showEndInput` direto do range gravado, então esse fim sintético sempre
+   reaparecia como segunda data (`· 23:59`), e `handleRemoveEnd` virava
+   no-op porque regravava o mesmo range. `showEndInput` agora usa
+   `isAllDayRange()` (`src/lib/range.ts`) — a mesma checagem que o
+   `TargetBadge` já usava — então o fim sintético deixa de aparecer e
+   `handleRemoveEnd` volta a ter efeito visível.
+6. **Seções infinitas sem due/target.** Uma seção `is_infinite` é uma lista
+   contínua sem janela planejada nem prazo — `SectionColumn.tsx` deixou de
+   renderizar o botão/badge de target e o `TargetEditor`, `SectionRow.tsx`
+   deixou de renderizar `TargetBadge`/`DueBadge`. Ligar o modo infinito pelo
+   menu agora limpa `target`/`due` no mesmo patch (`is_infinite: true,
+   target: null, due: null`), para não deixar valor órfão invisível;
+   desligar não restaura nada. `docs/01-database.md` (nota da coluna
+   `is_infinite`) atualizado para registrar isso.
+
+Verificação: `npm run typecheck` e `npm run lint` limpos (mesmos 16
+problemas pré-existentes em arquivos não tocados, confirmados com/sem o
+diff via stash — nada novo). Check manual no browser: `/dev/vortex/sigils`
+para os quatro estados do editor (pickers confirmados via
+`HTMLInputElement.prototype.showPicker` instrumentado — cada botão abre o
+input certo; clamp testado nos dois ramos, inclusive o de espelhar a hora;
+remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
+estado "range + time" sem corte de layout); projeto real (`Geral` →
+seção `Consertos`, já `is_infinite`) confirmando que o controle de target
+não aparece mais na seção expandida.
+
+---
+
 ## Quick add — dialog atualizado e tarefa aberta após criar
 
 started 2026-10-07
@@ -799,62 +856,31 @@ a formatação intencional e estável — custa um commit único de churn grande
 agora, em troca de nunca mais acontecer por acidente. Fica como decisão do
 usuário.
 
----
+Terceira passada de revisão automatizada do PR #81 (2026-10-12): nenhum
+achado bloqueante. Um ajuste aplicado direto no branch — o
+`TaskDetailModal` montado pelo `QuickAddBar` ganhou `key={openTask.id}`. O
+modal guarda estado local por tarefa que nenhum efeito reseta (o toggle de
+hora do Due, inicializado via `useState` preguiçoso a partir de
+`task.due`; os drafts debounced de nome/descrição, cujo `dirtyRef` impede
+o efeito de ressincronizar; o `seqPicker`). Como `onOpenTask={setCreated}`
+permite navegar de tarefa em tarefa pelos chips de sequência sem
+desmontar, o estado da tarefa anterior era carregado para a seguinte — o
+caso visível é o toggle de hora, e no pior caso um nome digitado e ainda
+não commitado aparece no campo da outra tarefa. `ProjectDetailPage` já
+passa a mesma `key` no seu próprio `TaskDetailModal`; `TasksPage` e
+`DashboardPage` não (mesmo bug pré-existente, fora do escopo deste PR).
 
-## Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas
-
-started 2026-10-07
-
-Pedido do usuário, seis pontos no mesmo item (`src/components/common/TargetEditor.tsx`):
-
-1. **Pickers.** Só o ícone Target abria o date picker nativo; a seta `→` e
-   os `·` (middot de hora) eram `<span>` sem handler. Agora cada um é um
-   `<button>` com `openPicker()` próprio (`showPicker()`, fallback
-   `.click()`): seta abre o date picker de fim, cada `·` abre o time picker
-   do seu lado. `endDateRef`/`startTimeRef`/`endTimeRef` acrescentados ao
-   `startDateRef` que já existia.
-2. **Largura.** O pill usava `max-[350px]:` (viewport), nunca disparava nos
-   hosts onde o container é mais estreito que a viewport (`ProjectDetailPage`
-   tinha `max-w-sm`, `SectionColumn` fica dentro da coluna da seção) — com
-   data+hora dos dois lados o conteúdo cortava. Trocado por `@container` no
-   wrapper + variantes `@max-[350px]:` (Tailwind v4 nativo), que reagem à
-   largura real do container; `max-w-sm` removido de `ProjectDetailPage`.
-3. **Clamp início/fim.** Nada impedia escolher um início depois do fim —
-   gravava um tstzrange invertido (Postgres rejeitava o `UPDATE`).
-   `commitRange` agora empurra o fim junto: primeiro para o dia do novo
-   início mantendo a hora do fim, e se ainda ficar atrás (hora do fim antes
-   da hora do início no mesmo dia) espelha a hora do início.
-4. **Remover fim não removia.** Causa raiz comum com o item 5 — ver abaixo;
-   junto com isso, `handleRemoveEnd` passou a resetar `showEndTime` também,
-   para que um `+ end` seguinte não reabra já com uma hora marcada.
-5. **23:59 fantasma.** `effectiveEnd()` grava um target de um dia só como
-   `[início 00:00, início 23:59]` para as queries de overlap não
-   considerarem o target ainda ativo no dia seguinte — mas o editor derivava
-   `showEndInput` direto do range gravado, então esse fim sintético sempre
-   reaparecia como segunda data (`· 23:59`), e `handleRemoveEnd` virava
-   no-op porque regravava o mesmo range. `showEndInput` agora usa
-   `isAllDayRange()` (`src/lib/range.ts`) — a mesma checagem que o
-   `TargetBadge` já usava — então o fim sintético deixa de aparecer e
-   `handleRemoveEnd` volta a ter efeito visível.
-6. **Seções infinitas sem due/target.** Uma seção `is_infinite` é uma lista
-   contínua sem janela planejada nem prazo — `SectionColumn.tsx` deixou de
-   renderizar o botão/badge de target e o `TargetEditor`, `SectionRow.tsx`
-   deixou de renderizar `TargetBadge`/`DueBadge`. Ligar o modo infinito pelo
-   menu agora limpa `target`/`due` no mesmo patch (`is_infinite: true,
-   target: null, due: null`), para não deixar valor órfão invisível;
-   desligar não restaura nada. `docs/01-database.md` (nota da coluna
-   `is_infinite`) atualizado para registrar isso.
-
-Verificação: `npm run typecheck` e `npm run lint` limpos (mesmos 16
-problemas pré-existentes em arquivos não tocados, confirmados com/sem o
-diff via stash — nada novo). Check manual no browser: `/dev/vortex/sigils`
-para os quatro estados do editor (pickers confirmados via
-`HTMLInputElement.prototype.showPicker` instrumentado — cada botão abre o
-input certo; clamp testado nos dois ramos, inclusive o de espelhar a hora;
-remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
-estado "range + time" sem corte de layout); projeto real (`Geral` →
-seção `Consertos`, já `is_infinite`) confirmando que o controle de target
-não aparece mais na seção expandida.
+Notado, não alterado: os seis `<label>` do dialog usam
+`text-nyx-400 … font-medium`, sem caixa alta, enquanto a convenção de
+field label do app — a única usada de verdade, documentada na Forge — é
+`text-nyx-500 … font-semibold tracking-wide uppercase` (`TaskDetailModal`
+nos campos Due/Target/Tags/Moments, `ForgePage.tsx:144`). Os labels são
+anteriores a este PR e só foram reordenados pelo prettier-tailwind, mas o
+objetivo declarado do item é justamente trazer este dialog ao vocabulário
+atual, então a divergência fica mais visível agora. Plano, se quiser:
+trocar a classe nos seis labels (ou extrair um `FieldLabel` em `ui.tsx`,
+já que a string se repete seis vezes aqui e cinco no `TaskDetailModal`).
+Não aplicado por ser mudança visível de aparência, não refatoração neutra.
 
 ---
 
