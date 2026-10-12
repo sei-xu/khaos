@@ -51,6 +51,7 @@ work that grows out of them. Roadmap phases live in
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
+| [Cmd + Enter should submit and close the task modal](#cmd--enter-should-submit-and-close-the-task-modal) | 2026-10-12 |
 
 ---
 
@@ -951,6 +952,49 @@ remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
 estado "range + time" sem corte de layout); projeto real (`Geral` →
 seção `Consertos`, já `is_infinite`) confirmando que o controle de target
 não aparece mais na seção expandida.
+
+---
+
+## Cmd + Enter should submit and close the task modal
+
+started 2026-10-12
+
+Pedido do usuário: Cmd+Enter (ou Ctrl+Enter) deve "submeter e fechar" o
+modal de detalhe de task — hoje só funcionava no modal "New task" do
+QuickAddBar.
+
+`Modal` (`src/components/common/ui.tsx`) já tinha o atalho — se a prop
+opcional `onSubmit` existisse, Cmd/Ctrl+Enter chamava e fechava — mas
+`TaskDetailModal.tsx` nunca passava `onSubmit`, porque salva campo a campo
+(debounce de 500ms + flush no blur) em vez de ter uma ação de "save" única.
+
+Mudanças:
+
+1. `TaskDetailModal.tsx` ganhou `submitAndClose()`: tira o foco do elemento
+   ativo dentro do modal (reaproveita todo caminho de commit por `onBlur` —
+   nome, estimate, item de checklist, log de tempo — sem duplicar lógica),
+   chama `flushName()`/`flushEstimate()` como rede de segurança para o
+   debounce ainda pendente, cria o item pendente em "Add a task item..." (
+   extraído de `addItem` para `createPendingItem()`, reusado pelo `<form>`
+   normal) e só então chama `onClose()`. Passado como `onSubmit` do
+   `<Modal>`.
+2. `Modal` (`ui.tsx`) passou a exigir que o Cmd/Ctrl+Enter se origine
+   dentro do dialog (`dialogRef.current?.contains(e.target)`) — o listener
+   é global no `document`, e o composer do `ChatPanel` (sempre montado no
+   rail direito) também usa Cmd+Enter; sem essa checagem, um Cmd+Enter no
+   composer dispararia o submit do modal de task aberto por cima.
+
+Verificação: `npm run typecheck`, `npm run lint` e `npm run build` limpos
+(sem suite de testes no repo). Manual no `npm run dev`, numa task real:
+editar o campo Estimate e apertar Cmd+Enter antes dos 500ms do debounce —
+modal fechou e o valor novo persistiu ao reabrir (confirmado por ciclo
+completo: 60→75→reload→75→de volta a 60); digitar em "Add a task item..."
+e Cmd+Enter — item criado e modal fechado (confirmado reabrindo, depois
+removido o item de teste); Escape ainda fecha o modal normalmente. Não
+testado via chat real contra o `ChatPanel` para evitar efeito colateral no
+bot/dados do usuário — mas a sobreposição do modal (`z-50`, cobre a tela
+inteira) já impede o composer de receber o Cmd+Enter enquanto o modal está
+aberto, o que a mudança 2 reforça para qualquer handler global futuro.
 
 ---
 

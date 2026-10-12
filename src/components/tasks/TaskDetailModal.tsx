@@ -701,8 +701,7 @@ export default function TaskDetailModal({
     update.mutate({ id: task.id, patch: fields });
   }
 
-  function addItem(e: React.FormEvent) {
-    e.preventDefault();
+  function createPendingItem() {
     if (!newItem.trim()) return;
     itemMutations.create.mutate(
       {
@@ -714,10 +713,29 @@ export default function TaskDetailModal({
     );
   }
 
+  function addItem(e: React.FormEvent) {
+    e.preventDefault();
+    createPendingItem();
+  }
+
+  // Cmd/Ctrl+Enter from the Modal: this detail view auto-saves field by
+  // field (debounced text, blur-commit inline edits) rather than having a
+  // single "Save" action, so "submit" means flushing whatever's pending —
+  // blurring the focused field runs its existing onBlur commit, then the
+  // debounce flushes catch anything still mid-timer — before closing.
+  function submitAndClose() {
+    (document.activeElement as HTMLElement | null)?.blur();
+    flushName();
+    flushEstimate();
+    createPendingItem();
+    onClose();
+  }
+
   return (
     <Modal
       open
       onClose={onClose}
+      onSubmit={submitAndClose}
       title={
         <span className="flex min-w-0 items-center gap-2">
           <TodayToggle
