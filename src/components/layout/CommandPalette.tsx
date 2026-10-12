@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import {
@@ -19,12 +19,14 @@ interface CommandResult {
   fieldName?: string | null;
 }
 
+// Sem prop `open`: o AppShell monta este componente só enquanto a paleta está
+// aberta, então estar montado *é* estar aberto. É isso que deixa a busca nascer
+// vazia a cada abertura sem precisar de um efeito para limpá-la.
 interface CommandPaletteProps {
-  open: boolean;
   onClose: () => void;
 }
 
-export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
+export default function CommandPalette({ onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const { data: projects = [] } = useProjects();
   const { data: tasks = [] } = useTasks();
@@ -44,10 +46,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     () => new Map(projects.map((p) => [p.id, p])),
     [projects]
   );
-
-  useEffect(() => {
-    if (open) setQuery('');
-  }, [open]);
 
   const results = useMemo<CommandResult[]>(() => {
     const q = query.trim().toLowerCase();
@@ -88,8 +86,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     if (item.type === 'project') navigate(`/projects/${item.id}`);
     else navigate(`/tasks?taskId=${item.id}`);
   }
-
-  if (!open) return null;
 
   return (
     <div

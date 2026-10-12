@@ -38,20 +38,20 @@ work that grows out of them. Roadmap phases live in
 
 ## Open
 
-| title                                                                                                                          | started    |
-| ------------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend)                                              | 2026-08-29 |
-| [Cosmogony compliance sweep (post-merge)](#cosmogony-compliance-sweep-post-merge)                                              | 2026-07-23 |
-| [Components — column chips](#components--column-chips)                                                                         | 2026-07-23 |
-| [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue)             | 2026-07-23 |
-| [Components — entity chips](#components--entity-chips)                                                                         | 2026-07-23 |
-| [`npm run lint` fails on main](#npm-run-lint-fails-on-main)                                                                    | 2026-09-30 |
-| [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history)                               | 2026-09-30 |
-| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup)                               | 2026-09-30 |
+| title | started |
+|---|---|
+| [Task items — couldn't add from frontend](#task-items--couldnt-add-from-frontend) | 2026-08-29 |
+| [Cosmogony compliance sweep (post-merge)](#cosmogony-compliance-sweep-post-merge) | 2026-07-23 |
+| [Components — column chips](#components--column-chips) | 2026-07-23 |
+| [The Emblem (new chamber + reopened icon-animation issue)](#the-emblem-new-chamber--reopened-icon-animation-issue) | 2026-07-23 |
+| [Components — entity chips](#components--entity-chips) | 2026-07-23 |
+| [No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history) | 2026-09-30 |
+| [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Assistente morre com `isError: Extra inputs are not permitted`](#assistente-morre-com-iserror-extra-inputs-are-not-permitted) | 2026-10-02 |
+| [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Remover envio de versão de deploy por Telegram](#remover-envio-de-versão-de-deploy-por-telegram) | 2026-10-07 |
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
-| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar)           | 2026-10-07 |
+| [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 
 ---
 
@@ -65,7 +65,7 @@ checklist item to a task silently did nothing, no visible error.
 Root cause found: `public.task_items.order` is a smallint backed by a
 single table-wide `IDENTITY` sequence (`task_items_order_seq`) plus a
 table-wide `UNIQUE` constraint (`task_items_order_key`) — enforcing
-uniqueness of `order` across _all_ tasks combined, not per task. This
+uniqueness of `order` across *all* tasks combined, not per task. This
 already broke once before (migration `20260812000000`): the sequence
 fell behind `max(order)`, so every insert collided with a `409 duplicate
 key` error. That fix only did a one-time resync, so it was structurally
@@ -82,7 +82,6 @@ PR [#66](https://github.com/sei-xu/khaos/pull/66) on branch
 `claude/task-items-frontend-inclusion-kqu4tm`.~~ (done)
 
 **Still open:**
-
 - The frontend's silent-error pattern (no toast/alert anywhere in the
   app) is a separate, broader issue — not fixed here, flagged for a
   future pass.
@@ -225,7 +224,6 @@ question, not a sign-off on the chamber's content). Wired into the nav,
 chamber index, and routes. Pushed as `9c091a7`.
 
 **Done this round:**
-
 - Fixed the icon spinning off-center (was rotating around the glyph's
   own asymmetric font-metrics box, not a true-square container).
 - Fixed the password-gate hero not spinning at all (referenced a CSS
@@ -303,7 +301,6 @@ is really an expanded task chip, not a gap needing a new atomic one).
 Pushed as `9c091a7`, `0f276f8`, `c9d46e6`.
 
 Entity outcomes confirmed with the user:
-
 - **Event** already had a chat card (`InlineEventPreview` +
   `EntityChip`); all three `event_type` variants demoed live (solid
   Pontus border fixed, dotted Hypnos scheduled, dotted Pontus routine).
@@ -366,7 +363,7 @@ Entity outcomes confirmed with the user:
   request.~~
 - ~~Project name bold wherever it renders as a reference (`ProjectChip`,
   `ProjectRow`, `SectionRow` breadcrumb) — color unchanged. Project name
-  _input_ in `ProjectDetailPage.tsx` given `font-normal` (it had inherited
+  *input* in `ProjectDetailPage.tsx` given `font-normal` (it had inherited
   the display font's heavy default). Pushed as `ee76dfb` / `0012676` /
   `af1a976`.~~
 - ~~Spacing normalized to the spacing ladder: `pl-2.5` → `px-2` in
@@ -441,38 +438,6 @@ Entity outcomes confirmed with the user:
 
 ---
 
-## `npm run lint` fails on main
-
-started 2026-09-30
-
-Found while verifying the PWA manifest change, which touches no TypeScript at
-all. `npm run lint` exits 1 with **16 problems (11 errors, 5 warnings)**, none
-of them from that change. This contradicts `CLAUDE.md`, which documents the
-lint gate as "zero warnings tolerated, not just zero errors".
-
-Three groups:
-
-- **9 × `@typescript-eslint/no-explicit-any`**, all in `src/lib/chat/toolsCore.ts`
-  (lines 91, 532–592).
-- **2 × `react-hooks/set-state-in-effect`** — `AppShell.tsx:302` (closing the
-  drawer on route change) and `CommandPalette.tsx:49` (clearing the query when
-  the palette opens). Both look like a newer version of the React hooks plugin
-  flagging code that was already there, rather than newly written mistakes.
-- **5 warnings** — one unused `strokeWidth` arg in `StagingAcademyIcon.tsx`,
-  four `react-refresh/only-export-components` in context modules.
-
-Not fixed here: out of scope for the PWA work, and the `any` cluster in
-`toolsCore.ts` in particular deserves its own pass rather than a drive-by.
-Worth deciding whether these get fixed or whether the rule set gets adjusted —
-right now the documented gate and the actual state disagree, which makes the
-lint step useless as a signal.
-
-Gotcha noticed in passing: `eslint .` descends into `.claude/worktrees/`, so
-while a worktree is checked out there the problem counts come back exactly
-doubled (32 instead of 16). Worth an ignore entry if worktrees are used often.
-
----
-
 ## No changelog — rebuild it from the git history
 
 started 2026-09-30
@@ -490,7 +455,6 @@ changelog from the history later, not in the same change.
 The rebuild looks feasible from the history alone: 31 commits touched
 `version` in `package.json` (`chore: release v1.0.1` … `v1.0.30`), out of
 ~430 commits since 2026-06-22. Plan when picked up:
-
 - Create `docs/history/CHANGELOG.md` (same location the other managed apps
   use — Etto and Ḫprj), one entry per released version, newest first, with
   date, what changed and why, taken from the release commits and the PRs
@@ -516,23 +480,23 @@ future but not the backlog of 56 remote branches it left.
 
 **46 of them are already merged into `main`.** Those are pure clutter and are
 safe to delete in bulk — the content is all on `main`. Not done yet: a 46-branch
-deletion is worth doing deliberately, and it should come _after_ the triage
+deletion is worth doing deliberately, and it should come *after* the triage
 below, not before.
 
 **Nine are NOT merged.** This is the part that matters — it is work that never
 reached `main`, and deleting them would lose it:
 
-| branch                                        | last commit | commits ahead | files vs main |
-| --------------------------------------------- | ----------- | ------------- | ------------- |
-| `claude/anthropic-proxy-cleanup`              | 2026-07-13  | 1             | 1             |
-| `claude/khaos-telegram-bot-yolc9z`            | 2026-07-23  | 2             | **0**         |
-| `claude/review-tasks-stale-priority-f02xyi`   | 2026-08-07  | 1             | 1             |
-| `claude/task-logging-broken-5b9exk`           | 2026-08-07  | 1             | 1             |
-| `claude/infinite-sections-sorting-na7nql`     | 2026-08-29  | 1             | 3             |
-| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29  | 1             | 1             |
-| `claude/task-logs-editable-18yaqw`            | 2026-08-30  | 3             | 1             |
-| `claude/mobile-task-drag-today-opaf6k`        | 2026-09-04  | 1             | 6             |
-| `claude/unificar-targets-view-zm599h`         | 2026-09-19  | 2             | 4             |
+| branch | last commit | commits ahead | files vs main |
+|---|---|---|---|
+| `claude/anthropic-proxy-cleanup` | 2026-07-13 | 1 | 1 |
+| `claude/khaos-telegram-bot-yolc9z` | 2026-07-23 | 2 | **0** |
+| `claude/review-tasks-stale-priority-f02xyi` | 2026-08-07 | 1 | 1 |
+| `claude/task-logging-broken-5b9exk` | 2026-08-07 | 1 | 1 |
+| `claude/infinite-sections-sorting-na7nql` | 2026-08-29 | 1 | 3 |
+| `claude/task-items-frontend-inclusion-kqu4tm` | 2026-08-29 | 1 | 1 |
+| `claude/task-logs-editable-18yaqw` | 2026-08-30 | 3 | 1 |
+| `claude/mobile-task-drag-today-opaf6k` | 2026-09-04 | 1 | 6 |
+| `claude/unificar-targets-view-zm599h` | 2026-09-19 | 2 | 4 |
 
 Three things stand out:
 
@@ -639,6 +603,256 @@ antes de considerar o item fechado.
 
 ---
 
+## `npm run lint` fails on main
+
+started 2026-09-30
+
+Found while verifying the PWA manifest change, which touches no TypeScript at
+all. `npm run lint` exits 1 with **16 problems (11 errors, 5 warnings)**, none
+of them from that change. This contradicts `CLAUDE.md`, which documents the
+lint gate as "zero warnings tolerated, not just zero errors".
+
+Three groups:
+
+- **9 × `@typescript-eslint/no-explicit-any`**, all in `src/lib/chat/toolsCore.ts`
+  (lines 91, 532–592).
+- **2 × `react-hooks/set-state-in-effect`** — `AppShell.tsx:302` (closing the
+  drawer on route change) and `CommandPalette.tsx:49` (clearing the query when
+  the palette opens). Both look like a newer version of the React hooks plugin
+  flagging code that was already there, rather than newly written mistakes.
+- **5 warnings** — one unused `strokeWidth` arg in `StagingAcademyIcon.tsx`,
+  four `react-refresh/only-export-components` in context modules.
+
+Not fixed here: out of scope for the PWA work, and the `any` cluster in
+`toolsCore.ts` in particular deserves its own pass rather than a drive-by.
+Worth deciding whether these get fixed or whether the rule set gets adjusted —
+right now the documented gate and the actual state disagree, which makes the
+lint step useless as a signal.
+
+Gotcha noticed in passing: `eslint .` descends into `.claude/worktrees/`, so
+while a worktree is checked out there the problem counts come back exactly
+doubled (32 instead of 16). Worth an ignore entry if worktrees are used often.
+
+### Investigation — 2026-10-05
+
+The suspicion above is confirmed, and it is not a regression: the history of
+`package.json` shows `eslint-plugin-react-hooks` has been pinned at `^7.1.1`
+since the repository's **initial commit**. v7's flat `recommended` config ships
+the React-Compiler-era rules, and `set-state-in-effect` is `error` there. So
+the lint gate has never been green on this repo — the documented "zero
+warnings" gate in `CLAUDE.md` describes an intent that was never actually met,
+rather than a state that was lost.
+
+Nothing enforces it either: there is no lint job in CI (`.github/workflows/`
+holds only `bump-version.yml`), and although `vite-plugin-eslint` is still a
+devDependency it is **not wired into `vite.config.ts`**, so the dev server
+doesn't lint on save. `npm run lint` is manual-only, which is how 16 problems
+accumulated unnoticed.
+
+Per-group root cause:
+
+1. **`no-explicit-any` × 9 in `toolsCore.ts`** — not a typing gap in the
+   domain, just friction. `executeTool(deps, rawName, args)` already receives
+   `args: Record<string, unknown>`, and each `case` does `const a = args as
+   any` purely so `a.table` / `a.filters` / `a.limit` read without complaint.
+   The file's *first* case already demonstrates the correct in-house idiom —
+   `const a = args as { date?: unknown }` followed by `typeof` guards — so
+   this is applying a pattern the file already owns to the other six cases.
+   The last two sites are `cleanPayload(obj: any): any` (a recursive JSON
+   scrubber that wants `unknown`) and `db.rpc(a.name as any, …)`.
+2. **`set-state-in-effect` × 2** — both are "reset state when something
+   changes", the exact case React's *You Might Not Need an Effect* covers.
+   Important finding: the escape hatch of adjusting state during render is
+   **also blocked**, because the same recommended config enables
+   `react-hooks/set-state-in-render` as `error`. Both fixes therefore have to
+   remove the `setState` rather than relocate it.
+3. **`strokeWidth` warning** — the prop is destructured deliberately, to
+   swallow it: the mark is fill-only (`fill="none"` on the `<svg>`,
+   `fill={color}` on the paths), so a stroke width would be meaningless on the
+   DOM node. Verified by probe that `ignoreRestSiblings` does *not* cover
+   function parameters (the `...rest` sibling doesn't exempt it) but that an
+   `_` prefix does, matching the configured `argsIgnorePattern: '^_'`.
+4. **`react-refresh/only-export-components` × 4** — the three context modules
+   (`activeEntityContext.tsx`, `chat/chatActivityContext.tsx`,
+   `processingContext.tsx`) each export a Provider component *and* its
+   consumer hook from one file. Standard, deliberate React practice; the
+   warning is only about dev-time HMR granularity.
+
+Also confirmed: `docs/05-roadmap.md` registers no phase this touches, so
+nothing here contradicts the roadmap. `eslint .` does lint
+`supabase/functions/**`, and those files are currently clean.
+
+### Plan — 2026-10-05
+
+Goal: `npm run lint` exits 0 with zero problems, so the gate `CLAUDE.md`
+documents becomes real. Behaviour-preserving throughout — no feature change.
+
+1. **`eslint.config.ts`** — add `.claude` to the top-level `ignores`. Without
+   it `eslint .` descends into `.claude/worktrees/` and double-counts every
+   problem whenever a worktree exists (the 32-instead-of-16 gotcha above),
+   which also means the implementation session can't trust its own counts.
+2. **`src/lib/chat/toolsCore.ts`** — replace each `const a = args as any` with
+   a locally declared `{ … ?: unknown }` shape plus `typeof` guards, following
+   the `list_tasks_marked_for_day` case already in the file. Widen the private
+   `assertAllowedTable(table: string)` to accept `unknown` (it is a runtime
+   membership check against `ALLOWED_TABLES` anyway, and it is not exported),
+   guard `select` / `orderBy` with `typeof x === 'string'`, pass `args`
+   straight to `coerceValues` (its parameter is already `Record<string,
+   unknown>`), and retype `cleanPayload` as `(value: unknown) => unknown`.
+   `search_schema` guards `args.query` instead of casting. For `db.rpc(a.name
+   as any, …)`: try dropping the cast first and only fall back to a narrower
+   cast with a one-line justification if the untyped `SupabaseClient` won't
+   accept a plain `string`. `executeTool`'s exported signature does **not**
+   change, so `src/lib/chat/tools.ts` and
+   `supabase/functions/_shared/khaos.ts` are untouched.
+3. **`src/components/layout/AppShell.tsx`** — delete the route-change effect
+   and derive the overlays instead of storing them: keep the pathname the
+   overlay was opened on (`drawerOpenFor` / `chatSheetOpenFor`) and compute
+   `const drawerOpen = drawerOpenFor === location.pathname`. Navigating makes
+   the comparison false on its own, so the overlay closes with no `setState`
+   in either an effect or render. The `localStorage` sidebar effect stays —
+   that one is a genuine external-system sync and is not flagged.
+4. **`src/components/layout/CommandPalette.tsx`** — drop the `open` prop and
+   the `if (!open) return null` early return, and let `AppShell` mount it
+   conditionally (`{paletteOpen && <CommandPalette onClose={…} />}`). A fresh
+   mount per open means `useState('')` already starts empty, so the
+   query-clearing effect is deleted outright rather than rewritten.
+5. **`src/components/icons/StagingAcademyIcon.tsx`** — rename the swallowed
+   prop to `_strokeWidth` (verified to satisfy `argsIgnorePattern`) with a
+   short comment saying why a fill-only mark drops it.
+6. **`react-refresh/only-export-components`** — recommendation: *don't* split
+   the three context modules. Splitting Provider from hook would add three
+   files and churn 12 import sites to buy a dev-only HMR nicety, against a
+   pattern the whole React ecosystem uses. Instead add a `files`-scoped block
+   in `eslint.config.ts` covering those modules that passes `allowExportNames:
+   ['useActiveEntity', 'useSyncActiveEntity', 'useChatActivity',
+   'useProcessingContext']` to the rule — the rule stays `warn` everywhere
+   else, and only these named hook exports are exempted. (To verify during
+   implementation: `allowExportNames` is supported by the installed
+   `eslint-plugin-react-refresh@0.5.3`.)
+
+   **Decided on 2026-10-05: the user chose this option ("seguir com A") — do
+   not split the context modules.** This was the one item in the plan that was
+   a policy call rather than a defect fix, so it was taken to the user; the
+   other five steps have a single correct fix and needed no decision. What the
+   warning actually costs was the deciding factor: Vite's Fast Refresh can
+   only hot-swap a module whose exports are *all* components, so with a hook
+   exported alongside the Provider, editing one of these three files during
+   `npm run dev` triggers a full page reload instead of a surgical swap. That
+   is the entire cost — nothing in the build or in production. Splitting would
+   have bought nicer HMR on three rarely-edited files in exchange for three
+   new files and edited import lines in twelve others, against a Provider +
+   hook co-location pattern the whole React ecosystem uses.
+
+**Verification** (there is no test suite in this repo, per `CLAUDE.md` —
+verification is typecheck + lint + build + manual checks):
+
+- `npm run lint` → **0 problems**, down from 16. This is the primary gate and
+  the whole point of the change.
+- `npm run typecheck` → clean. This is what actually proves step 2 is sound:
+  removing `any` means every property access in those cases is now checked, so
+  a wrong guard surfaces here.
+- `npm run build` → clean.
+- `deno check supabase/functions/_shared/khaos.ts` — best-effort, since that
+  file imports `toolsCore.ts` directly and is outside `tsconfig.json`'s
+  `include: ["src"]`. Confirms the Edge-function consumer still typechecks.
+- Manual browser checks for steps 3–5, the only user-visible surfaces: mobile
+  drawer opens and closes itself on navigating to another route; chat sheet
+  likewise; Esc and ⌘K still close the drawer; ⌘K opens the palette with an
+  **empty** query after a previous search (the behaviour the deleted effect
+  provided); the Staging Academy icon still renders in `FIELDS_CONFIG`.
+- Agent smoke test for step 2, exercising the coercion paths the retyping
+  touches: a `query_rows` with `filters` as a real array, as a JSON *string*,
+  and as a `{column: value}` map, plus one `update_rows` with a `reason` so
+  `backfillReason` is covered.
+
+Follow-ups deliberately **not** in scope here, noted so they don't get lost:
+adding a lint job to CI (nothing would stop problem #17 from landing
+otherwise), and either wiring up or removing the unused `vite-plugin-eslint`
+devDependency.
+
+### Implementação — 2026-10-05
+
+Aberta como [PR #77](https://github.com/sei-xu/khaos/pull/77), no branch
+`worktree-lint-investigation-planning`. O item segue **aberto** até aprovação.
+
+`npm run lint` agora sai 0 com **zero problemas**, contra os 16 de antes, em
+108 arquivos. Os quatro gates passam: `lint`, `typecheck`, `build` e
+`deno check supabase/functions/_shared/khaos.ts` (o consumidor Edge, que vive
+fora do `include: ["src"]` do tsconfig).
+
+Cinco dos seis passos saíram como planejado. **O passo 3 mudou de mecanismo**,
+e essa é a parte que importa revisar:
+
+#### O passo 3 foi feito de outro jeito — o plano tinha um bug
+
+O plano mandava derivar os overlays de uma comparação com `location.pathname`
+(`drawerOpen = drawerOpenFor === location.pathname`). Isso tem um defeito real:
+**estado velho volta a casar**. Abrir a chat sheet em `/dashboard`, navegar
+para `/tasks` (fecha, correto) e voltar para `/dashboard` faz a sheet reabrir
+sozinha, porque `chatSheetOpenFor` continua valendo `/dashboard`. No mobile é
+fácil de alcançar. Trocar para `location.key` não resolve: o botão Voltar
+restaura a entrada antiga do histórico com a chave original.
+
+A saída idiomática de verdade — remontar uma subárvore via `key` — exigiria
+reestruturar o `AppShell`, porque as regiões que dependem de `drawerOpen` e
+`chatSheetOpen` estão espalhadas pelo render (backdrop, painel do drawer,
+botão hambúrguer, FAB do chat e a bottom-sheet). Reestruturação, não ajuste,
+numa mudança que deveria preservar comportamento.
+
+Então o efeito **ficou como estava**, com uma supressão estreita
+(`eslint-disable` em volta das duas linhas de `setState`) e um comentário
+explicando por que as duas alternativas sem efeito não servem. O código do
+drawer/sheet ficou byte-equivalente ao que já roda em produção. Trocar um
+warning de lint por um bug de reabertura de overlay não valeria a pena.
+
+Nota de mecânica: a diretiva precisa ficar colada na linha do `setState` — um
+`eslint-disable-next-line` antes do `useEffect` não suprime nada, porque a
+regra reporta na linha da chamada, não na do hook.
+
+#### Os outros cinco
+
+1. ~~`.claude` entrou nos `ignores` do eslint.~~ Confirmado: 108 arquivos
+   lintados, nenhum sob `.claude`, sem contagem dobrada.
+2. ~~Os 9 `any` do `toolsCore.ts` saíram~~, trocados por shapes locais
+   `{ …?: unknown }` com guards `typeof`, seguindo o idioma que o próprio
+   arquivo já usava no primeiro `case`. O `db.rpc` aceitou `string` sem cast
+   nenhum, então o fallback previsto não foi necessário.
+4. ~~`CommandPalette` agora é montada condicionalmente pelo `AppShell`~~ e
+   perdeu a prop `open`, o early-return e o efeito que limpava a query.
+   Verificado no browser: ⌘K abre com a busca **vazia** depois de uma busca
+   anterior. Ganho de brinde — o `autoFocus` só dispara na montagem, então
+   antes a paleta não refocava ao reabrir; agora refoca.
+5. ~~`strokeWidth` virou `_strokeWidth`~~ no `StagingAcademyIcon`. Ícone
+   verificado renderizando no app.
+6. ~~Isenção `allowExportNames` para os três módulos de contexto~~, como
+   decidido. Verificado que a isenção é **por nome, não por arquivo**: um
+   export não listado dentro de um arquivo de contexto continua avisando, e a
+   regra segue disparando em qualquer outro arquivo do app.
+
+#### Verificação
+
+Além dos quatro gates: smoke test do executor com um `db` falso injetado via
+`ToolDeps` — 22 checks cobrindo `filters` nas três formas que o modelo emite
+(array, string JSON e mapa `{coluna: valor}`), o alias `set`, as coerções de
+`ascending`/`limit` vindos como string, o cap de 40 no limit, a rejeição de
+tabela fora da allowlist (incluindo não-strings) e o `backfillReason`. Não
+tocou o banco e **não ficou no repo**, porque o `CLAUDE.md` diz para não
+inventar suíte de testes.
+
+No browser: app carregado em dev, paleta e ícone verificados, console sem
+erros (só os warnings pré-existentes de future flag do React Router). O
+drawer/sheet não foi re-testado de propósito — seu código não mudou.
+
+Duas coisas que ficaram **fora** de propósito, e seguem abertas: não há job de
+lint no CI, então nada impede o problema nº 17 de entrar; e o
+`vite-plugin-eslint` continua como devDependency sem estar ligado ao
+`vite.config.ts`. Também não rodei `npm run format`: os três arquivos maiores
+que toquei já estavam fora do padrão do prettier **antes** desta mudança, e
+formatá-los agora inflaria o diff com linhas que nada têm a ver com o lint.
+
+---
+
 ## Remover envio de versão de deploy por Telegram
 
 started 2026-10-07
@@ -675,7 +889,6 @@ esse item registrado, então o roadmap foi atualizado (retirado de
 Concluído, nota explicando a remoção) em vez de editado em silêncio.
 
 **Pendências manuais, fora do repo — a fazer pelo usuário:**
-
 1. `supabase functions deploy telegram-notify` para o ramo `deploy` sair
    do ar de fato.
 2. Apagar os secrets de repo do GitHub Actions `VERCEL_TOKEN`,
@@ -739,6 +952,39 @@ remover fim confirmado colapsando de volta pro "+ end" sem sobrar `23:59`;
 estado "range + time" sem corte de layout); projeto real (`Geral` →
 seção `Consertos`, já `is_infinite`) confirmando que o controle de target
 não aparece mais na seção expandida.
+
+### Segunda passada — extras do PR #78 portados (2026-10-12)
+
+O PR #78 resolvia os mesmos seis pontos por um caminho paralelo ao que
+entrou no `main` primeiro (`1290a1b`), e conflitava em tudo. Decisão do
+usuário: manter a implementação do `main` e portar só o que o #78 tinha a
+mais, em vez de fazer merge das duas.
+
+Portado para `TargetEditor.tsx`/`range.ts`:
+
+- **Fim sem hora vira 23:59** — `effectiveEnd` normaliza também um fim
+  explícito sem hora para `endOfLocalDay`, fechando o range vazio/invertido
+  quando início e fim caem no mesmo dia.
+- **`início < fim`** em `validate()`, comparado sobre o fim efetivo.
+- **Fim acompanha o início preservando a duração**, no lugar do clamp do
+  `main`; compara pelo fim efetivo, então um fim sem hora no próprio dia do
+  início (válido) não é deslocado.
+- **Limite do due** — um due sem hora fica em 23:59:00 e um fim sem hora em
+  23:59:59.999; agora compara contra o fim do dia do due, o que o #78 deixava
+  rejeitando um target que terminava no próprio dia do due (achado
+  bloqueante da revisão).
+- **Toggle de hora do fim** — `hasExplicitEndTime` (novo, `range.ts`) evita
+  abrir o toggle com o 23:59 sentinela, e `TargetBadge` passa a usá-lo
+  (tolera registros legados gravados à meia-noite).
+- **Sigils** — duas demos (um dia só, vários dias sem hora), montadas com
+  `Date` local em vez de literais `+00`, que mostrariam "· hora" fora do UTC.
+
+**Deixado de fora de propósito:** o estado `lastEmitted`/`emit` (a revisão
+mostrou que nunca casava e o reset que ele deveria suprimir não existe no
+`main`), a container query `@max-lg` (512px; o `main` mantém 350px, sem a
+colisão do botão de limpar apontada na revisão), o demo "narrow host" e o
+`max-w-2xl` do `ProjectDetailPage`. Verificação: typecheck e lint limpos
+(zero avisos); sem checagem manual no browser neste sandbox.
 
 ---
 
@@ -886,15 +1132,15 @@ Não aplicado por ser mudança visível de aparência, não refatoração neutra
 
 ## Resolved
 
-| title                                                                                          | started    | resolved   |
-| ---------------------------------------------------------------------------------------------- | ---------- | ---------- |
-| [Forge — second critique round](#forge--second-critique-round)                                 | 2026-07-23 | 2026-07-23 |
-| [Forge — missing inputs, divider, chevron](#forge--missing-inputs-divider-chevron)             | 2026-07-23 | 2026-07-23 |
-| [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish)                 | 2026-07-23 | 2026-07-23 |
+| title | started | resolved |
+|---|---|---|
+| [Forge — second critique round](#forge--second-critique-round) | 2026-07-23 | 2026-07-23 |
+| [Forge — missing inputs, divider, chevron](#forge--missing-inputs-divider-chevron) | 2026-07-23 | 2026-07-23 |
+| [The Emblem — icon/logo/wordmark polish](#the-emblem--iconlogowordmark-polish) | 2026-07-23 | 2026-07-23 |
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 | 2026-08-07 |
-| [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible)                 | 2026-08-12 | 2026-08-14 |
-| [Unify target pill + input view](#unify-target-pill--input-view)                               | 2026-09-19 | 2026-09-19 |
-| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos)                               | 2026-09-30 | 2026-09-30 |
+| [Sequence rail — sometimes not visible](#sequence-rail--sometimes-not-visible) | 2026-08-12 | 2026-08-14 |
+| [Unify target pill + input view](#unify-target-pill--input-view) | 2026-09-19 | 2026-09-19 |
+| [PWA app icon — Chrome no macOS](#pwa-app-icon--chrome-no-macos) | 2026-09-30 | 2026-09-30 |
 
 Round 1 (the token layer) is archived separately in
 [`backlog-round-1.md`](./backlog-round-1.md).
@@ -957,7 +1203,7 @@ with `textAnchor="middle"` + `dominantBaseline="central"`. Then the user
 caught it genuinely orbiting: timelapse screenshots showed the wrapping
 span had no explicit size, so a non-square box rotated around its own
 center. Forced to exactly 1em × 1em and re-verified — no drift. Pushed as
-`567e3e7`. (This item was later reopened — see _The Emblem_ in Open.)
+`567e3e7`. (This item was later reopened — see *The Emblem* in Open.)
 
 A compliance sweep checked site-wide before approval: zero rename residue in `src/`,
 Emblem swatches re-verified against real usage.
@@ -1068,7 +1314,7 @@ from Chrome on macOS — `~/Applications/Chrome Apps.localized/Khaos.app` showed
 Chrome's grey "K" monogram fallback instead of the copper star.
 
 **Root cause: environment, not code.** The app for the `Default` profile had
-been installed _before_ the manifest existed, so Chrome committed the monogram
+been installed *before* the manifest existed, so Chrome committed the monogram
 as the app's icon. The later manifest update then sat in Chrome's `Pending`
 stage, which is only promoted once every window of the app is closed.
 
@@ -1152,7 +1398,7 @@ Because A and B are out, nothing about the icon files changes, so the
 close-every-window caveat above does not apply to this round, and the
 verification narrows to: typecheck, lint, build, the manifest parsing with
 both new fields, and — the one that matters — confirming after deploy that the
-installed app is still the _same_ app (no second `Khaos.app`, same profile
+installed app is still the *same* app (no second `Khaos.app`, same profile
 directory `ojedpaiddfgkpgbnmlmlmagnkjbdekfk`, star icon intact). If a duplicate
 app appears or the monogram returns, `"id"` wasn't neutral and C gets reverted.
 

@@ -5,7 +5,20 @@ import type { LucideProps } from 'lucide-react';
 // traced from the source PDF paths. Ported as a lucide-compatible icon
 // component so it drops into FIELDS_CONFIG alongside the lucide-react set.
 const StagingAcademyIcon = forwardRef<SVGSVGElement, LucideProps>(
-  ({ size = 24, color = 'currentColor', strokeWidth, className, ...rest }, ref) => (
+  (
+    {
+      size = 24,
+      color = 'currentColor',
+      // Aceito e descartado: a marca é preenchida (`fill`), não traçada, então
+      // uma espessura de traço não teria efeito nenhum. Fica desestruturado só
+      // para não cair no `...rest` e virar atributo inútil no DOM. O prefixo
+      // `_` é o que o argsIgnorePattern do eslint espera.
+      strokeWidth: _strokeWidth,
+      className,
+      ...rest
+    },
+    ref
+  ) => (
     <svg
       ref={ref}
       xmlns="http://www.w3.org/2000/svg"
