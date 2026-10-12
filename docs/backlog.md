@@ -906,6 +906,66 @@ worktree em `.claude/worktrees/`, que duplica cada apontamento
 pré-existente. O `npm run format` segue não rodado, pelo mesmo motivo
 registrado na quarta passada.
 
+### Sexta passada de revisão do PR #78 (2026-10-12)
+
+Passada sobre o diff com HEAD `2679427`. **O PR foi fechado sem merge**
+(`closedAt` 2026-10-12 21:07Z, `mergedAt` nulo), então os quatro
+bloqueantes das passadas anteriores não travam mais nenhum merge — eles
+descrevem trabalho que ficou pendente no branch. Nada foi corrigido no
+código desde a quinta passada; os 16 comentários de revisão anteriores
+seguem ancorados em `2679427`.
+
+Dois achados novos, comentados no PR:
+
+- **BLOQUEANTE — o deslocamento automático do fim inventa uma hora que o
+  usuário não escolheu.** Complemento ao achado já aberto na mesma
+  condição (`nextEnd` cru vs. fim efetivo): o delta é somado em
+  milissegundos, não em dias, então quando o início muda de dia **e** de
+  hora o fim sem hora herda a hora do início. Com `01/08 00:00 → 03/08`
+  (sem hora) e um novo início `05/08 09:00`, o fim vira `07/08 09:00`; o
+  `TargetBadge` passa a exibir "· 09:00" num fim que nunca teve hora — a
+  mesma classe do bug 5, pela outra ponta — e o toggle de hora do fim
+  reaparece ligado. Sobrevive ao plano proposto no achado anterior, porque
+  aquele corrige só a condição de disparo. Plano: depois de somar o delta,
+  `if (!isEndTimeActive) shifted.setHours(0, 0, 0, 0)`, devolvendo o fim
+  para a meia-noite do dia em que caiu e deixando o `effectiveEnd`
+  normalizar para 23:59 como em qualquer outro commit. Alternativa:
+  calcular o delta em dias inteiros via `setDate` — expressa melhor a
+  intenção, mas precisa de cuidado com DST; o `setHours` renormaliza no
+  fuso local sozinho.
+
+- **Não bloqueante — "remover fim" grava um range aberto quando o início
+  tem hora.** `effectiveEnd(nextStart, null)` devolve `null` nesse caso, e
+  o `handleRemoveEnd` emite `[01/08 09:00,)`. Isso contradiz o invariante
+  que o próprio `range.ts` afirma ("there is no open-ended target"), faz
+  `isOpenRange()` responder `true` para o que a UI mostra como um target
+  de um dia, e faz `targetEnd()` devolver o próprio início — então o
+  `TargetBadge` pinta em `tartarus-300` às 09:01 do dia planejado, e o
+  mesmo valor alimenta o agrupamento do `DashboardPage` (linhas 277/283/291).
+  Pré-existente: o PR só trocou `onChange` por `emit` aqui. A correção não
+  é local — fazer o `effectiveEnd` sempre devolver um fim passaria a gravar
+  `[01/08 09:00, 01/08 23:59)`, que **não** é `isAllDayRange` (exige início
+  à meia-noite), então o editor voltaria a mostrar um campo de fim não
+  pedido; fechar o invariante exige relaxar `isAllDayRange`/`hasExplicitEnd`
+  para "mesmo dia + fim às 23:59" independente da hora do início. Duas
+  saídas: (1) deixar como está e corrigir o texto do invariante em
+  `range.ts`; (2) fechar o invariante com as duas mudanças, aceitando que
+  muda o que o badge mostra para todo target de um dia com hora de início.
+  A (2) pede item de backlog próprio.
+
+Reconferências que não geraram achado: o caso de igualdade do auto-shift
+(novo início caindo no mesmo dia do fim) **não** é bug — a janela não
+inverteu, ela virou de um dia só, e o pedido do bug 3 fala em fim
+"anterior" ao novo início; a análise da quinta passada está certa e a minha
+leitura inicial era afobada. Nenhuma correção foi aplicada direto no branch
+nesta passada: as simplificações de reuso já tinham sido feitas nas passadas
+anteriores (`DATE_INPUT_CLASS`/`TIME_INPUT_CLASS`, `PickerDot`,
+`hasExplicitTime`) e o que sobra no arquivo muda comportamento.
+
+Verificação desta passada: `npm run typecheck` limpo; `npx eslint` nos seis
+arquivos do PR sem apontamentos; `npm run lint` no repo inteiro em 20
+problemas (11 erros, 9 avisos), nenhum nos arquivos do PR.
+
 ---
 
 ## Resolved
