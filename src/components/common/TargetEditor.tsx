@@ -184,6 +184,39 @@ function openNativePicker(input: HTMLInputElement | null) {
   }
 }
 
+// The two date fields (and the two time fields) carry byte-identical class
+// lists -- named once here instead of being spelled out twice each.
+const DATE_INPUT_CLASS =
+  'due-input text-nyx-400! w-[11ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-body!';
+const TIME_INPUT_CLASS =
+  'due-input text-nyx-400! w-13! shrink-0 border-0! bg-transparent! p-0! text-center text-body!';
+
+// The "·" between a date and its time -- a button, not a span, so clicking it
+// opens that field's own native time picker (same affordance the Target icon
+// gives the start date). Start and end differ only in which input they reach
+// for and the title, hence one component instead of two copies.
+function PickerDot({
+  title,
+  disabled,
+  onClick,
+}: {
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      className="border-0! bg-transparent! p-0! opacity-50"
+    >
+      ·
+    </button>
+  );
+}
+
 export default function TargetEditor({
   value,
   due,
@@ -374,19 +407,15 @@ export default function TargetEditor({
                 showEndTime
               );
             }}
-            className="due-input text-nyx-400! w-[11ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+            className={DATE_INPUT_CLASS}
           />
           {showStartTime && startValues.date && (
             <>
-              <button
-                type="button"
+              <PickerDot
+                title="Open start time picker"
                 disabled={disabled}
                 onClick={() => openNativePicker(startTimeRef.current)}
-                title="Open start time picker"
-                className="border-0! bg-transparent! p-0! opacity-50"
-              >
-                ·
-              </button>
+              />
               <TextInput
                 ref={startTimeRef}
                 type="time"
@@ -402,7 +431,7 @@ export default function TargetEditor({
                     showEndTime
                   );
                 }}
-                className="due-input text-nyx-400! w-13! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+                className={TIME_INPUT_CLASS}
               />
             </>
           )}
@@ -458,19 +487,15 @@ export default function TargetEditor({
                     showEndTime
                   );
                 }}
-                className="due-input text-nyx-400! w-[11ch]! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+                className={DATE_INPUT_CLASS}
               />
               {showEndTime && endValues.date && (
                 <>
-                  <button
-                    type="button"
+                  <PickerDot
+                    title="Open end time picker"
                     disabled={disabled}
                     onClick={() => openNativePicker(endTimeRef.current)}
-                    title="Open end time picker"
-                    className="border-0! bg-transparent! p-0! opacity-50"
-                  >
-                    ·
-                  </button>
+                  />
                   <TextInput
                     ref={endTimeRef}
                     type="time"
@@ -486,7 +511,7 @@ export default function TargetEditor({
                         true
                       );
                     }}
-                    className="due-input text-nyx-400! w-13! shrink-0 border-0! bg-transparent! p-0! text-center text-body!"
+                    className={TIME_INPUT_CLASS}
                   />
                 </>
               )}

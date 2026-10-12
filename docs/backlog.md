@@ -843,6 +843,69 @@ Nota de merge: o branch está em `1.2.0` enquanto `origin/main` já foi para
 `1.1.2`, e o branch não tem main mergeado desde `1.0.36` — o
 `docs/backlog.md` deve conflitar no merge.
 
+### Quinta passada de revisão do PR #78 (2026-10-12)
+
+Nova passada sobre o diff com HEAD `a014acc`. Os dez achados das passadas
+anteriores seguem válidos e já estão ancorados no commit atual (os 14
+comentários de revisão do PR aparecem todos em `a014acc`), então os quatro
+bloqueantes continuam travando o merge — nada foi corrigido no código
+desde a quarta passada.
+
+Reconferências desta passada, todas confirmando que o diff faz o que
+promete nos pontos ainda não contestados:
+
+- **Largura (bug 2) está de fato resolvida.** O CSS gerado traz
+  `@container not (min-width:32rem)` e o `container-type` no wrapper, e a
+  linha única com data+hora nos dois lados mede ~470px de conteúdo — ou
+  seja, cabe antes do limiar de 512px em que o layout empilha. A escolha
+  de `@lg` é apropriada, não arbitrária.
+- **O auto-shift do fim (bug 3) não cria rejeições novas.** Ele só dispara
+  quando `nextEnd < nextStart`, caso que antes do PR já era recusado pelo
+  `validate`; um início movido para trás do fim continua passando sem
+  deslocamento. (O caso de igualdade segue de fora — achado já aberto.)
+- **O `CHECK` do banco aceita a shape de um dia.** `sections_schedule_valid`
+  (`schema.sql:1408`) exige `NOT isempty(target)` e `NOT lower_inf(target)`;
+  `[dia 00:00, dia 23:59:59.999)` satisfaz os dois, e `upper_inf` é tolerado,
+  então o range aberto que o `handleRemoveEnd` grava quando o início tem
+  hora não viola nada.
+
+Uma simplificação aplicada direto no branch (reuso puro, sem mudança de
+comportamento): as duas classes de input repetidas byte a byte (data e
+hora, no início e no fim) viraram `DATE_INPUT_CLASS`/`TIME_INPUT_CLASS`, e
+os dois botões "·" idênticos — que só diferem no `title` e em qual input
+alcançam — viraram um componente local `PickerDot`.
+
+Dois achados novos, ambos não bloqueantes, comentados no PR:
+
+- **Os botões novos ("·" e "→") entram na ordem de tabulação sem nome
+  acessível útil.** O nome acessível vem do conteúdo quando ele existe, e
+  `title` só é usado como último recurso — então um leitor de tela anuncia
+  literalmente "·" e "→" para três botões novos que ficam intercalados
+  entre os inputs de data e hora. Plano: `aria-label` com o mesmo texto do
+  `title` nos três (`PickerDot` já centraliza dois deles), e, se a
+  tabulação extra incomodar, `tabIndex={-1}` — o input que eles abrem já é
+  alcançável pelo teclado, então eles são atalho de mouse, não a única via.
+- **O bug 6 fica só na UI: nada impede que `target`/`due` voltem para uma
+  seção infinita.** O agente de chat tem um `update_rows` genérico com
+  `sections` na allowlist (`src/lib/chat/toolsCore.ts:21`, `:241`), então
+  ele pode gravar `due`/`target` numa seção infinita a qualquer momento — e
+  aí o dado fica invisível e sem caminho de edição, exatamente como as
+  linhas legadas do achado órfão já aberto. Duas saídas, com trade-off:
+  um `CHECK`/trigger no banco (`is_infinite` ⇒ `target IS NULL AND due IS
+  NULL`) fecha de verdade, mas é migração e pode quebrar escrita do agente
+  com erro cru; ou aceitar que a regra é só de apresentação e documentar
+  isso, mantendo a limpeza no toggle como conveniência. A decisão é a mesma
+  que o achado órfão já pede.
+
+Verificação desta passada: `npm run typecheck` limpo; `npx eslint
+--max-warnings 0` no `TargetEditor.tsx` sem apontamentos; `npm run build`
+limpo (e usado para conferir o CSS da container query); `npm run lint` no
+repo inteiro em 32 problemas (22 erros, 10 avisos), nenhum nos arquivos do
+PR — a contagem subiu porque o eslint deste sandbox também varre um
+worktree em `.claude/worktrees/`, que duplica cada apontamento
+pré-existente. O `npm run format` segue não rodado, pelo mesmo motivo
+registrado na quarta passada.
+
 ---
 
 ## Resolved
