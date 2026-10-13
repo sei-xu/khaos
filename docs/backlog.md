@@ -1007,6 +1007,15 @@ Verificação: `npm run typecheck` e `npm run lint` limpos. A verificação
 manual (SQL + navegador + assistente) e `db:push`/`db:dump` continuam
 pendentes.
 
+**Busca em "Not queued" (2026-10-13).** Com ~300 tasks abertas fora da
+fila, achar uma para enfileirar na view Backlog exigia rolar a lista. A
+seção "Not queued" ganhou uma caixa de busca (nome da task ou nome do
+projeto/campo), com o contador mostrando "n of total" enquanto há busca. A
+busca só estreita os candidatos; a fila de cima continua global e sem
+filtro, pelo mesmo motivo registrado na revisão do #82 (reordenar por um
+subconjunto distorce os ranks). Sem resultado, a seção diz "No tasks match
+this search" em vez de "Every open task is already in the backlog".
+
 ---
 
 ## Nine unmerged branches — triage before cleanup

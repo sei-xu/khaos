@@ -20,9 +20,11 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useState } from 'react';
 import { GripVertical, X, Plus, ListOrdered } from 'lucide-react';
 import {
   EmptyState,
+  TextInput,
   StatusBadge,
   PriorityBadge,
   DueBadge,
@@ -153,9 +155,23 @@ export default function BacklogList({
   const { reorder, removeFromBacklog, add } = useBacklogMutations();
 
   const queuedIds = new Set(backlog.map((t) => t.id));
-  const candidates = tasks.filter(
+  const openCandidates = tasks.filter(
     (t) => OPEN_STATUSES.includes(t.status) && !queuedIds.has(t.id)
   );
+
+  // Search only narrows the "Not queued" list (name or project/field); the
+  // queue above is global and is never filtered — see the BacklogListProps
+  // note on why reordering through a subset is unsafe.
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const candidates = query
+    ? openCandidates.filter((t) => {
+        const info = projectInfoById.get(t.id);
+        return [t.name, info?.name, info?.fieldName].some((text) =>
+          text?.toLowerCase().includes(query)
+        );
+      })
+    : openCandidates;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -217,7 +233,19 @@ export default function BacklogList({
 
       <div className="border-nyx-700 overflow-hidden rounded-lg border">
         <div className="border-nyx-700 bg-nyx-800 text-nyx-500 text-caption flex items-center gap-1.5 border-b px-3 py-2">
-          <Plus size={13} /> Not queued ({candidates.length})
+          <Plus size={13} /> Not queued (
+          {query
+            ? `${candidates.length} of ${openCandidates.length}`
+            : candidates.length}
+          )
+        </div>
+        <div className="border-nyx-700 border-b p-2">
+          <TextInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search not queued…"
+            aria-label="Search tasks not in the backlog"
+          />
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
           {candidates.length ? (
@@ -233,7 +261,9 @@ export default function BacklogList({
             </div>
           ) : (
             <p className="text-nyx-600 text-body px-1 py-2">
-              Every open task is already in the backlog.
+              {query
+                ? 'No tasks match this search.'
+                : 'Every open task is already in the backlog.'}
             </p>
           )}
         </div>
