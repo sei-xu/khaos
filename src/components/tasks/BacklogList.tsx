@@ -31,10 +31,25 @@ import {
   ProjectChip,
   IconAddButton,
 } from '../common/ui';
-import { OPEN_STATUSES } from '../../lib/constants';
+import { OPEN_STATUSES, PRIORITIES } from '../../lib/constants';
 import { useBacklogTasks, useBacklogMutations } from '../../hooks/useBacklog';
 import type { ProjectInfo } from './TaskList';
 import type { Id, Task } from '../../lib/types';
+
+// "Not queued" order, so the list is stable and the likeliest candidates
+// come first (the tasks query has no ORDER BY, so the raw order is
+// whatever Postgres returns and shifts as rows are updated): higher
+// priority first, then the nearest due date (no due last), then name.
+function compareCandidates(a: Task, b: Task): number {
+  const byPriority =
+    PRIORITIES.indexOf(b.priority ?? 'medium') -
+    PRIORITIES.indexOf(a.priority ?? 'medium');
+  if (byPriority !== 0) return byPriority;
+  const dueA = a.due ? new Date(a.due).getTime() : Number.POSITIVE_INFINITY;
+  const dueB = b.due ? new Date(b.due).getTime() : Number.POSITIVE_INFINITY;
+  if (dueA !== dueB) return dueA < dueB ? -1 : 1;
+  return a.name.localeCompare(b.name);
+}
 
 interface BacklogRowProps {
   task: Task;
@@ -155,9 +170,9 @@ export default function BacklogList({
   const { reorder, removeFromBacklog, add } = useBacklogMutations();
 
   const queuedIds = new Set(backlog.map((t) => t.id));
-  const openCandidates = tasks.filter(
-    (t) => OPEN_STATUSES.includes(t.status) && !queuedIds.has(t.id)
-  );
+  const openCandidates = tasks
+    .filter((t) => OPEN_STATUSES.includes(t.status) && !queuedIds.has(t.id))
+    .sort(compareCandidates);
 
   // Search only narrows the "Not queued" list (name or project/field); the
   // queue above is global and is never filtered — see the BacklogListProps

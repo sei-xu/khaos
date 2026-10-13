@@ -1016,6 +1016,11 @@ filtro, pelo mesmo motivo registrado na revisão do #82 (reordenar por um
 subconjunto distorce os ranks). Sem resultado, a seção diz "No tasks match
 this search" em vez de "Every open task is already in the backlog".
 
+A ordem de "Not queued" era indefinida (a query de tasks não tem
+`ORDER BY`; valia a ordem física do Postgres, que muda a cada update). Agora
+é: prioridade maior primeiro, depois due mais próximo (sem due por último),
+depois nome.
+
 ---
 
 ## Nine unmerged branches — triage before cleanup
