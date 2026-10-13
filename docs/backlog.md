@@ -1269,6 +1269,41 @@ inline em três lugares, `className` compartilhado entre `TaskPill` e
 `as { data: Task[] }` removido de `useBacklogTasks` e constraint de
 `rebalanceRanks` simplificada.
 
+**Achados corrigidos (2026-10-13).** Os três bloqueantes e os não
+bloqueantes foram resolvidos num PR empilhado sobre o das limpezas
+(branch `worktree-fix-pr82-review-findings`), seguindo as recomendações
+dos comentários:
+
+- ~~Filtro de status em dois lugares~~ — `useBacklogTasks()` agora filtra
+  `deleted_at` **e** `OPEN_STATUSES` e é memoizado (`useMemo` sobre o cache
+  de tasks); `BacklogList` deixou de filtrar. A fila tem uma só definição:
+  numeração do Today, coluna da view Backlog e `rebalanceRanks` enxergam a
+  mesma lista. Consequência assumida: task concluída fica com
+  `backlog_rank` órfão no banco (invisível) e reaparece no rank antigo se
+  reaberta; limpar o rank no fechamento segue como follow-up opcional.
+- ~~Rank duplicado no Marked~~ — o reorder do Today usa `reorder()` sobre a
+  fila global (`arrayMove` em `backlogTasks`), então o rank sai sempre entre
+  dois vizinhos reais e o rebalanceamento é o mesmo da view Backlog. A
+  mutation `move` (que só via vizinhança parcial) foi removida do hook.
+- ~~Colisão do DnD (`marked-zone` vs. pills)~~ — o alvo do reorder é
+  resolvido pela lista `collisions` do evento quando `over` é
+  `marked-zone`; soltar uma pill de fora sobre uma pill marcada ranqueada
+  volta a marcar para hoje. **Não verificado no navegador** (2 e 5 pills
+  marcadas), como o resto da pendência de verificação manual acima.
+- ~~Não bloqueantes~~ — `backlogApi.add` filtra `deleted_at` (casa com o
+  índice parcial); `rebalance` usa `Promise.allSettled` e falha apontando
+  quais ids não foram gravados (RPC atômico fica de fora: exigiria migration
+  que não dá para aplicar daqui; a corrida de dois `add` concorrentes
+  também segue aberta); entrada morta `backlog: 'Backlog'` de
+  `MOMENT_TYPE_LABELS` removida e helper inlinado; na view Backlog a
+  `TasksPage` esconde a barra de filtros e passa a lista inteira; `<hr>` do
+  grupo Marked só aparece se houver marcação atual; `prettier` aplicado
+  nos arquivos tocados, em commit separado.
+
+Verificação: `npm run typecheck` e `npm run lint` limpos. A verificação
+manual (SQL + navegador + assistente) e `db:push`/`db:dump` continuam
+pendentes.
+
 ---
 
 ## Resolved
