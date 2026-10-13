@@ -2,7 +2,6 @@ import {
   Fragment,
   useEffect,
   useMemo,
-  useState,
   type ComponentPropsWithoutRef,
   type CSSProperties,
   type ReactNode,
@@ -20,6 +19,7 @@ import {
 import {
   DndContext,
   useDraggable,
+  useDndContext,
   useDroppable,
   PointerSensor,
   TouchSensor,
@@ -303,10 +303,12 @@ interface PillGroupProps {
   count: number;
   emptyLabel: string;
   droppableId?: string;
-  // True while the dragged pill already belongs to this group: the group
-  // must not "receive" what is already in it, or its zone competes with the
-  // sibling pills for `over` and makes in-group sorting imprecise.
-  dropDisabled?: boolean;
+  // Ids of the pills this group already holds. While one of them is being
+  // dragged the group must not "receive" it, or its zone competes with the
+  // sibling pills for `over` and makes in-group sorting imprecise. Read from
+  // the dnd-kit context here (not from page state) so starting a drag does
+  // not re-render the whole page.
+  ownPillIds?: Set<string>;
   children: ReactNode;
 }
 
@@ -317,12 +319,13 @@ function PillGroup({
   count,
   emptyLabel,
   droppableId,
-  dropDisabled,
+  ownPillIds,
   children,
 }: PillGroupProps) {
+  const { active } = useDndContext();
   const droppable = useDroppable({
     id: droppableId ?? '__none__',
-    disabled: dropDisabled,
+    disabled: Boolean(active && ownPillIds?.has(String(active.id))),
   });
   const isDropTarget = Boolean(droppableId);
   return (
@@ -582,12 +585,7 @@ export default function DashboardPage() {
     })
   );
 
-  // Id of the pill being dragged, so the Marked zone can stop receiving
-  // while the dragged pill is one of its own (see PillGroup.dropDisabled).
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-
   function handleDragEnd(e: DragEndEvent) {
-    setActiveDragId(null);
     const { active, over } = e;
     if (!over) return;
     const task = tasksById.get(String(active.id));
@@ -599,7 +597,7 @@ export default function DashboardPage() {
     // of an unmarked task queued between them, producing duplicate ranks.
     //
     // The 'marked-zone' droppable is disabled while a current Marked pill is
-    // dragged (see PillGroup.dropDisabled): enabled, it wraps the pills and
+    // dragged (see PillGroup.ownPillIds): enabled, it wraps the pills and
     // wins `over` against a neighbor under rectIntersection (IoU) when the
     // group is small, which turned the reorder into a silent no-op.
     const markedRankedIds = new Set(markedRankedCurrent.map((t) => t.id));
@@ -659,12 +657,7 @@ export default function DashboardPage() {
         })}
       </p>
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={(e) => setActiveDragId(String(e.active.id))}
-        onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveDragId(null)}
-      >
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
           <section>
             <h2 className="text-sage-500 text-caption mb-2 flex items-center gap-1.5 font-semibold tracking-wide uppercase">
@@ -694,9 +687,7 @@ export default function DashboardPage() {
             count={markedPills.length}
             emptyLabel="Drag a task here to mark it for today."
             droppableId="marked-zone"
-            dropDisabled={
-              activeDragId !== null && currentMarkedIds.has(activeDragId)
-            }
+            ownPillIds={currentMarkedIds}
           >
             <SortableContext
               items={markedRankedCurrent.map((t) => t.id)}

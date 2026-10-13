@@ -1029,7 +1029,19 @@ ficava sem `z-index` e passava por baixo das seguintes.
   hoje, então ela deixa de competir com as pills vizinhas por `over`. Pills
   esmaecidas (marcadas em dia passado) continuam soltáveis na zona, porque
   soltar uma delas ali re-marca para hoje. Com isso o fallback por
-  `collisions` do reorder deixou de ser necessário e foi removido.
+  `collisions` do reorder deixou de ser necessário e foi removido. O
+  "disabled" é lido do contexto do dnd-kit dentro do `PillGroup`
+  (`ownPillIds`), não de estado da página: um `useState` na página
+  re-renderizava tudo ao iniciar o arrasto.
+- **Relato aberto: "a pill se arrasta mas para de se mover" (2026-10-13).**
+  Não reproduzido. Num harness local com o `DashboardPage` real e eventos de
+  ponteiro sintéticos, a pill segue o cursor por 300–400 px e o reorder
+  funciona. Medi também que a ativação do arrasto custa ~0,9 s de render em
+  dev já na `main` (cascata de 4–5 commits do dnd-kit sobre ~25 pills), e ~2 s
+  com o estado de página que acabei de remover; os números em produção não
+  são confiáveis (aba oculta, máquina saturada). Se persistir: medir no
+  preview com o profiler do Chrome e considerar
+  `MeasuringStrategy.BeforeDragging` e `React.memo` nas pills.
 - **Ainda não coberto no navegador:** marcar por arraste (Target/Due →
   Marked), reorder com 5 pills, o divisor do Marked sem marcação atual e o
   arraste na view Backlog com task fechada na fila. Caveat do ajuste: com a
