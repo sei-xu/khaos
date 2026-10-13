@@ -23,6 +23,7 @@
 // for the cron setup.
 
 import { sendMessage, ALLOWED_CHAT_IDS } from '../_shared/telegram.ts';
+import { parseRangeLower } from '../_shared/range.ts';
 import {
   db,
   runAgent,
@@ -114,18 +115,6 @@ interface ScheduledEvent {
   id: string;
   name: string;
   duration: string; // tstzrange text, e.g. ["2026-07-20 11:00:00+00","..."]
-}
-
-// Parses the lower bound of a Postgres tstzrange literal into a Date.
-function parseRangeLower(range: string | null): Date | null {
-  if (!range) return null;
-  const m = range.match(/^[[(]\s*"?([^",]+?)"?\s*,/);
-  if (!m) return null;
-  // "2026-07-20 11:00:00+00" → ISO the Date constructor accepts everywhere.
-  let s = m[1].trim().replace(' ', 'T');
-  s = s.replace(/([+-]\d{2})$/, '$1:00'); // "+00" → "+00:00"
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function formatTime(d: Date): string {
