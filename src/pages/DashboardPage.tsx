@@ -2,12 +2,7 @@ import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { isToday, startOfDay, endOfDay } from 'date-fns';
-import {
-  CalendarClock,
-  CheckCircle2,
-  Target,
-  Star,
-} from 'lucide-react';
+import { CalendarClock, CheckCircle2, Target, Star } from 'lucide-react';
 import {
   DndContext,
   useDraggable,
@@ -178,7 +173,10 @@ function TaskPill({
   const style = {
     touchAction: 'none' as const,
     ...(transform
-      ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 30 }
+      ? {
+          transform: `translate(${transform.x}px, ${transform.y}px)`,
+          zIndex: 30,
+        }
       : undefined),
   };
   return (
@@ -282,7 +280,7 @@ function PillGroup({
   return (
     <section>
       <h2
-        className={`mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase ${accentClass}`}
+        className={`text-caption mb-2 flex items-center gap-1.5 font-semibold tracking-wide uppercase ${accentClass}`}
       >
         {icon} {label} ({count})
       </h2>
@@ -294,7 +292,11 @@ function PillGroup({
             : ''
         }`}
       >
-        {count ? children : <p className="text-nyx-600 px-1 text-body">{emptyLabel}</p>}
+        {count ? (
+          children
+        ) : (
+          <p className="text-nyx-600 text-body px-1">{emptyLabel}</p>
+        )}
       </div>
     </section>
   );
@@ -395,7 +397,9 @@ export default function DashboardPage() {
   // ahead of today's current marks — see byBacklogRank above.
   const markedPills = byBacklogRank(
     openTasks
-      .filter((t) => markedTaskIds.has(t.id) && !scheduledTodayTaskIds.has(t.id))
+      .filter(
+        (t) => markedTaskIds.has(t.id) && !scheduledTodayTaskIds.has(t.id)
+      )
       .map((t) => ({ task: t, faded: false })),
     () => 0
   ).concat(
@@ -437,7 +441,9 @@ export default function DashboardPage() {
     )
     .map((t) => {
       const end = targetEnd(t.target as string);
-      return end && end < todayStart ? { task: t, past: true } : { task: t, past: false };
+      return end && end < todayStart
+        ? { task: t, past: true }
+        : { task: t, past: false };
     })
     .filter(({ task: t, past }) => {
       if (past) return true;
@@ -485,7 +491,9 @@ export default function DashboardPage() {
   );
   const firstOverdueIndex = duePills.findIndex((p) => p.overdue);
 
-  const scheduledPills = openTasks.filter((t) => scheduledTodayTaskIds.has(t.id));
+  const scheduledPills = openTasks.filter((t) =>
+    scheduledTodayTaskIds.has(t.id)
+  );
 
   const eventsByHour = useMemo(() => {
     const map = new Map<number, typeof todaysEvents>();
@@ -590,8 +598,8 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-5">
-      <h1 className="font-display text-nyx-100 mb-1 text-display-lg">Today</h1>
-      <p className="text-nyx-500 mb-6 text-body">
+      <h1 className="font-display text-nyx-100 text-display-lg mb-1">Today</h1>
+      <p className="text-nyx-500 text-body mb-6">
         {new Date().toLocaleDateString(undefined, {
           weekday: 'long',
           month: 'long',
@@ -602,11 +610,11 @@ export default function DashboardPage() {
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
           <section>
-            <h2 className="text-sage-500 mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase">
+            <h2 className="text-sage-500 text-caption mb-2 flex items-center gap-1.5 font-semibold tracking-wide uppercase">
               <CalendarClock size={13} /> Scheduled ({scheduledPills.length})
             </h2>
             {!todaysEvents.length && (
-              <p className="text-nyx-600 mb-1 px-1 text-body">
+              <p className="text-nyx-600 text-body mb-1 px-1">
                 Drag a pill onto an hour to schedule it.
               </p>
             )}
@@ -645,7 +653,11 @@ export default function DashboardPage() {
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >
-                    <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                    <Star
+                      size={11}
+                      className="text-eros-400 shrink-0"
+                      fill="currentColor"
+                    />
                     {task.due && (
                       <DueBadge due={task.due} status={task.status} />
                     )}
@@ -663,7 +675,11 @@ export default function DashboardPage() {
                   projectName={project?.name}
                   projectField={fieldNameForProject(project)}
                 >
-                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  <Star
+                    size={11}
+                    className="text-eros-400 shrink-0"
+                    fill="currentColor"
+                  />
                   {task.due && <DueBadge due={task.due} status={task.status} />}
                 </TaskPill>
               );
@@ -671,9 +687,7 @@ export default function DashboardPage() {
             {Boolean(markedPast.length) &&
               Boolean(
                 markedRankedCurrent.length + markedUnrankedCurrent.length
-              ) && (
-              <hr className="border-nyx-700 my-1 w-full" />
-            )}
+              ) && <hr className="border-nyx-700 my-1 w-full" />}
             {markedPast.map(({ task }) => {
               const project = projectForTask(task);
               return (
@@ -686,7 +700,11 @@ export default function DashboardPage() {
                   projectName={project?.name}
                   projectField={fieldNameForProject(project)}
                 >
-                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  <Star
+                    size={11}
+                    className="text-eros-400 shrink-0"
+                    fill="currentColor"
+                  />
                   {task.due && <DueBadge due={task.due} status={task.status} />}
                 </TaskPill>
               );
@@ -714,7 +732,10 @@ export default function DashboardPage() {
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >
-                    <TargetBadge target={task.target as string | null} past={past} />
+                    <TargetBadge
+                      target={task.target as string | null}
+                      past={past}
+                    />
                     {task.due && (
                       <DueBadge due={task.due} status={task.status} />
                     )}
@@ -785,7 +806,7 @@ function CalendarSlot({ hour, events, tasksById }: CalendarSlotProps) {
         isOver ? 'bg-eros-500/10' : ''
       }`}
     >
-      <span className="text-nyx-500 w-10 shrink-0 font-mono text-caption">
+      <span className="text-nyx-500 text-caption w-10 shrink-0 font-mono">
         {label}
       </span>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -794,9 +815,9 @@ function CalendarSlot({ hour, events, tasksById }: CalendarSlotProps) {
           return (
             <span
               key={ev.id}
-              className="text-nyx-100 flex min-w-0 items-center gap-1.5 text-body"
+              className="text-nyx-100 text-body flex min-w-0 items-center gap-1.5"
             >
-              <span className="text-nyx-500 font-mono text-caption">
+              <span className="text-nyx-500 text-caption font-mono">
                 {ev.start.toLocaleTimeString(undefined, {
                   hour: 'numeric',
                   minute: '2-digit',
