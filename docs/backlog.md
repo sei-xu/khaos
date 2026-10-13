@@ -54,6 +54,7 @@ work that grows out of them. Roadmap phases live in
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
+| [Integração bidirecional com o Google Calendar (somente eventos fixed)](#integração-bidirecional-com-o-google-calendar-somente-eventos-fixed) | 2026-10-12 |
 
 ---
 
@@ -1363,6 +1364,140 @@ fica vermelho quando deveria, depois removido.
 Segue **aberto** até aprovação — a recomendação do passo 2 (não ligar
 `vite-plugin-eslint`) e a remoção do `simple-import-sort` são decisões que
 valem checar com o usuário antes de fechar.
+
+---
+
+## Integração bidirecional com o Google Calendar (somente eventos fixed)
+
+started 2026-10-12
+
+Pedido do usuário (`user_request`): criar integração com o Google Calendar.
+
+**Requisito decidido pelo usuário (2026-10-12), respondendo pergunta de
+esclarecimento da rodada anterior:** integração **bidirecional**, restrita a
+`events.event_type = 'fixed'`. `scheduled` e `routine` nunca sincronizam —
+nada vindo do Google pode se materializar como `scheduled`/`routine`, e
+eventos desses dois tipos nunca saem do Khaos. Essa é a regra mais importante
+da feature.
+
+**Investigação.** `fixed` já é definido no enum como "compromisso rígido e
+não-movível (reunião, aula, voo)" — exatamente o que mora num Google
+Calendar. Achados principais: (1) não existe camada de backend própria — o
+agente de chat (app e bot do Telegram) escreve direto em `events` com a
+service-role key, então o gatilho de push só podia viver num **trigger de
+Postgres**, nunca na camada de API do frontend, que o agente ignora
+completamente; (2) `trg_moment_scheduled` já descarta eventos sem
+`task_id`/`project_id` — confirmado por leitura — então importar em massa não
+cria `moments` nem alimenta o oversight-agent; (3) a API incremental do
+Google (`syncToken`) é incompatível com `timeMin`/`timeMax`/
+`privateExtendedProperty` no mesmo request — a janela de 90 dias só pode ser
+aplicada do lado do Khaos, e um `410 fullSyncRequired` exige refazer o full
+sync **sem apagar** os eventos que já existem localmente (ao contrário do
+exemplo oficial do Google), já que a tabela `events` também guarda dados
+que não vêm do Google; (4) não há Supabase Auth (`[auth] enabled = false`),
+então o OAuth do Google teve que ser implementado à mão, com uma pegadinha
+operacional real: enquanto a tela de consentimento ficar em "Testing", o
+refresh token expira em 7 dias — é preciso publicá-la ("In Production").
+
+**Implementado.**
+
+- **Migrations** —
+  `supabase/migrations/20261013000000_google_calendar_sync.sql` adiciona
+  `google_event_id`/`google_calendar_id`/`google_etag`/`google_synced_at`/
+  `sync_dirty` em `events`, um índice único parcial em
+  `(google_calendar_id, google_event_id)` (impede importar o mesmo evento
+  duas vezes) e o trigger `trg_google_sync_dirty`: marca `sync_dirty` só
+  quando a linha é (ou acabou de deixar de ser) `fixed` **e** uma coluna
+  observável mudou (`name`/`duration`/`deleted_at`/`event_type`) — as
+  colunas que a própria sincronização escreve ficam de fora do que o trigger
+  observa, para uma escrita de sync não se remarcar sozinha como suja.
+  `20261013010000_google_calendar_account.sql` cria `google_calendar_account`
+  (singleton, refresh/access token, `sync_token`, RLS sem policy — só
+  service-role lê) e `google_calendar_sync_log` (trace append-only, podado a
+  cada 30 dias), mais a RPC `google_calendar_status()` (SECURITY DEFINER,
+  projeta só `connected`/`calendar_id`/`last_sync_at`/`last_error`, nunca os
+  tokens).
+- **Edge Functions** — `supabase/functions/google-calendar-oauth` (fluxo
+  OAuth manual, uma vez: `?start=<secret>` redireciona para o consentimento,
+  `?code=&state=` troca pelo refresh token; `state` assinado por HMAC para
+  não aceitar um replay). `supabase/functions/google-calendar-sync` (motor
+  cron, mesmo padrão `X-Khaos-Cron-Secret` do `telegram-notify`): PUSH antes
+  do PULL em cada execução. PUSH lê as linhas `sync_dirty`, insere/atualiza/
+  apaga no Google, grava o `extendedProperties.private.khaos_event_id`. PULL
+  faz `events.list` com `singleEvents=true` (o Khaos não tem RRULE — um
+  evento recorrente do Google vira instâncias separadas), reconcilia por
+  `google_event_id`, recupera de um `410` sem apagar eventos locais, e trata
+  evento de dia inteiro como `[00:00 local, 00:00 do dia seguinte)`.
+  **Conflito: Google sempre vence** (um compromisso fixo é um fato combinado
+  com terceiros) — a edição local perdedora é descartada e registrada em
+  `google_calendar_sync_log` com `action='conflict'`, nunca silenciosamente.
+  Um detalhe de implementação não previsto no plano original e corrigido
+  durante a implementação: como o trigger força `sync_dirty=true` sempre que
+  `name`/`duration`/`event_type`/`deleted_at` mudam — mesmo quando é o
+  próprio PULL escrevendo esses campos —, cada mutação do PULL usa uma
+  segunda escrita (só `sync_dirty=false`, sem tocar colunas observadas) para
+  realmente limpar a marca, senão a próxima execução reenviaria o dado
+  idêntico ao Google e poderia re-notificar os participantes de um "update"
+  vazio. Ver o cabeçalho de `google-calendar-sync/index.ts` para o raciocínio
+  completo.
+- **Frontend** — `database.types.ts` editado à mão (sem `supabase gen
+  types` neste ambiente — sem instância linkada); `types.ts` herda sozinho.
+  `events.ts`/`useEvents.ts` não precisaram de mudança (`select('*')` já
+  traz as colunas novas; nenhum patch as sobrescreve). Badge discreto
+  (`Link2`) nos blocos do `CalendarView` e no `EventModal` para eventos com
+  `google_event_id` — continuam editáveis no Khaos, editar e empurrar de
+  volta é o ponto de ser bidirecional. `CalendarPage` ganhou uma faixa de
+  status no cabeçalho (`useGoogleCalendarStatus` → RPC
+  `google_calendar_status()`): conectado/desconectado, último sync, último
+  erro.
+- **Documentação** — `docs/01-database.md` (colunas novas, tabelas novas,
+  trigger, RPC), `docs/04-setup.md` (projeto Google Cloud, OAuth client,
+  escopo, secrets, aviso de publicar a tela de consentimento),
+  `docs/05-roadmap.md` (registrado em Concluído),
+  `supabase/functions/google-calendar-sync/README.md` novo (setup completo,
+  pg_cron, verificação manual).
+
+**Fora de escopo, registrado para não se perder:** botão "Sincronizar agora"
+na UI (o browser não tem, e não deve ter, o cron secret — não há Supabase
+Auth para gatear uma rota interativa); push notifications do Google (watch
+channels) no lugar do poll a cada ~5 min; sincronizar mais de um calendário;
+mapear calendário do Google para um `field` do Khaos; e recorrência real
+(RRULE) em vez de instâncias importadas.
+
+**Verificação.** Não há suíte de testes neste repo (confirmado:
+sem vitest/jest, sem `*.test.ts`, sem script `test` em `package.json`) —
+conforme `CLAUDE.md`, nenhuma foi criada. `npm run typecheck`, `npm run
+lint` (zero warnings) e `npm run build` limpos. `deno check
+--node-modules-dir=auto` limpo nas duas Edge Functions novas (contra o
+`import_map.json` do repo). **Não verificado neste sandbox, por exigir uma
+instância Supabase linkada e credenciais reais do Google:** aplicar as
+migrations (`npm run db:push`), o teste manual do trigger via SQL (inserir/
+atualizar um evento `fixed` e confirmar `sync_dirty`), o `npm run db:dump` (
+para atualizar `schema.sql`/`_shared/schema.sql.ts` — feito à mão nesta PR
+em vez disso, ver nota abaixo), e o teste ponta a ponta contra um calendário
+Google real (criar/mover/apagar dos dois lados, dia inteiro, recorrência,
+recuperação de `410`, execução concorrente, e a asserção central: um evento
+`scheduled` ligado a uma task nunca aparece no Google em várias rodadas de
+cron). Recomendo rodar esse roteiro manual depois do merge, antes de
+aprovar o item.
+
+**Nota sobre `schema.sql`:** `npm run db:dump` precisa de um projeto Supabase
+linkado, que não existe neste ambiente de implementação. `schema.sql` e
+`supabase/functions/_shared/schema.sql.ts` foram atualizados à mão para
+refletir as duas migrations novas, para o `search_schema` do agente já
+reconhecer as colunas/tabelas novas; rodar `npm run db:dump` de verdade após
+o merge, contra o projeto real, é o jeito correto de confirmar que a cópia à
+mão bate com o schema de fato.
+
+**Nota sobre changelog e versão:** não há `CHANGELOG.md` neste repo — o item
+[No changelog — rebuild it from the git history](#no-changelog--rebuild-it-from-the-git-history)
+registrou essa dívida em 2026-09-30 e decidiu explicitamente reconstruí-lo
+depois, não nesta mudança, então não há arquivo para atualizar aqui. O bump
+de versão em `package.json` também não é manual: é automatizado por
+`.github/workflows/bump-version.yml` a cada merge em `main` (ver "Release
+versioning" em `supabase/functions/telegram-bot/README.md`) — bumpá-lo à mão
+nesta PR colidiria com esse workflow. Nenhum dos dois foi tocado aqui por
+estarem fora do escopo real deste PR, não por omissão.
 
 ---
 
