@@ -928,6 +928,49 @@ confirmar persistência; perguntar ao assistente "o que está no meu
 backlog?"). `npm run typecheck`, `npm run lint` (`--max-warnings 0`) e
 `npm run build` foram verificados limpos nesta sessão.
 
+**Revisão do PR #82 (2026-10-12).** O PR já estava mergeado (e seu branch
+`worktree-backlog-ordering` apagado) quando a revisão rodou, então nada pôde
+ser empurrado para ele; os achados foram registrados como comentários de
+revisão ancorados no commit `f7233f4` e as limpezas neutras foram para um
+branch de follow-up (`worktree-review-pr82-cleanups`).
+
+Dois achados bloqueantes, ambos aguardando decisão do usuário sobre o
+caminho (as alternativas e o trade-off estão nos comentários do PR):
+
+- **Filtro de status da fila mora em dois lugares.** `useBacklogTasks()` não
+  filtra status; `BacklogList` filtra por `OPEN_STATUSES`. Como nada limpa
+  `backlog_rank` quando a task é concluída, (1) o `RankBadge` do Today
+  numera incluindo tasks fechadas, divergindo da coluna de posição da
+  view Backlog, e (2) o `rebalanceRanks` disparado por um arraste reatribui
+  ranks só ao subconjunto aberto, embaralhando a ordem relativa das
+  fechadas que ainda têm rank. Caminhos: filtrar dentro do hook
+  (recomendado, resolve os dois sintomas em uma linha) ou zerar o rank
+  quando a task sai de `OPEN_STATUSES` (invariante mais limpa, escrita
+  extra no caminho de concluir).
+- **Rank duplicado ao reordenar dentro do Marked no Today.** O ponto médio é
+  calculado entre vizinhos do grupo Marked, não da fila global, e pode
+  cair exatamente sobre o rank de uma task enfileirada porém não marcada
+  (ex.: fila `1024/2048/3072/4096`, com `2048` não marcada, gera `2048`
+  de novo). Ranks iguais deixam a ordem indefinida e as posições instáveis
+  entre recargas. Caminhos: calcular o rank contra a fila global
+  (`backlogTasks`, recomendado) ou manter a vizinhança marcada e só
+  desempatar quando houver colisão.
+
+Três notas não bloqueantes, também nos comentários: a consulta de rank
+máximo em `backlogApi.add` não filtra `deleted_at` (não usa o índice
+parcial, e dois `add` concorrentes colidem); `backlogApi.rebalance` faz N
+updates paralelos sem transação, podendo deixar a fila meio rebalanceada; e
+`npm run format` não rodou sobre o código novo (o lint não pega formatação).
+
+Limpezas neutras aplicadas no branch de follow-up (typecheck + lint
+limpos): comentário duplicado do `TaskPill` removido, `TaskPillBodyProps`
+reduzido ao que o corpo realmente renderiza (herdava `onOpen`/`faded` em
+vão), `rankPosition` dobrado em `TaskPillProps` em vez de interseção
+inline em três lugares, `className` compartilhado entre `TaskPill` e
+`SortableTaskPill` extraído em `pillClassName()`, cast
+`as { data: Task[] }` removido de `useBacklogTasks` e constraint de
+`rebalanceRanks` simplificada.
+
 ---
 
 ## Nine unmerged branches — triage before cleanup
