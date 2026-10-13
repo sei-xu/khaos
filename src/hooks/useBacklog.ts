@@ -1,6 +1,7 @@
 // The backlog queue (tasks.backlog_rank) is derived straight from the
 // ['tasks'] cache that useTasks() already owns — no separate query, so a
 // reorder here and an edit from the Tasks/Dashboard pages never disagree.
+import { useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { backlogApi } from '../lib/api/backlog';
 import {
@@ -9,12 +10,27 @@ import {
   rankForIndex,
   rebalanceRanks,
 } from '../lib/backlogRank';
+import { OPEN_STATUSES } from '../lib/constants';
 import { useTasks } from './useHierarchy';
 import type { Id, Task } from '../lib/types';
 
+// The queue is the *open* ranked tasks — this is the single definition of
+// "in the backlog" that Today's position badge, the Backlog view and
+// `reorder` all share, so they always number and rebalance the same list.
+// A task that's done/cancelled can keep a stale backlog_rank in the DB; it's
+// simply not part of the queue (and reappears at its old rank if reopened).
+// Memoized on the react-query cache so consumers get a stable identity.
 export function useBacklogTasks(): Task[] {
-  const { data: tasks = [] } = useTasks();
-  return orderByRank(tasks.filter((t) => t.deleted_at === null));
+  const { data: tasks } = useTasks();
+  return useMemo(
+    () =>
+      orderByRank(
+        (tasks ?? []).filter(
+          (t) => t.deleted_at === null && OPEN_STATUSES.includes(t.status)
+        )
+      ),
+    [tasks]
+  );
 }
 
 export function useBacklogMutations() {
@@ -31,20 +47,11 @@ export function useBacklogMutations() {
     onSuccess: invalidate,
   });
 
-  // Writes an already-computed rank directly, with no rebalance pass.
-  // Used by callers that only know a local neighborhood (e.g. the Today
-  // page's Marked group, whose visible neighbors are a subset of the full
-  // backlog queue) — rebalancing from a subset's positions would stomp on
-  // the ranks of backlog tasks outside that subset, so only `reorder`
-  // below (which sees the whole queue) is allowed to rebalance.
-  const move = useMutation({
-    mutationFn: ({ taskId, rank }: { taskId: Id; rank: number }) =>
-      backlogApi.move(taskId, rank),
-    onSuccess: invalidate,
-  });
-
   // Moves `taskId` to `targetIndex` within the already-ordered backlog
-  // list. Writes one row (the moved task's new rank); if that collapses
+  // list. `ordered` must be the whole queue (useBacklogTasks, already
+  // moved) — never a filtered/partial subset — so the new rank is always
+  // unique across the queue and a rebalance never skews ranks outside the
+  // subset. Writes one row (the moved task's new rank); if that collapses
   // the gap to a neighbor, rebalances the whole queue to evenly-spaced
   // ranks in a follow-up batch write.
   const reorder = useMutation({
@@ -76,5 +83,5 @@ export function useBacklogMutations() {
     onSuccess: invalidate,
   });
 
-  return { add, removeFromBacklog, move, reorder };
+  return { add, removeFromBacklog, reorder };
 }

@@ -38,7 +38,6 @@ import {
   useTodayMutations,
 } from '../hooks/useMoments';
 import { useBacklogTasks, useBacklogMutations } from '../hooks/useBacklog';
-import { rankForIndex } from '../lib/backlogRank';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
 import { parseRange, targetEnd } from '../lib/range';
@@ -312,7 +311,7 @@ export default function DashboardPage() {
   const { mark } = useTodayMutations();
   const { create: createEvent } = useEventMutations();
   const backlogTasks = useBacklogTasks();
-  const { move: moveBacklogRank } = useBacklogMutations();
+  const { reorder: reorderBacklog } = useBacklogMutations();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isMutating = useIsMutating();
@@ -527,26 +526,44 @@ export default function DashboardPage() {
     const task = tasksById.get(String(active.id));
     if (!task) return;
 
-    // Reordering within the Marked group's ranked subset (dragged onto
-    // another ranked marked pill, not onto 'marked-zone' or a calendar
-    // slot) writes a new backlog_rank between its new neighbors.
-    if (
-      over.id !== active.id &&
-      markedRankedCurrent.some((t) => t.id === active.id) &&
-      markedRankedCurrent.some((t) => t.id === over.id)
-    ) {
-      const oldIndex = markedRankedCurrent.findIndex((t) => t.id === active.id);
-      const newIndex = markedRankedCurrent.findIndex((t) => t.id === over.id);
-      const reordered = arrayMove(markedRankedCurrent, oldIndex, newIndex);
-      const rank = rankForIndex(
-        reordered.filter((t) => t.id !== task.id),
-        reordered.findIndex((t) => t.id === task.id)
-      );
-      moveBacklogRank.mutate({ taskId: task.id, rank });
-      return;
+    // Reordering a ranked Marked pill. The new rank is always computed on
+    // the *global* backlog queue (backlogTasks), never on the Marked subset:
+    // a midpoint between two marked neighbors can land exactly on the rank
+    // of an unmarked task queued between them, producing duplicate ranks.
+    //
+    // The target is resolved from the collision list, not only `over`: the
+    // 'marked-zone' droppable wraps the pills and, under the default
+    // rectIntersection (IoU), wins against a neighbor pill when the group is
+    // small — so `over` alone would be 'marked-zone' and the reorder would
+    // silently no-op.
+    const markedRankedIds = new Set(markedRankedCurrent.map((t) => t.id));
+    if (markedRankedIds.has(String(active.id)) && over.id !== active.id) {
+      const overId = String(over.id);
+      const targetId = markedRankedIds.has(overId)
+        ? overId
+        : overId === 'marked-zone'
+          ? e.collisions
+              ?.map((c) => String(c.id))
+              .find((id) => id !== String(active.id) && markedRankedIds.has(id))
+          : undefined;
+      if (targetId) {
+        const oldIndex = backlogTasks.findIndex((t) => t.id === active.id);
+        const newIndex = backlogTasks.findIndex((t) => t.id === targetId);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          reorderBacklog.mutate({
+            taskId: task.id,
+            targetIndex: newIndex,
+            ordered: arrayMove(backlogTasks, oldIndex, newIndex),
+          });
+        }
+        return;
+      }
     }
 
-    if (over.id === 'marked-zone') {
+    // Dropping on the Marked group — its zone or any ranked pill inside it,
+    // since a pill can be `over` instead of the zone — marks the task for
+    // today. (A pill already marked is a no-op, not a reorder.)
+    if (over.id === 'marked-zone' || markedRankedIds.has(String(over.id))) {
       if (!markedTaskIds.has(task.id)) mark.mutate(task.id);
       return;
     }
@@ -651,7 +668,10 @@ export default function DashboardPage() {
                 </TaskPill>
               );
             })}
-            {Boolean(markedPast.length) && (
+            {Boolean(markedPast.length) &&
+              Boolean(
+                markedRankedCurrent.length + markedUnrankedCurrent.length
+              ) && (
               <hr className="border-nyx-700 my-1 w-full" />
             )}
             {markedPast.map(({ task }) => {

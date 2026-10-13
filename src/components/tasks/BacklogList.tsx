@@ -136,6 +136,9 @@ function AddCandidateRow({ task, projectInfo, onAdd }: AddCandidateRowProps) {
 }
 
 interface BacklogListProps {
+  // The whole task list, deliberately unfiltered: the queue is global, and
+  // reordering it through a filtered subset is what produced skewed ranks.
+  // TasksPage hides its filter controls while this view is active.
   tasks: Task[];
   projectInfoById: Map<Id, ProjectInfo>;
   onOpenTask: (task: Task) => void;
@@ -146,9 +149,7 @@ export default function BacklogList({
   projectInfoById,
   onOpenTask,
 }: BacklogListProps) {
-  const backlog = useBacklogTasks().filter((t) =>
-    OPEN_STATUSES.includes(t.status)
-  );
+  const backlog = useBacklogTasks();
   const { reorder, removeFromBacklog, add } = useBacklogMutations();
 
   const queuedIds = new Set(backlog.map((t) => t.id));

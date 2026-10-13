@@ -96,15 +96,14 @@ const MOMENT_TYPE_LABELS: Partial<Record<MomentType, string>> = {
   priority: 'Priority',
   today: 'Marked for day',
   notToday: 'Unmarked for day',
-  backlog: 'Backlog',
 };
 
-function describeBacklogMoment(moment: Moment): string {
-  return moment.value !== null ? 'Added to backlog' : 'Removed from backlog';
-}
-
 function describeMoment(moment: Moment): string {
-  if (moment.moment_type === 'backlog') return describeBacklogMoment(moment);
+  // Backlog moments are enter/exit events (value null = left the queue),
+  // not a `label: previous → value` change like the other types.
+  if (moment.moment_type === 'backlog') {
+    return moment.value !== null ? 'Added to backlog' : 'Removed from backlog';
+  }
   const label = MOMENT_TYPE_LABELS[moment.moment_type] ?? moment.moment_type;
   if (moment.previous_value && moment.value) {
     return `${label}: ${moment.previous_value} → ${moment.value}`;
