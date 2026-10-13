@@ -201,7 +201,7 @@ function PillFrame({
         ref={handleRef}
         {...dragHandleProps}
         title="Drag"
-        className="text-nyx-700 hover:text-nyx-400 flex shrink-0 cursor-grab touch-none items-center self-stretch px-0.5 active:cursor-grabbing"
+        className="text-nyx-500 hover:text-nyx-200 hover:bg-nyx-700 flex w-6 shrink-0 cursor-grab touch-none items-center justify-center self-stretch rounded-md active:cursor-grabbing"
       >
         <GripVertical size={13} />
       </span>
