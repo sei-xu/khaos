@@ -1007,6 +1007,26 @@ Verificação: `npm run typecheck` e `npm run lint` limpos. A verificação
 manual (SQL + navegador + assistente) e `db:push`/`db:dump` continuam
 pendentes.
 
+**Verificação em produção (2026-10-13) e arrasto impreciso.** `db:push`
+aplicado (2 migrations). No navegador, com 4 tasks descartáveis, passaram:
+reorder no Today com 2 e com 3 pills ranqueadas, numeração igual entre Today
+e view Backlog após concluir uma task da fila, e a view Backlog sem filtros.
+Um arraste não registrou e o usuário relatou imprecisão geral: a pill
+encolhia para uma linha enquanto arrastada (`TaskPillBody` escondia a 2ª
+linha e os badges em `isDragging`), o que deslocava as vizinhas no meio do
+gesto e deixava o ponto de pega fora da pill; a pill do grupo Marked também
+ficava sem `z-index` e passava por baixo das seguintes.
+
+- ~~Pill encolhe ao arrastar~~ — a pill mantém o tamanho durante o arrasto,
+  ganha ring + sombra e sobe no `z-index` (`SortableTaskPill` agora cria o
+  stacking context). Muda só `DashboardPage.tsx`; a lógica de drop é a mesma.
+- **Ainda não coberto no navegador:** marcar por arraste (Target/Due →
+  Marked), reorder com 5 pills, o divisor do Marked sem marcação atual e o
+  arraste na view Backlog com task fechada na fila. Caveat do ajuste: com a
+  pill inteira durante o arrasto, soltar sobre um slot de horário cobre ~2
+  slots e vale o de maior sobreposição (`rectIntersection`); se ficar
+  impreciso, o próximo passo é `DragOverlay` compacto preso ao cursor.
+
 ---
 
 ## Nine unmerged branches — triage before cleanup

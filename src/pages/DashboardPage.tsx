@@ -87,16 +87,19 @@ interface TaskPillProps {
 }
 
 // What TaskPillBody itself renders: the subset of TaskPillProps that ends
-// up as markup, plus the drag state that hides the second row.
+// up as markup.
 type TaskPillBodyProps = Pick<
   TaskPillProps,
   'task' | 'projectName' | 'projectField' | 'rankPosition' | 'children'
-> & { isDragging: boolean };
+>;
 
 // Shared chrome for both pill variants below (plain draggable and
-// sortable) — same look either way; `faded` dims a stale pill.
-function pillClassName(faded?: boolean): string {
-  return `border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`;
+// sortable) — same look either way; `faded` dims a stale pill. While
+// dragged the pill keeps its full size (collapsing it mid-gesture shifted
+// the siblings and left the grab point off the pill, which made precise
+// drops hard) and is lifted with a ring + shadow so it reads as "in hand".
+function pillClassName(faded?: boolean, dragging?: boolean): string {
+  return `border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''} ${dragging ? 'ring-eros-400 shadow-lg ring-1' : ''}`;
 }
 
 // backlog_rank's position badge: only shown when the task is actually
@@ -119,7 +122,6 @@ function TaskPillBody({
   projectName,
   projectField,
   rankPosition,
-  isDragging,
   children,
 }: TaskPillBodyProps) {
   return (
@@ -127,23 +129,19 @@ function TaskPillBody({
       <span className="flex w-full items-center gap-1.5">
         {rankPosition != null && <RankBadge position={rankPosition} />}
         <span className="min-w-0 flex-1 truncate">{task.name}</span>
-        {!isDragging && (
-          <span className="flex shrink-0 items-center gap-1">
-            <StatusIcon status={task.status} size={14} />
-            <PriorityBadge priority={task.priority} />
-          </span>
-        )}
-      </span>
-      {isDragging ? null : (
-        <span className="flex w-full flex-wrap items-center gap-1.5">
-          {children}
-          <ProjectChip
-            name={projectName}
-            fieldName={projectField}
-            className="min-w-0 flex-1 justify-end"
-          />
+        <span className="flex shrink-0 items-center gap-1">
+          <StatusIcon status={task.status} size={14} />
+          <PriorityBadge priority={task.priority} />
         </span>
-      )}
+      </span>
+      <span className="flex w-full flex-wrap items-center gap-1.5">
+        {children}
+        <ProjectChip
+          name={projectName}
+          fieldName={projectField}
+          className="min-w-0 flex-1 justify-end"
+        />
+      </span>
     </>
   );
 }
@@ -188,14 +186,13 @@ function TaskPill({
       {...attributes}
       title={task.name}
       onClick={() => !isDragging && onOpen(task)}
-      className={pillClassName(faded)}
+      className={pillClassName(faded, isDragging)}
     >
       <TaskPillBody
         task={task}
         projectName={projectName}
         projectField={projectField}
         rankPosition={rankPosition}
-        isDragging={isDragging}
       >
         {children}
       </TaskPillBody>
@@ -231,6 +228,9 @@ function SortableTaskPill({
     transform: CSS.Transform.toString(transform),
     transition,
     touchAction: 'none' as const,
+    // Without a stacking context the transformed pill paints under the
+    // siblings that follow it in the DOM.
+    ...(isDragging ? { position: 'relative' as const, zIndex: 30 } : undefined),
   };
   return (
     <button
@@ -241,14 +241,13 @@ function SortableTaskPill({
       {...attributes}
       title={task.name}
       onClick={() => !isDragging && onOpen(task)}
-      className={pillClassName(faded)}
+      className={pillClassName(faded, isDragging)}
     >
       <TaskPillBody
         task={task}
         projectName={projectName}
         projectField={projectField}
         rankPosition={rankPosition}
-        isDragging={isDragging}
       >
         {children}
       </TaskPillBody>
