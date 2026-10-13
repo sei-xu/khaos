@@ -505,6 +505,64 @@ COMMENT ON FUNCTION "public"."trg_moment_scheduled"() IS 'Advanced trigger funct
 
 
 
+CREATE OR REPLACE FUNCTION "public"."trg_google_sync_dirty"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if TG_OP = 'INSERT' then
+    if new.event_type = 'fixed' then
+      new.sync_dirty := true;
+    end if;
+    return new;
+  end if;
+
+  if new.event_type = 'fixed' or old.event_type = 'fixed' then
+    if old.name is distinct from new.name
+      or old.duration is distinct from new.duration
+      or old.deleted_at is distinct from new.deleted_at
+      or old.event_type is distinct from new.event_type
+    then
+      new.sync_dirty := true;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_google_sync_dirty"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type=''fixed'' and a user-visible column changed (name, duration, deleted_at, event_type). A ''fixed''->other transition is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled'' or ''routine''.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."google_calendar_status"() RETURNS TABLE("connected" boolean, "calendar_id" "text", "last_sync_at" timestamp with time zone, "last_error" "text")
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+    select
+        (refresh_token is not null) as connected,
+        calendar_id,
+        last_sync_at,
+        last_error
+    from public.google_calendar_account
+    where id = true
+    union all
+    select false, null, null, null
+    where not exists (select 1 from public.google_calendar_account where id = true)
+    limit 1;
+$$;
+
+
+ALTER FUNCTION "public"."google_calendar_status"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."google_calendar_status"() IS 'Browser-safe projection of google_calendar_account: whether an account is connected, which calendar, and the last sync''s outcome. Never returns refresh_token/access_token/sync_token. SECURITY DEFINER to read past the account table''s policy-less RLS.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."trg_moment_started"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -1023,6 +1081,11 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
     "field_id" "uuid",
     "routine_id" "uuid",
     "deleted_at" timestamp with time zone,
+    "google_event_id" "text",
+    "google_calendar_id" "text",
+    "google_etag" "text",
+    "google_synced_at" timestamp with time zone,
+    "sync_dirty" boolean DEFAULT false NOT NULL,
     CONSTRAINT "duration_must_be_bounded" CHECK (((NOT "lower_inf"("duration")) AND (NOT "upper_inf"("duration")) AND (NOT "isempty"("duration"))))
 );
 
@@ -1031,6 +1094,26 @@ ALTER TABLE "public"."events" OWNER TO "postgres";
 
 
 COMMENT ON TABLE "public"."events" IS 'Stores calendar events, time blocks scheduled for tasks or routines.';
+
+
+
+COMMENT ON COLUMN "public"."events"."google_event_id" IS 'Id of the paired event in Google Calendar. Null for events that have never been pushed/pulled. Only set on event_type = ''fixed'' rows.';
+
+
+
+COMMENT ON COLUMN "public"."events"."google_calendar_id" IS 'Id of the Google Calendar the paired event lives in (see google_calendar_account.calendar_id).';
+
+
+
+COMMENT ON COLUMN "public"."events"."google_etag" IS 'Last etag Google returned for this event. Compared against the etag on the next push/pull to detect a conflicting edit made on the Google side.';
+
+
+
+COMMENT ON COLUMN "public"."events"."google_synced_at" IS 'Timestamp of the last successful push or pull for this event.';
+
+
+
+COMMENT ON COLUMN "public"."events"."sync_dirty" IS 'Set by trg_google_sync_dirty when a fixed event needs to be pushed to Google (created, edited, deleted, or just became/stopped being fixed). Cleared by the google-calendar-sync function once the push succeeds.';
 
 
 
@@ -1103,6 +1186,60 @@ COMMENT ON COLUMN "public"."fields"."order" IS 'Display sort order priority (sma
 
 
 COMMENT ON COLUMN "public"."fields"."id" IS 'Primary key (UUID) unique identifier for the field.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."google_calendar_account" (
+    "id" boolean DEFAULT true NOT NULL,
+    "calendar_id" "text" DEFAULT 'primary'::"text" NOT NULL,
+    "refresh_token" "text",
+    "access_token" "text",
+    "access_token_expires_at" timestamp with time zone,
+    "sync_token" "text",
+    "last_full_sync_at" timestamp with time zone,
+    "last_sync_at" timestamp with time zone,
+    "last_error" "text",
+    "connected_at" timestamp with time zone,
+    CONSTRAINT "google_calendar_account_singleton" CHECK ("id")
+);
+
+
+ALTER TABLE "public"."google_calendar_account" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."google_calendar_account" IS 'Singleton row holding the OAuth refresh/access token and sync cursor for the one connected Google account. id is a boolean fixed to true so the table can hold at most one row. Written only by google-calendar-oauth (token exchange/refresh) and google-calendar-sync (sync_token, last_*). RLS on, no policies: not reachable with the anon key.';
+
+
+
+COMMENT ON COLUMN "public"."google_calendar_account"."calendar_id" IS 'Google Calendar id synced against (v1 supports exactly one, default ''primary'').';
+
+
+
+COMMENT ON COLUMN "public"."google_calendar_account"."refresh_token" IS 'OAuth refresh token. Never exposed outside the service-role Edge Functions; see google_calendar_status() for the browser-safe projection.';
+
+
+
+COMMENT ON COLUMN "public"."google_calendar_account"."sync_token" IS 'Google Calendar API syncToken for incremental events.list pulls. Cleared (and a full sync re-run) when Google responds 410 fullSyncRequired.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."google_calendar_sync_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "ts" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "direction" "text" NOT NULL,
+    "action" "text" NOT NULL,
+    "event_id" "uuid",
+    "google_event_id" "text",
+    "detail" "text",
+    CONSTRAINT "google_calendar_sync_log_action_check" CHECK (("action" = ANY (ARRAY['created'::"text", 'updated'::"text", 'deleted'::"text", 'skipped_echo'::"text", 'conflict'::"text", 'error'::"text"]))),
+    CONSTRAINT "google_calendar_sync_log_direction_check" CHECK (("direction" = ANY (ARRAY['pull'::"text", 'push'::"text"])))
+);
+
+
+ALTER TABLE "public"."google_calendar_sync_log" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."google_calendar_sync_log" IS 'Append-only trace of what each google-calendar-sync run did, for debugging a background job with no other visibility. Rows older than 30 days are pruned by the function on each run. RLS on, no policies: not reachable with the anon key.';
 
 
 
@@ -1719,6 +1856,16 @@ ALTER TABLE ONLY "public"."fields"
 
 
 
+ALTER TABLE ONLY "public"."google_calendar_account"
+    ADD CONSTRAINT "google_calendar_account_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."google_calendar_sync_log"
+    ADD CONSTRAINT "google_calendar_sync_log_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."moment_tag_entities"
     ADD CONSTRAINT "moment_tag_entities_pkey" PRIMARY KEY ("id");
 
@@ -1820,6 +1967,18 @@ ALTER TABLE ONLY "public"."work_tags"
 
 
 CREATE INDEX "idx_events_active" ON "public"."events" USING "btree" ("id") WHERE ("deleted_at" IS NULL);
+
+
+
+CREATE UNIQUE INDEX "idx_events_google_pairing" ON "public"."events" USING "btree" ("google_calendar_id", "google_event_id") WHERE ("google_event_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_events_sync_dirty" ON "public"."events" USING "btree" ("id") WHERE "sync_dirty";
+
+
+
+CREATE INDEX "idx_google_calendar_sync_log_ts" ON "public"."google_calendar_sync_log" USING "btree" ("ts");
 
 
 
@@ -2012,6 +2171,10 @@ CREATE OR REPLACE TRIGGER "tg_section_delete_cascade" BEFORE UPDATE ON "public".
 
 
 CREATE OR REPLACE TRIGGER "tg_task_delete_cascade" BEFORE UPDATE ON "public"."tasks" FOR EACH ROW EXECUTE FUNCTION "public"."trg_fn_task_delete_cascade"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_google_sync_dirty" BEFORE INSERT OR UPDATE ON "public"."events" FOR EACH ROW EXECUTE FUNCTION "public"."trg_google_sync_dirty"();
 
 
 
@@ -2314,6 +2477,12 @@ ALTER TABLE "public"."events" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."fields" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."google_calendar_account" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."google_calendar_sync_log" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."moment_tag_entities" ENABLE ROW LEVEL SECURITY;
 
 
@@ -2384,6 +2553,12 @@ GRANT ALL ON FUNCTION "public"."check_and_unlock_next_tasks"("p_previous_task_id
 
 
 
+GRANT ALL ON FUNCTION "public"."google_calendar_status"() TO "anon";
+GRANT ALL ON FUNCTION "public"."google_calendar_status"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."google_calendar_status"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."insert_moment"("p_entity_column" "text", "p_entity_id" "uuid", "p_moment_type" "public"."moment_types", "p_value" "text", "p_note" "text", "p_previous_value" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."insert_moment"("p_entity_column" "text", "p_entity_id" "uuid", "p_moment_type" "public"."moment_types", "p_value" "text", "p_note" "text", "p_previous_value" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."insert_moment"("p_entity_column" "text", "p_entity_id" "uuid", "p_moment_type" "public"."moment_types", "p_value" "text", "p_note" "text", "p_previous_value" "text") TO "service_role";
@@ -2435,6 +2610,12 @@ GRANT ALL ON FUNCTION "public"."trg_fn_stop_and_start_task_log"() TO "service_ro
 GRANT ALL ON FUNCTION "public"."trg_fn_task_delete_cascade"() TO "anon";
 GRANT ALL ON FUNCTION "public"."trg_fn_task_delete_cascade"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."trg_fn_task_delete_cascade"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_google_sync_dirty"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_google_sync_dirty"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_google_sync_dirty"() TO "service_role";
 
 
 
@@ -2585,6 +2766,18 @@ GRANT ALL ON TABLE "public"."events" TO "service_role";
 GRANT ALL ON TABLE "public"."fields" TO "anon";
 GRANT ALL ON TABLE "public"."fields" TO "authenticated";
 GRANT ALL ON TABLE "public"."fields" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."google_calendar_account" TO "anon";
+GRANT ALL ON TABLE "public"."google_calendar_account" TO "authenticated";
+GRANT ALL ON TABLE "public"."google_calendar_account" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."google_calendar_sync_log" TO "anon";
+GRANT ALL ON TABLE "public"."google_calendar_sync_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."google_calendar_sync_log" TO "service_role";
 
 
 

@@ -86,6 +86,8 @@ supabase functions deploy anthropic-proxy
 supabase functions deploy telegram-bot
 supabase functions deploy telegram-notify
 supabase functions deploy oversight-agent
+supabase functions deploy google-calendar-oauth
+supabase functions deploy google-calendar-sync
 ```
 
 - **Secrets das Edge Functions** (nunca em `.env` do frontend):
@@ -97,6 +99,10 @@ supabase secrets set TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)
 supabase secrets set TELEGRAM_ALLOWED_CHAT_IDS=<chat id>
 supabase secrets set KHAOS_CRON_SECRET=$(openssl rand -hex 32)
 supabase secrets set OVERSIGHT_LLM_MODEL=claude-haiku-4-5   # opcional, é o default
+supabase secrets set GOOGLE_CLIENT_ID=...
+supabase secrets set GOOGLE_CLIENT_SECRET=...
+supabase secrets set GOOGLE_OAUTH_REDIRECT_URI=https://<project-ref>.supabase.co/functions/v1/google-calendar-oauth
+supabase secrets set GOOGLE_OAUTH_SETUP_SECRET=$(openssl rand -hex 32)
 ```
 
 Setup completo do bot do Telegram (webhook, allowlist, cron do digest e dos
@@ -104,6 +110,24 @@ lembretes) está em
 `supabase/functions/telegram-bot/README.md`. Setup do cron do oversight
 agent está comentado no topo de
 `supabase/functions/oversight-agent/index.ts`.
+
+### Google Calendar
+
+Setup completo (projeto no Google Cloud, OAuth client, escopo, secrets, cron)
+está em `supabase/functions/google-calendar-sync/README.md`. Pontos que não
+são opcionais:
+
+- **Escopo mínimo:** `https://www.googleapis.com/auth/calendar.events` —
+  leitura/escrita de eventos, sem gerência de calendários.
+- **Publique a tela de consentimento OAuth** ("In Production", aceitando o
+  aviso de app não verificado — é um app de usuário único). Enquanto ela
+  ficar em "Testing", o Google expira o refresh token em **7 dias** e a
+  sincronização para silenciosamente toda semana; depois de publicar, refaça
+  o consentimento uma vez.
+- A sincronização só toca `events.event_type = 'fixed'` — `scheduled` e
+  `routine` nunca saem do Khaos, e nada vindo do Google se materializa como
+  `scheduled`/`routine`. Ver `docs/backlog.md`, "Integração bidirecional com o
+  Google Calendar (somente eventos fixed)", para a decisão e o raciocínio.
 
 ## Testando o chat
 

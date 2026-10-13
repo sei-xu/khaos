@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Flag } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Flag, Link2 } from 'lucide-react';
 import { addDays, format, isToday, startOfWeek } from 'date-fns';
 import { parseRange } from '../../lib/range';
 import { minutesToHuman, isOverdue } from '../../lib/dateUtils';
@@ -494,9 +494,16 @@ export default function CalendarView({
                       }`}
                     >
                       <span
-                        className={`shrink-0 truncate font-medium ${ev.isCancelled ? 'line-through' : ''}`}
+                        className={`flex min-w-0 shrink-0 items-center gap-1 font-medium ${ev.isCancelled ? 'line-through' : ''}`}
                       >
-                        {ev.label}
+                        {ev.google_event_id && (
+                          <Link2
+                            size={10}
+                            className="shrink-0"
+                            aria-label="Synced with Google Calendar"
+                          />
+                        )}
+                        <span className="truncate">{ev.label}</span>
                       </span>
                       {ev.projectName && (
                         <ProjectChip

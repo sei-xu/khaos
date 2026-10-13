@@ -16,6 +16,7 @@
 - [x] PWA / gate de senha simples para acesso mobile
 - [x] Dashboard com pills agrupadas (scheduled/marked/targeted/due), drag-and-drop e auto-refresh
 - [x] Backlog — fila global e persistida (`tasks.backlog_rank`) da ordem em que as tarefas pendentes serão feitas, mandando a ordem de exibição dentro do Today; pré-requisito de "Planejamento assistido" abaixo
+- [x] Integração bidirecional com o Google Calendar, restrita a `events.event_type = 'fixed'` — `scheduled`/`routine` nunca saem do Khaos e nada vindo do Google se materializa como `scheduled`/`routine` (ver `docs/backlog.md`)
 
 > Nota: "Notificação automática de deploy (Vercel + GitHub Actions →
 > Telegram)" foi removida em 2026-10-07 por decisão do usuário (histórico

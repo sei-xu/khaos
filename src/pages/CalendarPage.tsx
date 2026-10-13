@@ -1,14 +1,43 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsMutating } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Plus, CalendarCheck2, CalendarX2 } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents';
 import { useTasks, useProjects, useFields } from '../hooks/useHierarchy';
 import { useAllTaskLogs } from '../hooks/useTimeTracking';
+import { useGoogleCalendarStatus } from '../hooks/useGoogleCalendarStatus';
 import { Button } from '../components/common/ui';
 import CalendarView, { type DueItem } from '../components/calendar/CalendarView';
 import EventModal from '../components/calendar/EventModal';
 import type { Event, Task, Project, Field, TaskLog } from '../lib/types';
+
+function GoogleCalendarStatusStrip() {
+  const { data: status } = useGoogleCalendarStatus();
+  if (!status) return null;
+
+  if (!status.connected) {
+    return (
+      <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-xs">
+        <CalendarX2 size={13} />
+        Google Calendar not connected — see
+        supabase/functions/google-calendar-sync/README.md to set it up.
+      </p>
+    );
+  }
+
+  const lastSync = status.last_sync_at
+    ? new Date(status.last_sync_at).toLocaleString()
+    : 'never';
+  return (
+    <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-xs">
+      <CalendarCheck2 size={13} />
+      Google Calendar connected (fixed events only) — last sync: {lastSync}
+      {status.last_error && (
+        <span className="text-red-400"> · {status.last_error}</span>
+      )}
+    </p>
+  );
+}
 
 export default function CalendarPage() {
   const navigate = useNavigate();
@@ -69,6 +98,8 @@ export default function CalendarPage() {
           <Plus size={14} /> New event
         </Button>
       </div>
+
+      <GoogleCalendarStatusStrip />
 
       <CalendarView
         events={events}

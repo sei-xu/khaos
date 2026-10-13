@@ -166,6 +166,67 @@ Compromissos e blocos de tempo na agenda.
 | task_id, project_id, field_id | FK opcionais | Contexto vinculado |
 | routine_id | FK → routines | Se o evento veio de um routine template |
 | deleted_at | timestamptz | Soft delete |
+| google_event_id | text | Id do evento pareado no Google Calendar; só preenchido em linhas `fixed` |
+| google_calendar_id | text | Calendário do Google onde o evento pareado vive |
+| google_etag | text | Último etag devolvido pelo Google; compara para detectar edição concorrente |
+| google_synced_at | timestamptz | Timestamp do último push/pull bem-sucedido |
+| sync_dirty | boolean | default `false` — marcado pelo trigger `trg_google_sync_dirty` quando a linha precisa ser empurrada ao Google |
+
+**Sincronização com o Google Calendar** (só `event_type = 'fixed'` —
+`scheduled`/`routine` nunca saem do Khaos, e nada vindo do Google pode se
+materializar como `scheduled`/`routine`). `trg_google_sync_dirty`
+(`BEFORE INSERT OR UPDATE`) marca `sync_dirty` quando a linha é (ou acabou
+de deixar de ser) `fixed` e uma coluna observável mudou
+(`name`/`duration`/`deleted_at`/`event_type`) — as colunas que a própria
+sincronização escreve (`google_*`, `sync_dirty`) ficam de fora do que o
+trigger observa. Um índice único parcial em
+`(google_calendar_id, google_event_id)` (onde `google_event_id` não é nulo)
+impede importar o mesmo evento do Google duas vezes; um índice parcial em
+`(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Ver
+`supabase/functions/google-calendar-sync/README.md` para o motor completo
+(push/pull, resolução de conflito — Google sempre vence — e os casos de
+borda de evento de dia inteiro/recorrente).
+
+### `google_calendar_account`
+
+Singleton (uma linha só, `id` é `boolean` fixo em `true`) com o refresh/
+access token OAuth e o cursor de sincronização da única conta Google
+conectada.
+
+| Coluna | Tipo | Descrição |
+| --- | --- | --- |
+| id | boolean PK | Sempre `true` — garante no máximo uma linha |
+| calendar_id | text | default `'primary'` |
+| refresh_token, access_token | text | |
+| access_token_expires_at | timestamptz | |
+| sync_token | text | `syncToken` da API do Google para pulls incrementais; limpo (e full sync refeito) num `410` |
+| last_full_sync_at, last_sync_at | timestamptz | |
+| last_error | text | |
+| connected_at | timestamptz | |
+
+RLS habilitada, **sem nenhuma policy** — nem o anon key do browser consegue
+ler esta tabela, só o service role usado pelas Edge Functions
+`google-calendar-oauth`/`google-calendar-sync`. A RPC `google_calendar_status()`
+(`SECURITY DEFINER`) expõe só `{ connected, calendar_id, last_sync_at,
+last_error }` para a UI — nunca os tokens.
+
+### `google_calendar_sync_log`
+
+Trace append-only do que cada execução de `google-calendar-sync` fez —
+única visibilidade sobre um job de fundo.
+
+| Coluna | Tipo | Descrição |
+| --- | --- | --- |
+| id | uuid PK | |
+| ts | timestamptz | |
+| direction | text | `pull` \| `push` |
+| action | text | `created` \| `updated` \| `deleted` \| `skipped_echo` \| `conflict` \| `error` |
+| event_id | uuid | |
+| google_event_id | text | |
+| detail | text | |
+
+Mesma política de RLS que `google_calendar_account` (sem policy). Linhas com
+mais de 30 dias são podadas pela própria função a cada execução.
 
 ### `routines`
 

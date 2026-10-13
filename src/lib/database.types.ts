@@ -38,11 +38,16 @@ export type Database = {
           duration: unknown
           event_type: Database["public"]["Enums"]["event_types"]
           field_id: string | null
+          google_calendar_id: string | null
+          google_etag: string | null
+          google_event_id: string | null
+          google_synced_at: string | null
           id: string
           name: string
           project_id: string | null
           recurrent: boolean
           routine_id: string | null
+          sync_dirty: boolean
           task_id: string | null
         }
         Insert: {
@@ -50,11 +55,16 @@ export type Database = {
           duration?: unknown
           event_type: Database["public"]["Enums"]["event_types"]
           field_id?: string | null
+          google_calendar_id?: string | null
+          google_etag?: string | null
+          google_event_id?: string | null
+          google_synced_at?: string | null
           id?: string
           name: string
           project_id?: string | null
           recurrent?: boolean
           routine_id?: string | null
+          sync_dirty?: boolean
           task_id?: string | null
         }
         Update: {
@@ -62,11 +72,16 @@ export type Database = {
           duration?: unknown
           event_type?: Database["public"]["Enums"]["event_types"]
           field_id?: string | null
+          google_calendar_id?: string | null
+          google_etag?: string | null
+          google_event_id?: string | null
+          google_synced_at?: string | null
           id?: string
           name?: string
           project_id?: string | null
           recurrent?: boolean
           routine_id?: string | null
+          sync_dirty?: boolean
           task_id?: string | null
         }
         Relationships: [
@@ -118,6 +133,75 @@ export type Database = {
           id?: string
           name?: string
           order?: number
+        }
+        Relationships: []
+      }
+      google_calendar_account: {
+        Row: {
+          access_token: string | null
+          access_token_expires_at: string | null
+          calendar_id: string
+          connected_at: string | null
+          id: boolean
+          last_error: string | null
+          last_full_sync_at: string | null
+          last_sync_at: string | null
+          refresh_token: string | null
+          sync_token: string | null
+        }
+        Insert: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          calendar_id?: string
+          connected_at?: string | null
+          id?: boolean
+          last_error?: string | null
+          last_full_sync_at?: string | null
+          last_sync_at?: string | null
+          refresh_token?: string | null
+          sync_token?: string | null
+        }
+        Update: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          calendar_id?: string
+          connected_at?: string | null
+          id?: boolean
+          last_error?: string | null
+          last_full_sync_at?: string | null
+          last_sync_at?: string | null
+          refresh_token?: string | null
+          sync_token?: string | null
+        }
+        Relationships: []
+      }
+      google_calendar_sync_log: {
+        Row: {
+          action: string
+          detail: string | null
+          direction: string
+          event_id: string | null
+          google_event_id: string | null
+          id: string
+          ts: string
+        }
+        Insert: {
+          action: string
+          detail?: string | null
+          direction: string
+          event_id?: string | null
+          google_event_id?: string | null
+          id?: string
+          ts?: string
+        }
+        Update: {
+          action?: string
+          detail?: string | null
+          direction?: string
+          event_id?: string | null
+          google_event_id?: string | null
+          id?: string
+          ts?: string
         }
         Relationships: []
       }
@@ -723,6 +807,15 @@ export type Database = {
       check_and_unlock_next_tasks: {
         Args: { p_previous_task_id: string }
         Returns: undefined
+      }
+      google_calendar_status: {
+        Args: never
+        Returns: {
+          calendar_id: string | null
+          connected: boolean
+          last_error: string | null
+          last_sync_at: string | null
+        }[]
       }
       insert_moment:
         | {

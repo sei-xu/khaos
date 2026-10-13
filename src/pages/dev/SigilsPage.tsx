@@ -106,6 +106,11 @@ const SAMPLE_EVENT_FIXED: Event = {
   routine_id: null,
   recurrent: false,
   deleted_at: null,
+  google_event_id: null,
+  google_calendar_id: null,
+  google_etag: null,
+  google_synced_at: null,
+  sync_dirty: false,
 };
 const SAMPLE_EVENT_SCHEDULED: Event = {
   ...SAMPLE_EVENT_FIXED,

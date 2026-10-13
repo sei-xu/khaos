@@ -1,5 +1,6 @@
 import { useSyncActiveEntity } from '../../lib/activeEntityContext';
 import { useState, type FormEvent } from 'react';
+import { Link2 } from 'lucide-react';
 import { Modal, TextInput, Select, Button } from '../common/ui';
 import { EVENT_TYPES } from '../../lib/constants';
 import { toDatetimeLocalValue } from '../../lib/dateUtils';
@@ -132,6 +133,12 @@ export default function EventModal({
       }
     >
       <form onSubmit={handleSubmit} className="space-y-3">
+        {event?.google_event_id && (
+          <p className="text-nyx-500 flex items-center gap-1.5 text-caption">
+            <Link2 size={12} className="shrink-0" />
+            Synced with Google Calendar — editing here pushes the change back.
+          </p>
+        )}
         <div>
           <label className="text-nyx-400 mb-1 block text-caption font-medium">
             Title
