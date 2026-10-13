@@ -2,12 +2,7 @@ import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { isToday, startOfDay, endOfDay } from 'date-fns';
-import {
-  CalendarClock,
-  CheckCircle2,
-  Target,
-  Star,
-} from 'lucide-react';
+import { CalendarClock, CheckCircle2, Target, Star } from 'lucide-react';
 import {
   DndContext,
   useDraggable,
@@ -38,7 +33,6 @@ import {
   useTodayMutations,
 } from '../hooks/useMoments';
 import { useBacklogTasks, useBacklogMutations } from '../hooks/useBacklog';
-import { rankForIndex } from '../lib/backlogRank';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
 import { parseRange, targetEnd } from '../lib/range';
@@ -179,7 +173,10 @@ function TaskPill({
   const style = {
     touchAction: 'none' as const,
     ...(transform
-      ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 30 }
+      ? {
+          transform: `translate(${transform.x}px, ${transform.y}px)`,
+          zIndex: 30,
+        }
       : undefined),
   };
   return (
@@ -283,7 +280,7 @@ function PillGroup({
   return (
     <section>
       <h2
-        className={`mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase ${accentClass}`}
+        className={`text-caption mb-2 flex items-center gap-1.5 font-semibold tracking-wide uppercase ${accentClass}`}
       >
         {icon} {label} ({count})
       </h2>
@@ -295,7 +292,11 @@ function PillGroup({
             : ''
         }`}
       >
-        {count ? children : <p className="text-nyx-600 px-1 text-body">{emptyLabel}</p>}
+        {count ? (
+          children
+        ) : (
+          <p className="text-nyx-600 text-body px-1">{emptyLabel}</p>
+        )}
       </div>
     </section>
   );
@@ -312,7 +313,7 @@ export default function DashboardPage() {
   const { mark } = useTodayMutations();
   const { create: createEvent } = useEventMutations();
   const backlogTasks = useBacklogTasks();
-  const { move: moveBacklogRank } = useBacklogMutations();
+  const { reorder: reorderBacklog } = useBacklogMutations();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isMutating = useIsMutating();
@@ -396,7 +397,9 @@ export default function DashboardPage() {
   // ahead of today's current marks — see byBacklogRank above.
   const markedPills = byBacklogRank(
     openTasks
-      .filter((t) => markedTaskIds.has(t.id) && !scheduledTodayTaskIds.has(t.id))
+      .filter(
+        (t) => markedTaskIds.has(t.id) && !scheduledTodayTaskIds.has(t.id)
+      )
       .map((t) => ({ task: t, faded: false })),
     () => 0
   ).concat(
@@ -438,7 +441,9 @@ export default function DashboardPage() {
     )
     .map((t) => {
       const end = targetEnd(t.target as string);
-      return end && end < todayStart ? { task: t, past: true } : { task: t, past: false };
+      return end && end < todayStart
+        ? { task: t, past: true }
+        : { task: t, past: false };
     })
     .filter(({ task: t, past }) => {
       if (past) return true;
@@ -486,7 +491,9 @@ export default function DashboardPage() {
   );
   const firstOverdueIndex = duePills.findIndex((p) => p.overdue);
 
-  const scheduledPills = openTasks.filter((t) => scheduledTodayTaskIds.has(t.id));
+  const scheduledPills = openTasks.filter((t) =>
+    scheduledTodayTaskIds.has(t.id)
+  );
 
   const eventsByHour = useMemo(() => {
     const map = new Map<number, typeof todaysEvents>();
@@ -527,26 +534,44 @@ export default function DashboardPage() {
     const task = tasksById.get(String(active.id));
     if (!task) return;
 
-    // Reordering within the Marked group's ranked subset (dragged onto
-    // another ranked marked pill, not onto 'marked-zone' or a calendar
-    // slot) writes a new backlog_rank between its new neighbors.
-    if (
-      over.id !== active.id &&
-      markedRankedCurrent.some((t) => t.id === active.id) &&
-      markedRankedCurrent.some((t) => t.id === over.id)
-    ) {
-      const oldIndex = markedRankedCurrent.findIndex((t) => t.id === active.id);
-      const newIndex = markedRankedCurrent.findIndex((t) => t.id === over.id);
-      const reordered = arrayMove(markedRankedCurrent, oldIndex, newIndex);
-      const rank = rankForIndex(
-        reordered.filter((t) => t.id !== task.id),
-        reordered.findIndex((t) => t.id === task.id)
-      );
-      moveBacklogRank.mutate({ taskId: task.id, rank });
-      return;
+    // Reordering a ranked Marked pill. The new rank is always computed on
+    // the *global* backlog queue (backlogTasks), never on the Marked subset:
+    // a midpoint between two marked neighbors can land exactly on the rank
+    // of an unmarked task queued between them, producing duplicate ranks.
+    //
+    // The target is resolved from the collision list, not only `over`: the
+    // 'marked-zone' droppable wraps the pills and, under the default
+    // rectIntersection (IoU), wins against a neighbor pill when the group is
+    // small — so `over` alone would be 'marked-zone' and the reorder would
+    // silently no-op.
+    const markedRankedIds = new Set(markedRankedCurrent.map((t) => t.id));
+    if (markedRankedIds.has(String(active.id)) && over.id !== active.id) {
+      const overId = String(over.id);
+      const targetId = markedRankedIds.has(overId)
+        ? overId
+        : overId === 'marked-zone'
+          ? e.collisions
+              ?.map((c) => String(c.id))
+              .find((id) => id !== String(active.id) && markedRankedIds.has(id))
+          : undefined;
+      if (targetId) {
+        const oldIndex = backlogTasks.findIndex((t) => t.id === active.id);
+        const newIndex = backlogTasks.findIndex((t) => t.id === targetId);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          reorderBacklog.mutate({
+            taskId: task.id,
+            targetIndex: newIndex,
+            ordered: arrayMove(backlogTasks, oldIndex, newIndex),
+          });
+        }
+        return;
+      }
     }
 
-    if (over.id === 'marked-zone') {
+    // Dropping on the Marked group — its zone or any ranked pill inside it,
+    // since a pill can be `over` instead of the zone — marks the task for
+    // today. (A pill already marked is a no-op, not a reorder.)
+    if (over.id === 'marked-zone' || markedRankedIds.has(String(over.id))) {
       if (!markedTaskIds.has(task.id)) mark.mutate(task.id);
       return;
     }
@@ -573,8 +598,8 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-5">
-      <h1 className="font-display text-nyx-100 mb-1 text-display-lg">Today</h1>
-      <p className="text-nyx-500 mb-6 text-body">
+      <h1 className="font-display text-nyx-100 text-display-lg mb-1">Today</h1>
+      <p className="text-nyx-500 text-body mb-6">
         {new Date().toLocaleDateString(undefined, {
           weekday: 'long',
           month: 'long',
@@ -585,11 +610,11 @@ export default function DashboardPage() {
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
           <section>
-            <h2 className="text-sage-500 mb-2 flex items-center gap-1.5 text-caption font-semibold tracking-wide uppercase">
+            <h2 className="text-sage-500 text-caption mb-2 flex items-center gap-1.5 font-semibold tracking-wide uppercase">
               <CalendarClock size={13} /> Scheduled ({scheduledPills.length})
             </h2>
             {!todaysEvents.length && (
-              <p className="text-nyx-600 mb-1 px-1 text-body">
+              <p className="text-nyx-600 text-body mb-1 px-1">
                 Drag a pill onto an hour to schedule it.
               </p>
             )}
@@ -628,7 +653,11 @@ export default function DashboardPage() {
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >
-                    <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                    <Star
+                      size={11}
+                      className="text-eros-400 shrink-0"
+                      fill="currentColor"
+                    />
                     {task.due && (
                       <DueBadge due={task.due} status={task.status} />
                     )}
@@ -646,14 +675,19 @@ export default function DashboardPage() {
                   projectName={project?.name}
                   projectField={fieldNameForProject(project)}
                 >
-                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  <Star
+                    size={11}
+                    className="text-eros-400 shrink-0"
+                    fill="currentColor"
+                  />
                   {task.due && <DueBadge due={task.due} status={task.status} />}
                 </TaskPill>
               );
             })}
-            {Boolean(markedPast.length) && (
-              <hr className="border-nyx-700 my-1 w-full" />
-            )}
+            {Boolean(markedPast.length) &&
+              Boolean(
+                markedRankedCurrent.length + markedUnrankedCurrent.length
+              ) && <hr className="border-nyx-700 my-1 w-full" />}
             {markedPast.map(({ task }) => {
               const project = projectForTask(task);
               return (
@@ -666,7 +700,11 @@ export default function DashboardPage() {
                   projectName={project?.name}
                   projectField={fieldNameForProject(project)}
                 >
-                  <Star size={11} className="text-eros-400 shrink-0" fill="currentColor" />
+                  <Star
+                    size={11}
+                    className="text-eros-400 shrink-0"
+                    fill="currentColor"
+                  />
                   {task.due && <DueBadge due={task.due} status={task.status} />}
                 </TaskPill>
               );
@@ -694,7 +732,10 @@ export default function DashboardPage() {
                     projectName={project?.name}
                     projectField={fieldNameForProject(project)}
                   >
-                    <TargetBadge target={task.target as string | null} past={past} />
+                    <TargetBadge
+                      target={task.target as string | null}
+                      past={past}
+                    />
                     {task.due && (
                       <DueBadge due={task.due} status={task.status} />
                     )}
@@ -765,7 +806,7 @@ function CalendarSlot({ hour, events, tasksById }: CalendarSlotProps) {
         isOver ? 'bg-eros-500/10' : ''
       }`}
     >
-      <span className="text-nyx-500 w-10 shrink-0 font-mono text-caption">
+      <span className="text-nyx-500 text-caption w-10 shrink-0 font-mono">
         {label}
       </span>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -774,9 +815,9 @@ function CalendarSlot({ hour, events, tasksById }: CalendarSlotProps) {
           return (
             <span
               key={ev.id}
-              className="text-nyx-100 flex min-w-0 items-center gap-1.5 text-body"
+              className="text-nyx-100 text-body flex min-w-0 items-center gap-1.5"
             >
-              <span className="text-nyx-500 font-mono text-caption">
+              <span className="text-nyx-500 text-caption font-mono">
                 {ev.start.toLocaleTimeString(undefined, {
                   hour: 'numeric',
                   minute: '2-digit',

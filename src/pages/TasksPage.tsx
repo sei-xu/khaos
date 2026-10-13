@@ -46,9 +46,7 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<Status | 'open' | 'all'>(
     'open'
   );
-  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>(
-    'all'
-  );
+  const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
   const [projectFilter, setProjectFilter] = useState<Id | 'all'>('all');
   const [tagFilter, setTagFilter] = useState<Id | 'all'>('all');
   const [search, setSearch] = useState('');
@@ -154,7 +152,7 @@ export default function TasksPage() {
               key={v.id}
               onClick={() => setView(v.id)}
               className={clsx(
-                'flex items-center gap-1.5 rounded-md px-2 py-1.5 text-caption font-medium transition-colors',
+                'text-caption flex items-center gap-1.5 rounded-md px-2 py-1.5 font-medium transition-colors',
                 view === v.id
                   ? 'bg-nyx-700 text-nyx-100'
                   : 'text-nyx-500 hover:text-nyx-200'
@@ -166,68 +164,70 @@ export default function TasksPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <TextInput
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search tasks…"
-          className="max-w-56"
-        />
-        <Select
-          value={statusFilter}
-          onChange={(e) =>
-            setStatusFilter(e.target.value as Status | 'open' | 'all')
-          }
-        >
-          <option value="open">Open (not done/cancelled)</option>
-          <option value="all">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s.replace('_', ' ')}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={priorityFilter}
-          onChange={(e) =>
-            setPriorityFilter(e.target.value as Priority | 'all')
-          }
-        >
-          <option value="all">All priorities</option>
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={projectFilter}
-          onChange={(e) => setProjectFilter(e.target.value)}
-        >
-          <option value="all">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-        {Boolean(tags.length) && (
+      {view !== 'backlog' && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <TextInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tasks…"
+            className="max-w-56"
+          />
           <Select
-            value={tagFilter}
-            onChange={(e) => setTagFilter(e.target.value)}
+            value={statusFilter}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as Status | 'open' | 'all')
+            }
           >
-            <option value="all">All tags</option>
-            {tags.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+            <option value="open">Open (not done/cancelled)</option>
+            <option value="all">All statuses</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s.replace('_', ' ')}
               </option>
             ))}
           </Select>
-        )}
-        <span className="text-nyx-600 ml-auto text-caption">
-          {filtered.length} tasks
-        </span>
-      </div>
+          <Select
+            value={priorityFilter}
+            onChange={(e) =>
+              setPriorityFilter(e.target.value as Priority | 'all')
+            }
+          >
+            <option value="all">All priorities</option>
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+          >
+            <option value="all">All projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+          {Boolean(tags.length) && (
+            <Select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+            >
+              <option value="all">All tags</option>
+              {tags.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+          )}
+          <span className="text-nyx-600 text-caption ml-auto">
+            {filtered.length} tasks
+          </span>
+        </div>
+      )}
 
       {view === 'list' && (
         <TaskList
@@ -252,7 +252,7 @@ export default function TasksPage() {
       )}
       {view === 'backlog' && (
         <BacklogList
-          tasks={filtered}
+          tasks={tasks}
           projectInfoById={projectInfoById}
           onOpenTask={openTask_}
         />

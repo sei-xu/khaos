@@ -18,6 +18,7 @@ export const backlogApi = {
     const maxResponse = await supabase
       .from('tasks')
       .select('backlog_rank')
+      .is('deleted_at', null)
       .not('backlog_rank', 'is', null)
       .order('backlog_rank', { ascending: false })
       .limit(1);
@@ -56,16 +57,31 @@ export const backlogApi = {
   },
 
   // Rewrites backlog_rank for every row in `updates` (already computed by
-  // rebalanceRanks) in one batch of per-row updates.
+  // rebalanceRanks) as per-row updates. Not atomic — there's no transaction
+  // across rows — so every write is awaited (allSettled) and a partial
+  // failure reports exactly which ids didn't land, instead of aborting on
+  // the first rejection and hiding how many rows were already written. A
+  // rebalance is idempotent: re-running it after a partial failure converges.
   rebalance: async (
     updates: { id: Id; backlog_rank: number }[]
   ): Promise<void> => {
-    const responses = await Promise.all(
-      updates.map(({ id, backlog_rank }) =>
-        supabase.from('tasks').update({ backlog_rank }).eq('id', id)
-      )
+    const results = await Promise.allSettled(
+      updates.map(async ({ id, backlog_rank }) => {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ backlog_rank })
+          .eq('id', id);
+        if (error) throw error;
+      })
     );
-    responses.forEach((response) => unwrap(response));
+    const failedIds = updates
+      .filter((_, i) => results[i].status === 'rejected')
+      .map((u) => u.id);
+    if (failedIds.length) {
+      throw new Error(
+        `Backlog rebalance partially failed: ${failedIds.length} of ${updates.length} rows not written (ids: ${failedIds.join(', ')})`
+      );
+    }
   },
 
   listOrdered: async (): Promise<Task[]> => {
