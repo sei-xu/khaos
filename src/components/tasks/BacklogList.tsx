@@ -31,6 +31,7 @@ import {
   ProjectChip,
   IconAddButton,
 } from '../common/ui';
+import { TargetBadge } from '../common/TargetEditor';
 import { OPEN_STATUSES, PRIORITIES } from '../../lib/constants';
 import { useBacklogTasks, useBacklogMutations } from '../../hooks/useBacklog';
 import type { ProjectInfo } from './TaskList';
@@ -109,6 +110,7 @@ function BacklogRow({
         </span>
         <span className="flex shrink-0 flex-wrap items-center gap-1">
           <PriorityBadge priority={task.priority} />
+          <TargetBadge target={task.target as string | null} />
           <DueBadge due={task.due} status={task.status} />
           <ProjectChip
             name={projectInfo?.name}
@@ -143,6 +145,11 @@ function AddCandidateRow({ task, projectInfo, onAdd }: AddCandidateRowProps) {
       <IconAddButton label="Add to backlog" onClick={onAdd} />
       <span className="text-nyx-300 text-body min-w-0 flex-1 truncate">
         {task.name}
+      </span>
+      <span className="flex shrink-0 flex-wrap items-center gap-1">
+        <PriorityBadge priority={task.priority} />
+        <TargetBadge target={task.target as string | null} />
+        <DueBadge due={task.due} status={task.status} />
       </span>
       <ProjectChip
         name={projectInfo?.name}

@@ -1021,6 +1021,11 @@ A ordem de "Not queued" era indefinida (a query de tasks não tem
 é: prioridade maior primeiro, depois due mais próximo (sem due por último),
 depois nome.
 
+As duas listas (fila e "Not queued") mostram prioridade, target e due em
+cada linha. Tasks `done` e `cancelled` nunca aparecem em nenhuma das duas:
+ambas passam por `OPEN_STATUSES` (a fila em `useBacklogTasks`, os candidatos
+em `BacklogList`).
+
 ---
 
 ## Nine unmerged branches — triage before cleanup
