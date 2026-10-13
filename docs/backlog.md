@@ -1020,6 +1020,16 @@ ficava sem `z-index` e passava por baixo das seguintes.
 - ~~Pill encolhe ao arrastar~~ — a pill mantém o tamanho durante o arrasto,
   ganha ring + sombra e sobe no `z-index` (`SortableTaskPill` agora cria o
   stacking context). Muda só `DashboardPage.tsx`; a lógica de drop é a mesma.
+- ~~Handle de arrasto no Today~~ (pedido do usuário, 2026-10-13) — como na
+  view Backlog, só o ícone de grip inicia o arrasto; o resto da pill é um
+  botão que abre a task. Isso também libera o scroll por toque no corpo da
+  pill. Custo aceito: o grip ocupa ~16px numa coluna que já é apertada.
+- ~~Coluna não recebe o que já é dela~~ (pedido do usuário) — a zona
+  `marked-zone` fica `disabled` enquanto a pill arrastada é uma marcada de
+  hoje, então ela deixa de competir com as pills vizinhas por `over`. Pills
+  esmaecidas (marcadas em dia passado) continuam soltáveis na zona, porque
+  soltar uma delas ali re-marca para hoje. Com isso o fallback por
+  `collisions` do reorder deixou de ser necessário e foi removido.
 - **Ainda não coberto no navegador:** marcar por arraste (Target/Due →
   Marked), reorder com 5 pills, o divisor do Marked sem marcação atual e o
   arraste na view Backlog com task fechada na fila. Caveat do ajuste: com a
