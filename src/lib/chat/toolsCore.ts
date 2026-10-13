@@ -175,6 +175,58 @@ export const READ_TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'suggest_task_placement',
+    description:
+      'Suggests where a new task should live in the field→project→section hierarchy, for when the user asks to create a task without naming a project or section. ' +
+      'Returns every active (not deleted, not done/cancelled) project grouped by field, each with its active sections — open task count and last activity per section/project as tie-breakers. ' +
+      'Does NOT rank or score candidates by name itself — match the task name against the returned names yourself (names mix Portuguese and English); use open_task_count and last_activity_at only to break ties between equally plausible sections. ' +
+      'Call this before inserting an orphan task (one with no section_id) so you can propose a placement instead of silently leaving it unsectioned. ' +
+      'The result may be truncated (see "truncated"/a section\'s "sections_truncated") when there are more active projects or sections than fit — if so, and nothing obviously fits, say that rather than guessing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            "The new task's name, to match by hand against returned project/section names.",
+        },
+        limit: {
+          type: ['integer', 'string'],
+          description:
+            'Max active projects to return. Default and cap 30. May be sent as a string.',
+        },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'suggest_task_estimate',
+    description:
+      'Suggests an estimate in minutes for a new task from historical actuals, for when the user asks to create a task without giving one. ' +
+      'Tries, in order: tasks done in the same section, then the same project, then tasks sharing a work_tag with that section/project, then tasks whose name shares a word with the given name — stopping at the first level that has any match. ' +
+      "Sums each matched task's closed task_logs into an actual-minutes figure, then returns the median and mean actual minutes across those tasks, plus the median of those tasks' own estimate column, up to 10 samples, and which basis was used. " +
+      "Returns {basis: 'none', n: 0} when nothing comparable is found — state that plainly as a guess rather than inventing a number.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: "The new task's name." },
+        section_id: {
+          type: 'string',
+          description:
+            'Section the task would belong to, if known. Tried first.',
+        },
+        project_id: {
+          type: 'string',
+          description:
+            'Project the task would belong to, if the section is not known but the project is.',
+        },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'search_schema',
     description:
       "Searches the database's schema (tables, columns, enum values, callable RPC functions) by keyword.",
@@ -308,7 +360,8 @@ export const OVERSIGHT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
         limit: {
           type: ['integer', 'string'],
-          description: 'Max notes to return, default 10, capped at 25. May be sent as a string.',
+          description:
+            'Max notes to return, default 10, capped at 25. May be sent as a string.',
         },
       },
       required: [],
@@ -492,6 +545,41 @@ async function backfillReason(
   if (error) console.error('backfillReason failed', error.message);
 }
 
+// Mirrors rangeDurationMinutes() in src/lib/range.ts, duplicated rather than
+// imported: a relative import here would need an explicit .ts extension to
+// resolve under Deno (supabase/functions/_shared/khaos.ts imports this file
+// by path), so toolsCore.ts stays import-free by convention. Returns null
+// for a still-open log (no upper bound) instead of 0, so callers can tell
+// "running" apart from "took no time".
+function closedRangeMinutes(rangeStr: unknown): number | null {
+  if (typeof rangeStr !== 'string') return null;
+  const inner = rangeStr.slice(1, -1);
+  const commaIdx = inner.indexOf(',');
+  if (commaIdx === -1) return null;
+  const startRaw = inner.slice(0, commaIdx).replace(/^"|"$/g, '').trim();
+  const endRaw = inner
+    .slice(commaIdx + 1)
+    .replace(/^"|"$/g, '')
+    .trim();
+  if (!startRaw || !endRaw) return null;
+  const start = new Date(startRaw);
+  const end = new Date(endRaw);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+}
+
+function median(nums: number[]): number | null {
+  if (!nums.length) return null;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function mean(nums: number[]): number | null {
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
 export async function executeTool(
   deps: ToolDeps,
   rawName: string,
@@ -534,6 +622,339 @@ export async function executeTool(
         .not('status', 'in', '(done,cancelled)');
       if (tasksError) throw new Error(tasksError.message);
       return { date, tasks: cleanPayload(tasks ?? []) };
+    }
+    case 'suggest_task_placement': {
+      const a = args as { name?: unknown; limit?: unknown };
+      const taskName = typeof a.name === 'string' ? a.name : '';
+      const PROJECT_LIMIT = Math.min(coerceInt(a.limit, 30), 30);
+      const SECTIONS_PER_PROJECT = 12;
+
+      const {
+        data: projectRows,
+        error: pErr,
+        count: projectCount,
+      } = await db
+        .from('projects')
+        .select('id, name, status, field_id', { count: 'exact' })
+        .is('deleted_at', null)
+        .not('status', 'in', '(done,cancelled)')
+        .order('name', { ascending: true })
+        .limit(PROJECT_LIMIT);
+      if (pErr) throw new Error(pErr.message);
+
+      const projects = (projectRows ?? []) as {
+        id: string;
+        name: string;
+        status: string;
+        field_id: string | null;
+      }[];
+      const projectIds = projects.map((p) => p.id);
+
+      const { data: sectionRows, error: secErr } = projectIds.length
+        ? await db
+            .from('sections')
+            .select('id, name, status, is_infinite, project_id')
+            .in('project_id', projectIds)
+            .is('deleted_at', null)
+            .not('status', 'in', '(done,cancelled)')
+        : { data: [], error: null };
+      if (secErr) throw new Error(secErr.message);
+      const sections = (sectionRows ?? []) as {
+        id: string;
+        name: string;
+        status: string;
+        is_infinite: boolean;
+        project_id: string;
+      }[];
+      const sectionIds = sections.map((s) => s.id);
+
+      const { data: taskRows, error: tErr } = sectionIds.length
+        ? await db
+            .from('tasks')
+            .select('section_id')
+            .in('section_id', sectionIds)
+            .is('deleted_at', null)
+            .not('status', 'in', '(done,cancelled)')
+        : { data: [], error: null };
+      if (tErr) throw new Error(tErr.message);
+      const openTaskCountBySection = new Map<string, number>();
+      for (const row of (taskRows ?? []) as { section_id: string | null }[]) {
+        if (!row.section_id) continue;
+        openTaskCountBySection.set(
+          row.section_id,
+          (openTaskCountBySection.get(row.section_id) ?? 0) + 1
+        );
+      }
+
+      const { data: momentRows, error: mErr } = await db
+        .from('moments')
+        .select('project_id, section_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (mErr) throw new Error(mErr.message);
+      const lastActivityByProject = new Map<string, string>();
+      const lastActivityBySection = new Map<string, string>();
+      for (const row of (momentRows ?? []) as {
+        project_id: string | null;
+        section_id: string | null;
+        created_at: string;
+      }[]) {
+        if (row.project_id && !lastActivityByProject.has(row.project_id)) {
+          lastActivityByProject.set(row.project_id, row.created_at);
+        }
+        if (row.section_id && !lastActivityBySection.has(row.section_id)) {
+          lastActivityBySection.set(row.section_id, row.created_at);
+        }
+      }
+
+      const fieldIds = Array.from(
+        new Set(
+          projects
+            .map((p) => p.field_id)
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+      const { data: fieldRows, error: fErr } = fieldIds.length
+        ? await db.from('fields').select('id, name').in('id', fieldIds)
+        : { data: [], error: null };
+      if (fErr) throw new Error(fErr.message);
+      const fieldNameById = new Map(
+        ((fieldRows ?? []) as { id: string; name: string }[]).map((f) => [
+          f.id,
+          f.name,
+        ])
+      );
+
+      const sectionsByProject = new Map<string, typeof sections>();
+      for (const s of sections) {
+        const list = sectionsByProject.get(s.project_id) ?? [];
+        list.push(s);
+        sectionsByProject.set(s.project_id, list);
+      }
+
+      const projectSummaries = projects.map((p) => {
+        const projectSections = (sectionsByProject.get(p.id) ?? [])
+          .slice()
+          .sort((x, y) =>
+            (lastActivityBySection.get(y.id) ?? '').localeCompare(
+              lastActivityBySection.get(x.id) ?? ''
+            )
+          );
+        return {
+          id: p.id,
+          name: p.name,
+          status: p.status,
+          field_id: p.field_id,
+          field_name: p.field_id
+            ? (fieldNameById.get(p.field_id) ?? null)
+            : null,
+          last_activity_at: lastActivityByProject.get(p.id) ?? null,
+          sections: projectSections.slice(0, SECTIONS_PER_PROJECT).map((s) => ({
+            id: s.id,
+            name: s.name,
+            status: s.status,
+            is_infinite: s.is_infinite,
+            open_task_count: openTaskCountBySection.get(s.id) ?? 0,
+            last_activity_at: lastActivityBySection.get(s.id) ?? null,
+          })),
+          sections_truncated: projectSections.length > SECTIONS_PER_PROJECT,
+        };
+      });
+
+      return cleanPayload({
+        task_name: taskName,
+        projects: projectSummaries,
+        truncated: (projectCount ?? projects.length) > projects.length,
+      });
+    }
+    case 'suggest_task_estimate': {
+      const a = args as {
+        name?: unknown;
+        section_id?: unknown;
+        project_id?: unknown;
+      };
+      const taskName = typeof a.name === 'string' ? a.name : '';
+      const sectionId =
+        typeof a.section_id === 'string' ? a.section_id : undefined;
+      const projectId =
+        typeof a.project_id === 'string' ? a.project_id : undefined;
+
+      const CANDIDATE_LIMIT = 40;
+      let basis: 'section' | 'project' | 'work_tag' | 'name_tokens' | 'none' =
+        'none';
+      let taskIds: string[] = [];
+
+      if (sectionId) {
+        const { data, error } = await db
+          .from('tasks')
+          .select('id')
+          .eq('section_id', sectionId)
+          .eq('status', 'done')
+          .is('deleted_at', null)
+          .limit(CANDIDATE_LIMIT);
+        if (error) throw new Error(error.message);
+        taskIds = (data ?? []).map((r: { id: string }) => r.id);
+        if (taskIds.length) basis = 'section';
+      }
+
+      if (!taskIds.length && projectId) {
+        const { data: sectionRows, error: sErr } = await db
+          .from('sections')
+          .select('id')
+          .eq('project_id', projectId)
+          .is('deleted_at', null);
+        if (sErr) throw new Error(sErr.message);
+        const sectionIds = (sectionRows ?? []).map((r: { id: string }) => r.id);
+        if (sectionIds.length) {
+          const { data, error } = await db
+            .from('tasks')
+            .select('id')
+            .in('section_id', sectionIds)
+            .eq('status', 'done')
+            .is('deleted_at', null)
+            .limit(CANDIDATE_LIMIT);
+          if (error) throw new Error(error.message);
+          taskIds = (data ?? []).map((r: { id: string }) => r.id);
+          if (taskIds.length) basis = 'project';
+        }
+      }
+
+      if (!taskIds.length && (sectionId || projectId)) {
+        const tagIdSet = new Set<string>();
+        for (const [column, value] of [
+          ['section_id', sectionId],
+          ['project_id', projectId],
+        ] as const) {
+          if (!value) continue;
+          const { data, error } = await db
+            .from('work_tag_entities')
+            .select('work_tag_id')
+            .eq(column, value);
+          if (error) throw new Error(error.message);
+          for (const row of (data ?? []) as {
+            work_tag_id: string | null;
+          }[]) {
+            if (row.work_tag_id) tagIdSet.add(row.work_tag_id);
+          }
+        }
+        if (tagIdSet.size) {
+          const { data: taggedEntities, error } = await db
+            .from('work_tag_entities')
+            .select('task_id')
+            .in('work_tag_id', Array.from(tagIdSet))
+            .not('task_id', 'is', null);
+          if (error) throw new Error(error.message);
+          const candidateIds = Array.from(
+            new Set(
+              (taggedEntities ?? [])
+                .map((r: { task_id: string | null }) => r.task_id)
+                .filter((id): id is string => Boolean(id))
+            )
+          );
+          if (candidateIds.length) {
+            const { data, error: tErr } = await db
+              .from('tasks')
+              .select('id')
+              .in('id', candidateIds)
+              .eq('status', 'done')
+              .is('deleted_at', null)
+              .limit(CANDIDATE_LIMIT);
+            if (tErr) throw new Error(tErr.message);
+            taskIds = (data ?? []).map((r: { id: string }) => r.id);
+            if (taskIds.length) basis = 'work_tag';
+          }
+        }
+      }
+
+      if (!taskIds.length && taskName.trim()) {
+        const tokens = taskName
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((t) => t.length >= 4)
+          .slice(0, 5);
+        if (tokens.length) {
+          const orExpr = tokens.map((t) => `name.ilike.%${t}%`).join(',');
+          const { data, error } = await db
+            .from('tasks')
+            .select('id')
+            .or(orExpr)
+            .eq('status', 'done')
+            .is('deleted_at', null)
+            .limit(CANDIDATE_LIMIT);
+          if (error) throw new Error(error.message);
+          taskIds = (data ?? []).map((r: { id: string }) => r.id);
+          if (taskIds.length) basis = 'name_tokens';
+        }
+      }
+
+      if (!taskIds.length) {
+        return { basis: 'none', n: 0 };
+      }
+
+      const { data: logRows, error: logErr } = await db
+        .from('task_logs')
+        .select('task_id, duration')
+        .in('task_id', taskIds);
+      if (logErr) throw new Error(logErr.message);
+
+      const minutesByTask = new Map<string, number>();
+      for (const row of (logRows ?? []) as {
+        task_id: string | null;
+        duration: unknown;
+      }[]) {
+        if (!row.task_id) continue;
+        const minutes = closedRangeMinutes(row.duration);
+        if (minutes === null) continue;
+        minutesByTask.set(
+          row.task_id,
+          (minutesByTask.get(row.task_id) ?? 0) + minutes
+        );
+      }
+
+      const actualMinutes = Array.from(minutesByTask.values());
+      if (!actualMinutes.length) {
+        return { basis: 'none', n: 0 };
+      }
+
+      const { data: taskRows, error: taskErr } = await db
+        .from('tasks')
+        .select('id, name, estimate')
+        .in('id', Array.from(minutesByTask.keys()));
+      if (taskErr) throw new Error(taskErr.message);
+
+      const estimateMinutes = (
+        (taskRows ?? []) as {
+          id: string;
+          name: string;
+          estimate: number | null;
+        }[]
+      )
+        .map((t) => t.estimate)
+        .filter((e): e is number => typeof e === 'number');
+
+      const samples = (
+        (taskRows ?? []) as {
+          id: string;
+          name: string;
+          estimate: number | null;
+        }[]
+      )
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          estimate: t.estimate ?? null,
+          actual_minutes: minutesByTask.get(t.id) ?? null,
+        }))
+        .slice(0, 10);
+
+      return cleanPayload({
+        basis,
+        n: actualMinutes.length,
+        median_actual_minutes: median(actualMinutes),
+        mean_actual_minutes: mean(actualMinutes),
+        median_estimate_minutes: median(estimateMinutes),
+        samples,
+      });
     }
     case 'search_schema': {
       const a = args as { query?: unknown };
@@ -619,7 +1040,9 @@ export async function executeTool(
       const lim = Math.min(coerceInt(a.limit, 10), 25);
       const { data, error } = await db
         .from('oversight_notes')
-        .select('summary,entity_refs,severity,window_start,window_end,created_at')
+        .select(
+          'summary,entity_refs,severity,window_start,window_end,created_at'
+        )
         .gt('created_at', since)
         .order('created_at', { ascending: false })
         .limit(lim);
