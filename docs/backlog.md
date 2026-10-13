@@ -1577,6 +1577,84 @@ versioning" em `supabase/functions/telegram-bot/README.md`) — bumpá-lo à mã
 nesta PR colidiria com esse workflow. Nenhum dos dois foi tocado aqui por
 estarem fora do escopo real deste PR, não por omissão.
 
+**Revisão automatizada do PR #89 (2026-10-13).** Revisão só do diff, sem o
+contexto das decisões tomadas durante a implementação.
+
+Corrigido direto no branch do PR (sem mudança de comportamento):
+
+- ~~`[functions.google-calendar-sync]` em `supabase/config.toml` não tinha
+  `import_map`~~ — toda função que importa um especificador bare o declara
+  (`telegram-bot`/`telegram-notify`/`oversight-agent`), e não existe
+  `deno.json` de projeto; sem essa linha o `supabase functions deploy`
+  não resolveria `@supabase/supabase-js`. O deploy quebraria, não a
+  typecheck local (que resolve via `node_modules`).
+- ~~Parsing de `tstzrange` duplicado~~ — `parseRange`/`rangeLiteral` saíram
+  de `google-calendar-sync/index.ts` para
+  `supabase/functions/_shared/range.ts`, junto com o `parseRangeLower` que
+  era uma terceira cópia dentro de `telegram-notify/index.ts`; as duas
+  funções agora importam de lá.
+- ~~Boilerplate repetido em `google-calendar-sync`~~ — `eventPath()` para a
+  URL de um evento do Google (4 ocorrências), `patchEvent()` para o
+  `update(...).eq('id', ...)` em `events` (5 ocorrências) e
+  `conflictDetail()` para a string de conflito (2 ocorrências).
+- ~~`text-xs` na faixa de status do `CalendarPage`~~ → `text-caption`, que é
+  o token do design system (165 usos no `src/`, contra 15 de `text-xs`) e o
+  que o próprio `EventModal` desta PR usa.
+
+Como a PR #89 **já estava merged** (merge commit `20b59a3`, 2026-10-13
+05:17Z, seguido do `chore: release v3.0.1`) quando a revisão rodou, esses
+quatro consertos não cabiam mais no branch dela: foram para um PR de
+follow-up a partir do `main`. Os achados bloqueantes abaixo estão como
+comentários de revisão na #89, ancorados no commit `81ce453`.
+
+Achados **bloqueantes** comentados no PR, para o usuário decidir:
+
+1. **A fila de push não tem claim.** `runPush` lê as linhas `sync_dirty` e só
+   limpa a marca depois do round-trip ao Google. Duas execuções sobrepostas
+   (o cron é a cada 5 min e o `waitUntil` responde 200 na hora, então
+   sobreposição é possível assim que uma rodada passar de 5 min) fazem dois
+   `POST` para a mesma linha e deixam um evento órfão no Google; e uma edição
+   do usuário que caia entre o `SELECT` e o `update` final é perdida para
+   sempre (`sync_dirty` volta a `false`). Opções: lock de execução
+   (`pg_try_advisory_lock`), ou claim por linha antes do push.
+2. **O full sync é um N+1 sem progresso persistido.** Cada item do `pull` faz
+   seu próprio `SELECT` + 2–3 writes, e o `sync_token` só é gravado no fim de
+   todas as páginas; com `singleEvents=true` e sem `timeMax`, um calendário
+   com recorrências gera milhares de instâncias — se a execução estourar o
+   tempo da Edge Function, nada é gravado e o full sync recomeça do zero
+   indefinidamente. Opções: batelada por página, progresso resumível, ou
+   limitar o full sync com `timeMax`.
+3. **Evento de dia inteiro vira evento com hora no round-trip.** O `pull`
+   importa dia inteiro como `[00:00, 00:00 do dia seguinte)`; qualquer edição
+   local depois disso faz o `push` mandar `start.dateTime`/`end.dateTime`, e
+   o Google converte o evento de dia inteiro em evento com hora — para todos
+   os participantes. Opções: registrar a all-day-ness numa coluna, inferir
+   pelos limites, ou mandar no `PATCH` só os campos que mudaram.
+4. **A afirmação de que importar em massa não cria `moments` é falsa.**
+   `trg_moment_scheduled` não descarta eventos sem `task_id`/`project_id`:
+   cai no ramo `else v_column := 'event_id'` e grava o moment mesmo assim
+   (`insert_moment` aceita `'event_id'` na whitelist). Cada evento importado
+   gera um `moments` do tipo `scheduled`, e cada mudança de `duration` vinda
+   do `pull` gera outro. O `oversight-agent` escapa por acidente (não
+   seleciona `event_id`, então `entityRef()` devolve `null` e ele pula a
+   linha), mas o raciocínio registrado na investigação acima e a verificação
+   manual do README estão errados.
+5. **O bump manual de `package.json` para 3.0.0** contradizia a própria nota
+   desta PR e o `.github/workflows/bump-version.yml` (que faz `version patch`
+   a partir do `main` depois do merge), e deixou o `package-lock.json` em
+   2.1.2. Já consumado: o workflow patchou o 3.0.0 manual e o `main` saiu em
+   **3.0.1**, pulando a linha 2.x inteira sem nenhuma decisão de major
+   registrada (o lockfile se corrigiu sozinho, porque o workflow commita os
+   dois). Resta decidir se 3.0.1 é a versão desejada ou se vale um
+   `3.0.x`→ correção explícita, e manter o bump fora das PRs.
+
+**Verificação da revisão.** `npm run typecheck`, `npm run lint` (zero
+warnings) e `deno check` limpos depois dos quatro consertos acima. Nota: o
+`prettier --check` já acusava `google-calendar-sync/index.ts` e
+`CalendarPage.tsx` **antes** desta revisão (o script `format` só cobre
+`src/**/*`, e o gate de CI é só o eslint), então o estilo dos dois arquivos
+foi deixado como estava em vez de reformatar e inflar o diff.
+
 ---
 
 ## Resolved

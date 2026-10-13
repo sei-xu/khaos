@@ -30,6 +30,7 @@
 // attendees of a no-op "update".
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { parseRange, rangeLiteral } from '../_shared/range.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -77,28 +78,6 @@ interface GoogleEventItem {
   attendees?: { self?: boolean; responseStatus?: string }[];
 }
 
-// --- tstzrange <-> Date helpers ---------------------------------------------
-
-function parseRange(range: string | null): { start: Date; end: Date } | null {
-  if (!range) return null;
-  const m = range.match(/^[[(]\s*"?([^",]+?)"?\s*,\s*"?([^",)\]]+?)"?\s*[)\]]$/);
-  if (!m) return null;
-  const parse = (s: string): Date | null => {
-    let v = s.trim().replace(' ', 'T');
-    v = v.replace(/([+-]\d{2})$/, '$1:00');
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const start = parse(m[1]);
-  const end = parse(m[2]);
-  if (!start || !end) return null;
-  return { start, end };
-}
-
-function rangeLiteral(start: Date, end: Date): string {
-  return `["${start.toISOString()}","${end.toISOString()}")`;
-}
-
 // --- logging -----------------------------------------------------------
 
 type Direction = 'push' | 'pull';
@@ -127,6 +106,24 @@ async function pruneLog(): Promise<void> {
   if (error) console.error('pruneLog failed', error.message);
 }
 
+// The four places that address a single Google event by URL.
+function eventPath(calendarId: string, googleEventId: string): string {
+  return `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`;
+}
+
+// Writes only columns the trigger does not watch (the google_* / sync_dirty
+// set), so it never re-marks the row dirty. Pull mutations that do touch a
+// watched column go through applySyncedUpdate() instead.
+async function patchEvent(id: string, patch: Record<string, unknown>): Promise<void> {
+  const { error } = await db.from('events').update(patch).eq('id', id);
+  if (error) console.error('patchEvent failed', id, error.message);
+}
+
+// Detail recorded on either side's conflict: the local edit that lost.
+function conflictDetail(discardedName: string): string {
+  return `local edit discarded; Google version kept (local name was "${discardedName}")`;
+}
+
 // Writes a change that touches a trigger-watched column (name, duration,
 // event_type, deleted_at) and then clears sync_dirty in a second write, so
 // the trigger's forced re-dirty doesn't start a ping-pong. See file header.
@@ -136,11 +133,7 @@ async function applySyncedUpdate(id: string, patch: Record<string, unknown>): Pr
     console.error('applySyncedUpdate failed', id, error.message);
     return;
   }
-  const { error: clearError } = await db
-    .from('events')
-    .update({ sync_dirty: false })
-    .eq('id', id);
-  if (clearError) console.error('clearing sync_dirty failed', id, clearError.message);
+  await patchEvent(id, { sync_dirty: false });
 }
 
 // --- account / tokens --------------------------------------------------
@@ -215,7 +208,7 @@ function toGoogleEventBody(row: EventRow): Record<string, unknown> {
 async function handlePushConflict(row: EventRow, calendarId: string, accessToken: string): Promise<void> {
   if (!row.google_event_id) return;
   const res = await googleFetch(
-    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(row.google_event_id)}`,
+    eventPath(calendarId, row.google_event_id),
     { method: 'GET' },
     accessToken
   );
@@ -233,15 +226,9 @@ async function handlePushConflict(row: EventRow, calendarId: string, accessToken
     patch.name = parsed.name;
     patch.duration = parsed.duration;
   }
-  const discardedName = row.name;
+  const detail = conflictDetail(row.name);
   await applySyncedUpdate(row.id, patch);
-  await logSync(
-    'push',
-    'conflict',
-    row.id,
-    row.google_event_id,
-    `local edit discarded; Google version kept (local name was "${discardedName}")`
-  );
+  await logSync('push', 'conflict', row.id, row.google_event_id, detail);
 }
 
 async function pushOne(row: EventRow, account: Account, accessToken: string): Promise<void> {
@@ -250,25 +237,22 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
 
   if (needsDelete) {
     if (!row.google_event_id) {
-      await db.from('events').update({ sync_dirty: false }).eq('id', row.id);
+      await patchEvent(row.id, { sync_dirty: false });
       return;
     }
     const res = await googleFetch(
-      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(row.google_event_id)}`,
+      eventPath(calendarId, row.google_event_id),
       { method: 'DELETE' },
       accessToken
     );
     if (res.ok || res.status === 404 || res.status === 410) {
-      await db
-        .from('events')
-        .update({
-          google_event_id: null,
-          google_calendar_id: null,
-          google_etag: null,
-          google_synced_at: new Date().toISOString(),
-          sync_dirty: false,
-        })
-        .eq('id', row.id);
+      await patchEvent(row.id, {
+        google_event_id: null,
+        google_calendar_id: null,
+        google_etag: null,
+        google_synced_at: new Date().toISOString(),
+        sync_dirty: false,
+      });
       await logSync('push', 'deleted', row.id, row.google_event_id, null);
     } else {
       await logSync('push', 'error', row.id, row.google_event_id, `delete failed: ${res.status} ${await res.text()}`);
@@ -281,13 +265,13 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
     body = toGoogleEventBody(row);
   } catch (err) {
     await logSync('push', 'error', row.id, row.google_event_id, String(err));
-    await db.from('events').update({ sync_dirty: false }).eq('id', row.id);
+    await patchEvent(row.id, { sync_dirty: false });
     return;
   }
 
   if (row.google_event_id) {
     const res = await googleFetch(
-      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(row.google_event_id)}`,
+      eventPath(calendarId, row.google_event_id),
       {
         method: 'PATCH',
         headers: row.google_etag ? { 'If-Match': row.google_etag } : undefined,
@@ -304,14 +288,11 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
       return;
     }
     const updated = (await res.json()) as GoogleEventItem;
-    await db
-      .from('events')
-      .update({
-        google_etag: updated.etag ?? null,
-        google_synced_at: new Date().toISOString(),
-        sync_dirty: false,
-      })
-      .eq('id', row.id);
+    await patchEvent(row.id, {
+      google_etag: updated.etag ?? null,
+      google_synced_at: new Date().toISOString(),
+      sync_dirty: false,
+    });
     await logSync('push', 'updated', row.id, row.google_event_id, null);
   } else {
     const res = await googleFetch(
@@ -324,16 +305,13 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
       return;
     }
     const created = (await res.json()) as GoogleEventItem;
-    await db
-      .from('events')
-      .update({
-        google_event_id: created.id,
-        google_calendar_id: calendarId,
-        google_etag: created.etag ?? null,
-        google_synced_at: new Date().toISOString(),
-        sync_dirty: false,
-      })
-      .eq('id', row.id);
+    await patchEvent(row.id, {
+      google_event_id: created.id,
+      google_calendar_id: calendarId,
+      google_etag: created.etag ?? null,
+      google_synced_at: new Date().toISOString(),
+      sync_dirty: false,
+    });
     await logSync('push', 'created', row.id, created.id, null);
   }
 }
@@ -419,7 +397,7 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
 
   if (existing) {
     const conflict = Boolean(existing.sync_dirty && existing.google_etag && existing.google_etag !== (item.etag ?? null));
-    const discardedName = existing.name;
+    const detail = conflict ? conflictDetail(existing.name) : null;
     await applySyncedUpdate(existing.id, {
       name: parsed.name,
       duration: parsed.duration,
@@ -428,13 +406,7 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       google_etag: item.etag ?? null,
       google_synced_at: new Date().toISOString(),
     });
-    await logSync(
-      'pull',
-      conflict ? 'conflict' : 'updated',
-      existing.id,
-      googleId,
-      conflict ? `local edit discarded; Google version kept (local name was "${discardedName}")` : null
-    );
+    await logSync('pull', conflict ? 'conflict' : 'updated', existing.id, googleId, detail);
     return;
   }
 
@@ -466,7 +438,7 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
   // The trigger forces sync_dirty=true on INSERT for a 'fixed' row
   // regardless of what we pass; clear it so this import doesn't immediately
   // get pushed back to Google next cycle. See file header.
-  await db.from('events').update({ sync_dirty: false }).eq('id', inserted.id);
+  await patchEvent(inserted.id, { sync_dirty: false });
   await logSync('pull', 'created', inserted.id, googleId, null);
 }
 

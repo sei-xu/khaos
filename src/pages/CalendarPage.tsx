@@ -17,7 +17,7 @@ function GoogleCalendarStatusStrip() {
 
   if (!status.connected) {
     return (
-      <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-xs">
+      <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-caption">
         <CalendarX2 size={13} />
         Google Calendar not connected — see
         supabase/functions/google-calendar-sync/README.md to set it up.
@@ -29,7 +29,7 @@ function GoogleCalendarStatusStrip() {
     ? new Date(status.last_sync_at).toLocaleString()
     : 'never';
   return (
-    <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-xs">
+    <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-caption">
       <CalendarCheck2 size={13} />
       Google Calendar connected (fixed events only) — last sync: {lastSync}
       {status.last_error && (

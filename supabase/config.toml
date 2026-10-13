@@ -128,6 +128,10 @@ verify_jwt = false
 # telegram-notify), never by a browser, so the platform JWT gate is off. See
 # supabase/functions/google-calendar-sync/index.ts.
 verify_jwt = false
+# Maps the bare @supabase/supabase-js specifier this function imports to npm:
+# — there is no project-wide deno.json, so without this the deploy bundler
+# can't resolve it.
+import_map = "./functions/_shared/import_map.json"
 
 [analytics]
 enabled = false
