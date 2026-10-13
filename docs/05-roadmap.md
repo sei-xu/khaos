@@ -28,9 +28,11 @@ Sem um roadmap versionado explícito no repo — a lista abaixo é inferida do
 histórico de commits recente e deve ser tratada como um ponto de partida
 para discussão, não um compromisso:
 
-- Aprendizado histórico — tempo médio por `work_tag` a partir de
-  `task_logs`, o que o usuário mais adia (via moments `due`), sugestão de
-  estimativas
+- Aprendizado histórico — ~~sugestão de estimativa de uma tarefa nova a
+  partir de `task_logs` de tarefas comparáveis (mesma seção → mesmo projeto →
+  `work_tag` em comum → palavras do nome), via a tool `suggest_task_estimate`
+  (2026-10-13)~~; falta tempo médio por `work_tag` isolado (sem precisar de
+  uma tarefa candidata) e o que o usuário mais adia (via moments `due`)
 - Planejamento assistido — a IA sugerir ordem do dia respeitando
   `tasks_sequence`, `due`, `estimate` e eventos já marcados (agora que existe
   `tasks.backlog_rank` como lugar onde essa ordem mora, a IA pode também

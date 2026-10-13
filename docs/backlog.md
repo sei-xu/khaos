@@ -55,6 +55,7 @@ work that grows out of them. Roadmap phases live in
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Integração bidirecional com o Google Calendar (somente eventos fixed)](#integração-bidirecional-com-o-google-calendar-somente-eventos-fixed) | 2026-10-12 |
+| [Assistente sugere projeto, seção e estimativa ao criar tarefa](#assistente-sugere-projeto-seção-e-estimativa-ao-criar-tarefa) | 2026-10-13 |
 
 ---
 
@@ -1654,6 +1655,63 @@ warnings) e `deno check` limpos depois dos quatro consertos acima. Nota: o
 `CalendarPage.tsx` **antes** desta revisão (o script `format` só cobre
 `src/**/*`, e o gate de CI é só o eslint), então o estilo dos dois arquivos
 foi deixado como estava em vez de reformatar e inflar o diff.
+
+---
+
+## Assistente sugere projeto, seção e estimativa ao criar tarefa
+
+Hoje, se o usuário pede "cria uma tarefa X" sem dizer projeto/seção, a IA
+insere direto: `section_id` e `estimate` são ambos nullable no schema, então
+o insert passa sem erro e o resultado é uma tarefa órfã (sem seção) e sem
+estimativa — sem nenhum aviso. O prompt (`SYSTEM_INSTRUCTION`) nunca cobria
+esse caso, e as tools disponíveis eram só as genéricas de CRUD, sem
+agregação — derivar "quanto costuma levar algo parecido" por `query_rows`
+bruto custaria várias rodadas de tool use contra o teto `MAX_TOOL_ROUNDS = 6`.
+
+Duas tools de leitura novas em `toolsCore.ts` (compartilhadas pelo app web e
+pelo bot do Telegram, já que ambos importam o mesmo módulo):
+
+- `suggest_task_placement({ name, limit? })` — devolve a hierarquia ativa
+  (field→project→section, não deletada, status fora de done/cancelled) com
+  contagem de tarefas abertas e última atividade por seção/projeto como
+  critério de desempate. Deliberadamente sem score lexical — o casamento do
+  nome com as seções/projetos é feito pelo próprio modelo, já que os nomes
+  misturam português e inglês.
+- `suggest_task_estimate({ name, section_id?, project_id? })` — cascata de
+  base de comparação (mesma seção → mesmo projeto → `work_tag` em comum via
+  `work_tag_entities` → palavras do nome), soma os `task_logs` fechados das
+  tarefas `done` encontradas e devolve mediana/média de minutos reais, a
+  mediana do `estimate` dessas tarefas, até 10 amostras, e qual base foi
+  usada — ou `{basis: 'none', n: 0}` quando não há nada comparável.
+
+Novo bloco no `SYSTEM_INSTRUCTION` ("TASK CREATION — PLACEMENT AND
+ESTIMATE"): ao criar tarefa sem projeto/seção, chamar `suggest_task_placement`
+antes de inserir, propor a melhor colocação + até duas alternativas numa
+linha curta, com a estimativa de `suggest_task_estimate` sempre dizendo a
+base (ou marcando como chute quando `n = 0`), e só criar depois da
+confirmação. Dois atalhos para criar direto, só informando a escolha: o
+usuário já disse algo como "só adiciona", ou o prefixo `[UI Context: user is
+currently looking at ...]` (que o `useChatAgent.ts` já injeta, mas que o
+prompt nunca explicava) já aponta um projeto/seção. Se nada servir, a IA
+propõe criar uma seção/projeto novo ou deixar a tarefa sem seção, nunca
+escolhendo em silêncio. Ao gravar `estimate`/`section_id` a partir dessas
+sugestões, o `reason` passado documenta a base, fechando com a regra de
+`reason` que já existia para o `moment_note`.
+
+Fecha uma fatia do item "Aprendizado histórico" do roadmap (sugestão de
+estimativas a partir de `task_logs`) sem contradizer nada já registrado ali
+— ver `docs/05-roadmap.md`. Fora de escopo: `QuickAddBar`/`quickAdd.ts`
+(parsing client-side sem IA), qualquer RPC ou migração nova, e `section_id`
+segue nullable (tarefa sem seção continua válida).
+
+Verificação: `npm run typecheck`, `npm run lint` e `npm run build` limpos
+(sem suíte de testes no repo); `deno check
+supabase/functions/telegram-bot/index.ts` limpo, confirmando que
+`toolsCore.ts` continua sem imports de runtime e bundla no Deno sem a
+extensão `.ts` explícita. Checagem manual do fluxo completo (pedir tarefa
+sem projeto, com `[UI Context]` aberto, com seção explícita, e com nome sem
+histórico comparável) ainda pendente — fica para quem revisar o PR testar no
+app/Telegram antes de aprovar.
 
 ---
 
