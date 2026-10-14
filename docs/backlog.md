@@ -1026,6 +1026,12 @@ cada linha. Tasks `done` e `cancelled` nunca aparecem em nenhuma das duas:
 ambas passam por `OPEN_STATUSES` (a fila em `useBacklogTasks`, os candidatos
 em `BacklogList`).
 
+Sugestão do usuário aplicada: o `BacklogToggle` (na linha da task e no
+modal) mostra o número da posição na fila no lugar do ícone quando a task
+está enfileirada (`useBacklogPosition`, a mesma numeração da view Backlog e
+do badge do Today). Uma task com rank mas fora da fila aberta (ex.: rank
+órfão de task fechada) mantém o ícone.
+
 ---
 
 ## Nine unmerged branches — triage before cleanup

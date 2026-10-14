@@ -739,15 +739,26 @@ export function TodayToggle({
 // order (see src/hooks/useBacklog.ts); it carries no date, just a boolean.
 export function BacklogToggle({
   queued,
+  position,
   onToggle,
 }: {
   queued: boolean;
+  // 1-based place in the open backlog queue. When set, the number replaces
+  // the icon (a queued task that isn't in the open queue, e.g. a stale rank
+  // on a closed task, has none and keeps the icon).
+  position?: number | null;
   onToggle: () => void;
 }) {
   return (
     <button
       type="button"
-      title={queued ? 'In the backlog' : 'Add to backlog'}
+      title={
+        queued
+          ? position != null
+            ? `Backlog position ${position}`
+            : 'In the backlog'
+          : 'Add to backlog'
+      }
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
@@ -757,7 +768,13 @@ export function BacklogToggle({
         queued ? 'text-hypnos-400' : 'text-nyx-700 hover:text-nyx-400'
       )}
     >
-      <ListOrdered size={12} />
+      {queued && position != null ? (
+        <span className="flex h-3 min-w-3 items-center justify-center font-mono text-[10px] leading-none font-bold">
+          {position}
+        </span>
+      ) : (
+        <ListOrdered size={12} />
+      )}
     </button>
   );
 }
