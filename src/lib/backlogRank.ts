@@ -70,3 +70,104 @@ export function rebalanceRanks<
   });
   return updates;
 }
+
+// Ranks to write after one of today's Marked pills is dropped somewhere in
+// the Marked list, so that the list's *displayed* order sticks.
+//
+// `order` is today's current Marked pills in the new display order (queued
+// ones first by rank, then the unqueued ones) and `queue` the global open
+// queue, ascending. Position only exists relative to other queued tasks, so
+// the moved pill and every unqueued pill above it are placed in the queue,
+// in the displayed order; queued pills keep their ranks and pills below the
+// drop point are left alone (still unqueued if they were). New ranks are
+// slotted immediately after the queued pill above (or just before the first
+// queued pill below, or at the end of the queue), never across other tasks,
+// so tasks that aren't marked today don't get reordered.
+//
+// Falls back to a full rebalance of the resulting queue when the gap is too
+// small for midpoints.
+export function planMarkedReorder(
+  queue: { id: Id; backlog_rank: number | null }[],
+  order: { id: Id; backlog_rank: number | null }[],
+  movedId: Id
+): { id: Id; backlog_rank: number }[] {
+  const movedIndex = order.findIndex((t) => t.id === movedId);
+  if (movedIndex === -1) return [];
+
+  const assignIds = new Set(
+    order
+      .filter(
+        (t, i) =>
+          i <= movedIndex && (t.id === movedId || t.backlog_rank === null)
+      )
+      .map((t) => t.id)
+  );
+  // The queue minus the pills being (re)placed, still ascending.
+  const rest = queue.filter((t) => !assignIds.has(t.id));
+
+  const writes: { id: Id; backlog_rank: number }[] = [];
+  const placements: {
+    anchorId: Id | null;
+    beforeId: Id | null;
+    run: { id: Id; backlog_rank: number | null }[];
+  }[] = [];
+  let tooTight = false;
+
+  let i = 0;
+  while (i <= movedIndex) {
+    if (!assignIds.has(order[i].id)) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j + 1 <= movedIndex && assignIds.has(order[j + 1].id)) j++;
+    const run = order.slice(i, j + 1);
+    const m = run.length;
+    const anchor = i > 0 ? order[i - 1] : null;
+    const below = order
+      .slice(j + 1)
+      .find((t) => t.backlog_rank !== null && !assignIds.has(t.id));
+
+    let lo: number;
+    let hi: number;
+    if (anchor) {
+      lo = anchor.backlog_rank as number;
+      const next = rest.find((t) => (t.backlog_rank as number) > lo);
+      hi = next ? (next.backlog_rank as number) : lo + RANK_STEP * (m + 1);
+    } else if (below) {
+      hi = below.backlog_rank as number;
+      const prev = [...rest]
+        .reverse()
+        .find((t) => (t.backlog_rank as number) < hi);
+      lo = prev ? (prev.backlog_rank as number) : hi - RANK_STEP * (m + 1);
+    } else {
+      lo = rest.length ? (rest[rest.length - 1].backlog_rank as number) : 0;
+      hi = lo + RANK_STEP * (m + 1);
+    }
+
+    const gap = (hi - lo) / (m + 1);
+    if (gap < MIN_GAP) tooTight = true;
+    run.forEach((t, k) =>
+      writes.push({ id: t.id, backlog_rank: lo + gap * (k + 1) })
+    );
+    placements.push({
+      anchorId: anchor ? anchor.id : null,
+      beforeId: !anchor && below ? below.id : null,
+      run,
+    });
+    i = j + 1;
+  }
+
+  if (!tooTight) return writes;
+
+  const final = [...rest];
+  for (const { anchorId, beforeId, run } of placements) {
+    const at = anchorId
+      ? final.findIndex((t) => t.id === anchorId) + 1
+      : beforeId
+        ? final.findIndex((t) => t.id === beforeId)
+        : final.length;
+    final.splice(at, 0, ...run);
+  }
+  return rebalanceRanks(final);
+}

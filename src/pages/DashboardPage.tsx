@@ -47,6 +47,7 @@ import {
   useTodayMutations,
 } from '../hooks/useMoments';
 import { useBacklogTasks, useBacklogMutations } from '../hooks/useBacklog';
+import { planMarkedReorder } from '../lib/backlogRank';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
 import { parseRange, targetEnd } from '../lib/range';
@@ -364,7 +365,7 @@ export default function DashboardPage() {
   const { mark } = useTodayMutations();
   const { create: createEvent } = useEventMutations();
   const backlogTasks = useBacklogTasks();
-  const { reorder: reorderBacklog } = useBacklogMutations();
+  const { applyRanks: applyBacklogRanks } = useBacklogMutations();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isMutating = useIsMutating();
@@ -467,11 +468,11 @@ export default function DashboardPage() {
     )
   );
   const markedShownIds = new Set(markedPills.map((p) => p.task.id));
-  // Drag-reorder within Marked is restricted to today's current marks that
-  // are already in the backlog queue — their backlog_rank gives a real
-  // neighborhood to compute a new rank from (see handleDragEnd below).
-  // Unranked current marks and stale past marks still show, just not
-  // sortable (add them to the backlog first via BacklogToggle).
+  // Today's current marks are all drag-sortable: queued ones first (by
+  // backlog_rank), then the unqueued ones. Dropping a pill places it — and
+  // any unqueued pill above it — in the backlog queue in the displayed
+  // order (see planMarkedReorder / handleDragEnd). Stale past marks are not
+  // part of this: dropping one on the zone re-marks it for today instead.
   const markedRankedCurrent = markedPills
     .filter((p) => !p.faded && p.task.backlog_rank !== null)
     .map((p) => p.task);
@@ -479,6 +480,10 @@ export default function DashboardPage() {
     (p) => !p.faded && p.task.backlog_rank === null
   );
   const markedPast = markedPills.filter((p) => p.faded);
+  const markedCurrent = [
+    ...markedRankedCurrent,
+    ...markedUnrankedCurrent.map((p) => p.task),
+  ];
   // Ids of today's (non-faded) Marked pills. A faded pill is deliberately
   // not in here: dropping it back on the zone re-marks it for today.
   const currentMarkedIds = new Set([
@@ -591,37 +596,39 @@ export default function DashboardPage() {
     const task = tasksById.get(String(active.id));
     if (!task) return;
 
-    // Reordering a ranked Marked pill. The new rank is always computed on
-    // the *global* backlog queue (backlogTasks), never on the Marked subset:
-    // a midpoint between two marked neighbors can land exactly on the rank
-    // of an unmarked task queued between them, producing duplicate ranks.
+    // Reordering within Marked: any of today's marks can be dropped on any
+    // other. The ranks come from planMarkedReorder, computed on the *global*
+    // queue (never on the Marked subset), so a rank is always slotted between
+    // two real neighbors and can't collide with an unmarked task.
     //
     // The 'marked-zone' droppable is disabled while a current Marked pill is
     // dragged (see PillGroup.ownPillIds): enabled, it wraps the pills and
     // wins `over` against a neighbor under rectIntersection (IoU) when the
     // group is small, which turned the reorder into a silent no-op.
-    const markedRankedIds = new Set(markedRankedCurrent.map((t) => t.id));
-    if (markedRankedIds.has(String(active.id)) && over.id !== active.id) {
-      const overId = String(over.id);
-      const targetId = markedRankedIds.has(overId) ? overId : undefined;
-      if (targetId) {
-        const oldIndex = backlogTasks.findIndex((t) => t.id === active.id);
-        const newIndex = backlogTasks.findIndex((t) => t.id === targetId);
-        if (oldIndex !== -1 && newIndex !== -1) {
-          reorderBacklog.mutate({
-            taskId: task.id,
-            targetIndex: newIndex,
-            ordered: arrayMove(backlogTasks, oldIndex, newIndex),
-          });
-        }
-        return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (
+      currentMarkedIds.has(activeId) &&
+      currentMarkedIds.has(overId) &&
+      activeId !== overId
+    ) {
+      const from = markedCurrent.findIndex((t) => t.id === activeId);
+      const to = markedCurrent.findIndex((t) => t.id === overId);
+      if (from !== -1 && to !== -1) {
+        const writes = planMarkedReorder(
+          backlogTasks,
+          arrayMove(markedCurrent, from, to),
+          activeId
+        );
+        if (writes.length) applyBacklogRanks.mutate(writes);
       }
+      return;
     }
 
-    // Dropping on the Marked group — its zone or any ranked pill inside it,
-    // since a pill can be `over` instead of the zone — marks the task for
-    // today. (A pill already marked is a no-op, not a reorder.)
-    if (over.id === 'marked-zone' || markedRankedIds.has(String(over.id))) {
+    // Dropping on the Marked group — its zone or any current pill inside
+    // it, since a pill can be `over` instead of the zone — marks the task
+    // for today. (A pill already marked is a no-op, not a reorder.)
+    if (over.id === 'marked-zone' || currentMarkedIds.has(overId)) {
       if (!markedTaskIds.has(task.id)) mark.mutate(task.id);
       return;
     }
@@ -690,10 +697,10 @@ export default function DashboardPage() {
             ownPillIds={currentMarkedIds}
           >
             <SortableContext
-              items={markedRankedCurrent.map((t) => t.id)}
+              items={markedCurrent.map((t) => t.id)}
               strategy={verticalListSortingStrategy}
             >
-              {markedRankedCurrent.map((task) => {
+              {markedCurrent.map((task) => {
                 const project = projectForTask(task);
                 return (
                   <SortableTaskPill
@@ -716,29 +723,9 @@ export default function DashboardPage() {
                 );
               })}
             </SortableContext>
-            {markedUnrankedCurrent.map(({ task }) => {
-              const project = projectForTask(task);
-              return (
-                <TaskPill
-                  key={task.id}
-                  task={task}
-                  onOpen={openTask_}
-                  projectName={project?.name}
-                  projectField={fieldNameForProject(project)}
-                >
-                  <Star
-                    size={11}
-                    className="text-eros-400 shrink-0"
-                    fill="currentColor"
-                  />
-                  {task.due && <DueBadge due={task.due} status={task.status} />}
-                </TaskPill>
-              );
-            })}
-            {Boolean(markedPast.length) &&
-              Boolean(
-                markedRankedCurrent.length + markedUnrankedCurrent.length
-              ) && <hr className="border-nyx-700 my-1 w-full" />}
+            {Boolean(markedPast.length) && Boolean(markedCurrent.length) && (
+              <hr className="border-nyx-700 my-1 w-full" />
+            )}
             {markedPast.map(({ task }) => {
               const project = projectForTask(task);
               return (
