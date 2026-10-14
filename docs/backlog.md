@@ -1772,6 +1772,28 @@ preview passaram justamente porque usaram pills já enfileiradas.
 - **C — só deixar claro** (pills sem posição sem handle ativo, com dica
   "adicione ao backlog para ordenar"). Barato, não resolve a necessidade.
 
+**Decisão (2026-10-14): A.** Implementada no PR #93 (branch
+`worktree-fix-dnd-pill-drag-precision`), ainda sem verificação no navegador:
+
+- ~~Todas as marcadas de hoje ordenáveis~~ — passam a estar no mesmo
+  `SortableContext`, com ou sem número; as esmaecidas (dia passado) ficam
+  fora (soltar uma na zona re-marca para hoje).
+- ~~Regra de ranks~~ — `planMarkedReorder` (função pura em
+  `src/lib/backlogRank.ts`): a pill solta e as sem posição acima dela entram
+  na fila na ordem mostrada, encaixadas logo depois da pill com posição
+  acima (ou antes da primeira abaixo, ou no fim da fila), sem cruzar tasks
+  não marcadas; as já enfileiradas mantêm o rank e as abaixo do ponto de drop
+  não são tocadas. Se o espaço entre ranks ficar pequeno demais, cai em
+  rebalanceamento completo da fila.
+- Verificação da função pura (esbuild + node): 6 cenários — sem posição
+  entre com posição, para o topo, com posição abaixo de uma sem posição,
+  duas sem posição trocadas, fila vazia, com posição subindo — todos como
+  esperado, mais o caso de gap curto (rebalance).
+- **Falta:** teste no preview com tasks `QA backlog` sem posição (sem
+  posição entre sem posição; sem posição sobre com posição; desfazer pelo
+  toggle). Efeito colateral aceito: reordenar enfileira; o toggle do backlog
+  tira da fila com um clique.
+
 ---
 
 ## Campo de due: digitar o ano reinterpreta a cada dígito
