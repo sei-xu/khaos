@@ -13,7 +13,10 @@ import { minutesToHuman } from '../../lib/dateUtils';
 import { useSequenceCounts } from '../../hooks/useSequence';
 import { useScheduledTaskIds } from '../../hooks/useEvents';
 import { useTodayTaskIds, useTodayMutations } from '../../hooks/useMoments';
-import { useBacklogMutations } from '../../hooks/useBacklog';
+import {
+  useBacklogMutations,
+  useBacklogPosition,
+} from '../../hooks/useBacklog';
 import type { Task } from '../../lib/types';
 
 const DIMMED: Task['status'][] = ['done', 'cancelled'];
@@ -50,6 +53,7 @@ export default function TaskRow({
   const { add: addToBacklog, removeFromBacklog } = useBacklogMutations();
   const markedToday = Boolean(todayTaskIds?.has(task.id));
   const inBacklog = task.backlog_rank !== null;
+  const backlogPosition = useBacklogPosition(task.id);
   const opacity = dimmed ? (fadeOpacity ?? 0.38) : 1;
 
   return (
@@ -74,6 +78,7 @@ export default function TaskRow({
         />
         <BacklogToggle
           queued={inBacklog}
+          position={backlogPosition}
           onToggle={() =>
             inBacklog ? removeFromBacklog.mutate(task.id) : addToBacklog.mutate(task.id)
           }

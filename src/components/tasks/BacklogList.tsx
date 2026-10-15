@@ -20,19 +20,37 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useState } from 'react';
 import { GripVertical, X, Plus, ListOrdered } from 'lucide-react';
 import {
   EmptyState,
+  TextInput,
   StatusBadge,
   PriorityBadge,
   DueBadge,
   ProjectChip,
   IconAddButton,
 } from '../common/ui';
-import { OPEN_STATUSES } from '../../lib/constants';
+import { TargetBadge } from '../common/TargetEditor';
+import { OPEN_STATUSES, PRIORITIES } from '../../lib/constants';
 import { useBacklogTasks, useBacklogMutations } from '../../hooks/useBacklog';
 import type { ProjectInfo } from './TaskList';
 import type { Id, Task } from '../../lib/types';
+
+// "Not queued" order, so the list is stable and the likeliest candidates
+// come first (the tasks query has no ORDER BY, so the raw order is
+// whatever Postgres returns and shifts as rows are updated): higher
+// priority first, then the nearest due date (no due last), then name.
+function compareCandidates(a: Task, b: Task): number {
+  const byPriority =
+    PRIORITIES.indexOf(b.priority ?? 'medium') -
+    PRIORITIES.indexOf(a.priority ?? 'medium');
+  if (byPriority !== 0) return byPriority;
+  const dueA = a.due ? new Date(a.due).getTime() : Number.POSITIVE_INFINITY;
+  const dueB = b.due ? new Date(b.due).getTime() : Number.POSITIVE_INFINITY;
+  if (dueA !== dueB) return dueA < dueB ? -1 : 1;
+  return a.name.localeCompare(b.name);
+}
 
 interface BacklogRowProps {
   task: Task;
@@ -92,6 +110,7 @@ function BacklogRow({
         </span>
         <span className="flex shrink-0 flex-wrap items-center gap-1">
           <PriorityBadge priority={task.priority} />
+          <TargetBadge target={task.target as string | null} />
           <DueBadge due={task.due} status={task.status} />
           <ProjectChip
             name={projectInfo?.name}
@@ -127,6 +146,11 @@ function AddCandidateRow({ task, projectInfo, onAdd }: AddCandidateRowProps) {
       <span className="text-nyx-300 text-body min-w-0 flex-1 truncate">
         {task.name}
       </span>
+      <span className="flex shrink-0 flex-wrap items-center gap-1">
+        <PriorityBadge priority={task.priority} />
+        <TargetBadge target={task.target as string | null} />
+        <DueBadge due={task.due} status={task.status} />
+      </span>
       <ProjectChip
         name={projectInfo?.name}
         fieldName={projectInfo?.fieldName}
@@ -153,9 +177,23 @@ export default function BacklogList({
   const { reorder, removeFromBacklog, add } = useBacklogMutations();
 
   const queuedIds = new Set(backlog.map((t) => t.id));
-  const candidates = tasks.filter(
-    (t) => OPEN_STATUSES.includes(t.status) && !queuedIds.has(t.id)
-  );
+  const openCandidates = tasks
+    .filter((t) => OPEN_STATUSES.includes(t.status) && !queuedIds.has(t.id))
+    .sort(compareCandidates);
+
+  // Search only narrows the "Not queued" list (name or project/field); the
+  // queue above is global and is never filtered — see the BacklogListProps
+  // note on why reordering through a subset is unsafe.
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const candidates = query
+    ? openCandidates.filter((t) => {
+        const info = projectInfoById.get(t.id);
+        return [t.name, info?.name, info?.fieldName].some((text) =>
+          text?.toLowerCase().includes(query)
+        );
+      })
+    : openCandidates;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -217,7 +255,19 @@ export default function BacklogList({
 
       <div className="border-nyx-700 overflow-hidden rounded-lg border">
         <div className="border-nyx-700 bg-nyx-800 text-nyx-500 text-caption flex items-center gap-1.5 border-b px-3 py-2">
-          <Plus size={13} /> Not queued ({candidates.length})
+          <Plus size={13} /> Not queued (
+          {query
+            ? `${candidates.length} of ${openCandidates.length}`
+            : candidates.length}
+          )
+        </div>
+        <div className="border-nyx-700 border-b p-2">
+          <TextInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search not queued…"
+            aria-label="Search tasks not in the backlog"
+          />
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
           {candidates.length ? (
@@ -233,7 +283,9 @@ export default function BacklogList({
             </div>
           ) : (
             <p className="text-nyx-600 text-body px-1 py-2">
-              Every open task is already in the backlog.
+              {query
+                ? 'No tasks match this search.'
+                : 'Every open task is already in the backlog.'}
             </p>
           )}
         </div>

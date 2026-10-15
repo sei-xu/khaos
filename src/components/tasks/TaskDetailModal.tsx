@@ -71,7 +71,10 @@ import {
   useTodayTaskIds,
   useTodayMutations,
 } from '../../hooks/useMoments';
-import { useBacklogMutations } from '../../hooks/useBacklog';
+import {
+  useBacklogMutations,
+  useBacklogPosition,
+} from '../../hooks/useBacklog';
 import { useTaskSequence, useSequenceMutations } from '../../hooks/useSequence';
 import { wouldCreateCycle } from '../../lib/sequenceGraph';
 import type {
@@ -552,6 +555,7 @@ export default function TaskDetailModal({
   const markedToday = Boolean(todayTaskIds?.has(taskId));
   const { add: addToBacklog, removeFromBacklog } = useBacklogMutations();
   const inBacklog = task.backlog_rank !== null;
+  const backlogPosition = useBacklogPosition(task.id);
 
   const { data: allTasks = [] } = useTasks();
   const { data: seqEdges = [] } = useTasksSequence();
@@ -766,6 +770,7 @@ export default function TaskDetailModal({
           />
           <BacklogToggle
             queued={inBacklog}
+            position={backlogPosition}
             onToggle={() =>
               inBacklog
                 ? removeFromBacklog.mutate(taskId)

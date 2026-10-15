@@ -33,6 +33,14 @@ export function useBacklogTasks(): Task[] {
   );
 }
 
+// 1-based position of a task in the open backlog queue, or null when it
+// isn't in it. Same numbering as the Backlog view and Today's rank badge.
+export function useBacklogPosition(taskId: Id): number | null {
+  const queue = useBacklogTasks();
+  const index = queue.findIndex((t) => t.id === taskId);
+  return index === -1 ? null : index + 1;
+}
+
 export function useBacklogMutations() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['tasks'] });

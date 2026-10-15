@@ -51,6 +51,8 @@ work that grows out of them. Roadmap phases live in
 | [Target editor — pickers, largura, clamp, 23:59 fantasma, seções infinitas](#target-editor--pickers-largura-clamp-2359-fantasma-seções-infinitas) | 2026-10-07 |
 | [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 | [Backlog ordenado de tarefas (ordem do Today)](#backlog-ordenado-de-tarefas-ordem-do-today) | 2026-10-08 |
+| [Today: reordenar pills sem posição na fila (Marked)](#today-reordenar-pills-sem-posição-na-fila-marked) | 2026-10-14 |
+| [Campo de due: digitar o ano reinterpreta a cada dígito](#campo-de-due-digitar-o-ano-reinterpreta-a-cada-dígito) | 2026-10-14 |
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
@@ -1007,6 +1009,30 @@ Verificação: `npm run typecheck` e `npm run lint` limpos. A verificação
 manual (SQL + navegador + assistente) e `db:push`/`db:dump` continuam
 pendentes.
 
+**Busca em "Not queued" (2026-10-13).** Com ~300 tasks abertas fora da
+fila, achar uma para enfileirar na view Backlog exigia rolar a lista. A
+seção "Not queued" ganhou uma caixa de busca (nome da task ou nome do
+projeto/campo), com o contador mostrando "n of total" enquanto há busca. A
+busca só estreita os candidatos; a fila de cima continua global e sem
+filtro, pelo mesmo motivo registrado na revisão do #82 (reordenar por um
+subconjunto distorce os ranks). Sem resultado, a seção diz "No tasks match
+this search" em vez de "Every open task is already in the backlog".
+
+A ordem de "Not queued" era indefinida (a query de tasks não tem
+`ORDER BY`; valia a ordem física do Postgres, que muda a cada update). Agora
+é: prioridade maior primeiro, depois due mais próximo (sem due por último),
+depois nome.
+
+As duas listas (fila e "Not queued") mostram prioridade, target e due em
+cada linha. Tasks `done` e `cancelled` nunca aparecem em nenhuma das duas:
+ambas passam por `OPEN_STATUSES` (a fila em `useBacklogTasks`, os candidatos
+em `BacklogList`).
+
+Sugestão do usuário aplicada: o `BacklogToggle` (na linha da task e no
+modal) mostra o número da posição na fila no lugar do ícone quando a task
+está enfileirada (`useBacklogPosition`, a mesma numeração da view Backlog e
+do badge do Today). Uma task com rank mas fora da fila aberta (ex.: rank
+órfão de task fechada) mantém o ícone.
 **Verificação em produção (2026-10-13) e arrasto impreciso.** `db:push`
 aplicado (2 migrations). No navegador, com 4 tasks descartáveis, passaram:
 reorder no Today com 2 e com 3 pills ranqueadas, numeração igual entre Today
@@ -1754,6 +1780,82 @@ extensão `.ts` explícita. Checagem manual do fluxo completo (pedir tarefa
 sem projeto, com `[UI Context]` aberto, com seção explícita, e com nome sem
 histórico comparável) ainda pendente — fica para quem revisar o PR testar no
 app/Telegram antes de aprovar.
+
+---
+
+## Today: reordenar pills sem posição na fila (Marked)
+
+Início: 2026-10-14. Aberto, aguardando decisão de desenho.
+
+**Relato do usuário.** No Today, em produção e no preview do #93, "não
+consigo soltar e mudar a ordem" na coluna Marked; antes disso, "nada se move
+na coluna marked" e "a tarefa se arrasta mas para de se mover".
+
+**Causa identificada (2026-10-14).** Não é desempenho nem o handle: só as
+pills de hoje que **já estão na fila** (`backlog_rank` não nulo) são
+ordenáveis (`markedRankedCurrent`, dentro do `SortableContext`). As demais
+(`markedUnrankedCurrent` e as esmaecidas de dia passado) são
+`TaskPill` simples: seguem o cursor, mas as vizinhas não abrem espaço e o
+drop sobre outra pill só "marca" (já marcada, então não muda nada). No Today
+real do usuário quase todas as marcadas estão sem posição (no preview, 1 de
+25 tinha número), então o gesto parece quebrado. Testes com mouse real no
+preview passaram justamente porque usaram pills já enfileiradas.
+
+**Opções (a decidir).**
+- **A — ordenar qualquer pill de Marked e enfileirar ao soltar.** Todas as
+  marcadas de hoje entram no `SortableContext`; ao soltar, a pill (e as sem
+  posição acima dela) ganha `backlog_rank` na ordem mostrada, encaixada na
+  fila global sem embaralhar as não marcadas. Recomendada: é o que o gesto
+  promete e mantém uma só fonte de ordem.
+- **B — enfileirar automaticamente ao marcar para hoje** (entra no fim da
+  fila). Simples, mas só vale daqui para a frente: as marcadas atuais
+  continuam sem posição até um backfill.
+- **C — só deixar claro** (pills sem posição sem handle ativo, com dica
+  "adicione ao backlog para ordenar"). Barato, não resolve a necessidade.
+
+**Decisão (2026-10-14): A.** Implementada no PR #93 (branch
+`worktree-fix-dnd-pill-drag-precision`), ainda sem verificação no navegador:
+
+- ~~Todas as marcadas de hoje ordenáveis~~ — passam a estar no mesmo
+  `SortableContext`, com ou sem número; as esmaecidas (dia passado) ficam
+  fora (soltar uma na zona re-marca para hoje).
+- ~~Regra de ranks~~ — `planMarkedReorder` (função pura em
+  `src/lib/backlogRank.ts`): a pill solta e as sem posição acima dela entram
+  na fila na ordem mostrada, encaixadas logo depois da pill com posição
+  acima (ou antes da primeira abaixo, ou no fim da fila), sem cruzar tasks
+  não marcadas; as já enfileiradas mantêm o rank e as abaixo do ponto de drop
+  não são tocadas. Se o espaço entre ranks ficar pequeno demais, cai em
+  rebalanceamento completo da fila.
+- Verificação da função pura (esbuild + node): 6 cenários — sem posição
+  entre com posição, para o topo, com posição abaixo de uma sem posição,
+  duas sem posição trocadas, fila vazia, com posição subindo — todos como
+  esperado, mais o caso de gap curto (rebalance).
+- **Falta:** teste no preview com tasks `QA backlog` sem posição (sem
+  posição entre sem posição; sem posição sobre com posição; desfazer pelo
+  toggle). Efeito colateral aceito: reordenar enfileira; o toggle do backlog
+  tira da fila com um clique.
+
+---
+
+## Campo de due: digitar o ano reinterpreta a cada dígito
+
+Início: 2026-10-14. Aberto, bug de baixa gravidade (encontrado nos testes de
+navegador do #93, não relacionado a ele).
+
+No modal da task, o campo Due (`dd/mm/aaaa`) reinterpreta o valor a cada
+dígito digitado no ano: digitar `13102026` resultou em `13/10/1902`, e
+digitar `2026` sobre o ano gerou `1906`. As setas para cima no segmento do
+ano também partem do valor já deformado (ficou `1907` depois de 120
+incrementos de `1906`). Suspeita: o `onChange` do `<input type="date">`
+persiste cada valor parcial (`0002`, `0020`, `0202`…) e o estado reescreve o
+campo com o ano normalizado a dois dígitos (`0002` → `1902`) antes de o
+usuário terminar de digitar.
+
+**Direção.** Manter um rascunho local do campo e só persistir quando a data
+estiver completa e válida (ano com 4 dígitos), ou no `blur`; limpar um
+segmento (`Backspace`) já zera o valor corretamente e deve continuar assim.
+Convém checar se o editor de target (mesmo tipo de campo) tem o mesmo
+sintoma.
 
 ---
 
