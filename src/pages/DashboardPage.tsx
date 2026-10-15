@@ -1,11 +1,25 @@
-import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  type ComponentPropsWithoutRef,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { isToday, startOfDay, endOfDay } from 'date-fns';
-import { CalendarClock, CheckCircle2, Target, Star } from 'lucide-react';
+import {
+  CalendarClock,
+  CheckCircle2,
+  GripVertical,
+  Target,
+  Star,
+} from 'lucide-react';
 import {
   DndContext,
   useDraggable,
+  useDndContext,
   useDroppable,
   PointerSensor,
   TouchSensor,
@@ -33,6 +47,7 @@ import {
   useTodayMutations,
 } from '../hooks/useMoments';
 import { useBacklogTasks, useBacklogMutations } from '../hooks/useBacklog';
+import { planMarkedReorder } from '../lib/backlogRank';
 import { OPEN_STATUSES } from '../lib/constants';
 import { isOverdue } from '../lib/dateUtils';
 import { parseRange, targetEnd } from '../lib/range';
@@ -87,16 +102,19 @@ interface TaskPillProps {
 }
 
 // What TaskPillBody itself renders: the subset of TaskPillProps that ends
-// up as markup, plus the drag state that hides the second row.
+// up as markup.
 type TaskPillBodyProps = Pick<
   TaskPillProps,
   'task' | 'projectName' | 'projectField' | 'rankPosition' | 'children'
-> & { isDragging: boolean };
+>;
 
 // Shared chrome for both pill variants below (plain draggable and
-// sortable) — same look either way; `faded` dims a stale pill.
-function pillClassName(faded?: boolean): string {
-  return `border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full cursor-grab flex-col items-start gap-1 rounded-lg border px-2 py-1.5 text-left text-caption active:cursor-grabbing ${faded ? 'opacity-50' : ''}`;
+// sortable) — same look either way; `faded` dims a stale pill. While
+// dragged the pill keeps its full size (collapsing it mid-gesture shifted
+// the siblings and left the grab point off the pill, which made precise
+// drops hard) and is lifted with a ring + shadow so it reads as "in hand".
+function pillClassName(faded?: boolean, dragging?: boolean): string {
+  return `border-nyx-700 bg-nyx-800 text-nyx-200 hover:border-nyx-500 flex w-full items-stretch gap-1 rounded-lg border py-1.5 pr-2 pl-1 text-left text-caption ${faded ? 'opacity-50' : ''} ${dragging ? 'ring-eros-400 shadow-lg ring-1' : ''}`;
 }
 
 // backlog_rank's position badge: only shown when the task is actually
@@ -119,7 +137,6 @@ function TaskPillBody({
   projectName,
   projectField,
   rankPosition,
-  isDragging,
   children,
 }: TaskPillBodyProps) {
   return (
@@ -127,39 +144,41 @@ function TaskPillBody({
       <span className="flex w-full items-center gap-1.5">
         {rankPosition != null && <RankBadge position={rankPosition} />}
         <span className="min-w-0 flex-1 truncate">{task.name}</span>
-        {!isDragging && (
-          <span className="flex shrink-0 items-center gap-1">
-            <StatusIcon status={task.status} size={14} />
-            <PriorityBadge priority={task.priority} />
-          </span>
-        )}
-      </span>
-      {isDragging ? null : (
-        <span className="flex w-full flex-wrap items-center gap-1.5">
-          {children}
-          <ProjectChip
-            name={projectName}
-            fieldName={projectField}
-            className="min-w-0 flex-1 justify-end"
-          />
+        <span className="flex shrink-0 items-center gap-1">
+          <StatusIcon status={task.status} size={14} />
+          <PriorityBadge priority={task.priority} />
         </span>
-      )}
+      </span>
+      <span className="flex w-full flex-wrap items-center gap-1.5">
+        {children}
+        <ProjectChip
+          name={projectName}
+          fieldName={projectField}
+          className="min-w-0 flex-1 justify-end"
+        />
+      </span>
     </>
   );
 }
 
-// Draggable pill matching the app's existing badge language (DueBadge /
-// TargetBadge: chrome-less or thin-bordered rounded chip, small mono/body
-// text). Dragging one onto the "Marked" group or a calendar slot below
-// changes that task's state — see DashboardPage's handleDragEnd. A plain
-// click (one that never crosses the drag activation distance) opens the
-// task, same as clicking a Kanban card. Two rows: the task name on top
-// (left) with status/priority on the same line (right), and the group's
-// own badge/project below — rounded-lg rather than the single-line pill's
-// rounded-full, since a fully round corner reads wrong once the content
-// wraps to two rows. `faded` dims a pill that's stale (e.g. marked on a
-// past day, never resolved).
-function TaskPill({
+// The pill's markup, shared by the plain-draggable and sortable variants
+// below. Only the grip handle starts a drag (like the Backlog view's rows);
+// the rest of the pill is a plain button that opens the task, so a click can
+// never be mistaken for a drag and the pill body stays scrollable on touch.
+// Two rows: the task name on top (left) with status/priority on the same
+// line (right), and the group's own badge/project below — rounded-lg rather
+// than the single-line pill's rounded-full, since a fully round corner reads
+// wrong once the content wraps to two rows. `faded` dims a pill that's stale
+// (e.g. marked on a past day, never resolved).
+interface PillFrameProps extends TaskPillProps {
+  frameRef: (node: HTMLElement | null) => void;
+  handleRef: (node: HTMLElement | null) => void;
+  style: CSSProperties;
+  dragHandleProps: ComponentPropsWithoutRef<'span'>;
+  isDragging: boolean;
+}
+
+function PillFrame({
   task,
   onOpen,
   projectName,
@@ -167,39 +186,76 @@ function TaskPill({
   faded,
   rankPosition,
   children,
-}: TaskPillProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({ id: task.id });
-  const style = {
-    touchAction: 'none' as const,
-    ...(transform
-      ? {
-          transform: `translate(${transform.x}px, ${transform.y}px)`,
-          zIndex: 30,
-        }
-      : undefined),
-  };
+  frameRef,
+  handleRef,
+  style,
+  dragHandleProps,
+  isDragging,
+}: PillFrameProps) {
   return (
-    <button
-      type="button"
-      ref={setNodeRef}
+    <div
+      ref={frameRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      title={task.name}
-      onClick={() => !isDragging && onOpen(task)}
-      className={pillClassName(faded)}
+      className={pillClassName(faded, isDragging)}
     >
-      <TaskPillBody
-        task={task}
-        projectName={projectName}
-        projectField={projectField}
-        rankPosition={rankPosition}
-        isDragging={isDragging}
+      <span
+        ref={handleRef}
+        {...dragHandleProps}
+        title="Drag"
+        className="text-nyx-500 hover:text-nyx-200 hover:bg-nyx-700 flex w-6 shrink-0 cursor-grab touch-none items-center justify-center self-stretch rounded-md active:cursor-grabbing"
       >
-        {children}
-      </TaskPillBody>
-    </button>
+        <GripVertical size={13} />
+      </span>
+      <button
+        type="button"
+        title={task.name}
+        onClick={() => onOpen(task)}
+        className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
+      >
+        <TaskPillBody
+          task={task}
+          projectName={projectName}
+          projectField={projectField}
+          rankPosition={rankPosition}
+        >
+          {children}
+        </TaskPillBody>
+      </button>
+    </div>
+  );
+}
+
+// Draggable pill matching the app's existing badge language (DueBadge /
+// TargetBadge: chrome-less or thin-bordered rounded chip, small mono/body
+// text). Dragging one onto the "Marked" group or a calendar slot below
+// changes that task's state — see DashboardPage's handleDragEnd.
+function TaskPill(props: TaskPillProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({ id: props.task.id });
+  const style: CSSProperties = transform
+    ? {
+        transform: `translate(${transform.x}px, ${transform.y}px)`,
+        zIndex: 30,
+        position: 'relative',
+      }
+    : {};
+  return (
+    <PillFrame
+      {...props}
+      frameRef={setNodeRef}
+      handleRef={setActivatorNodeRef}
+      style={style}
+      dragHandleProps={
+        { ...listeners, ...attributes } as ComponentPropsWithoutRef<'span'>
+      }
+      isDragging={isDragging}
+    />
   );
 }
 
@@ -210,49 +266,34 @@ function TaskPill({
 // read-only order (their own date-based criteria), matching the plan's
 // "backlog_rank primary, current criteria fallback" rule without adding
 // drag-reorder everywhere.
-function SortableTaskPill({
-  task,
-  onOpen,
-  projectName,
-  projectField,
-  faded,
-  rankPosition,
-  children,
-}: TaskPillProps) {
+function SortableTaskPill(props: TaskPillProps) {
   const {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id });
-  const style = {
+  } = useSortable({ id: props.task.id });
+  const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
-    touchAction: 'none' as const,
+    // Without a stacking context the transformed pill paints under the
+    // siblings that follow it in the DOM.
+    ...(isDragging ? { position: 'relative', zIndex: 30 } : undefined),
   };
   return (
-    <button
-      type="button"
-      ref={setNodeRef}
+    <PillFrame
+      {...props}
+      frameRef={setNodeRef}
+      handleRef={setActivatorNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      title={task.name}
-      onClick={() => !isDragging && onOpen(task)}
-      className={pillClassName(faded)}
-    >
-      <TaskPillBody
-        task={task}
-        projectName={projectName}
-        projectField={projectField}
-        rankPosition={rankPosition}
-        isDragging={isDragging}
-      >
-        {children}
-      </TaskPillBody>
-    </button>
+      dragHandleProps={
+        { ...listeners, ...attributes } as ComponentPropsWithoutRef<'span'>
+      }
+      isDragging={isDragging}
+    />
   );
 }
 
@@ -263,6 +304,12 @@ interface PillGroupProps {
   count: number;
   emptyLabel: string;
   droppableId?: string;
+  // Ids of the pills this group already holds. While one of them is being
+  // dragged the group must not "receive" it, or its zone competes with the
+  // sibling pills for `over` and makes in-group sorting imprecise. Read from
+  // the dnd-kit context here (not from page state) so starting a drag does
+  // not re-render the whole page.
+  ownPillIds?: Set<string>;
   children: ReactNode;
 }
 
@@ -273,9 +320,14 @@ function PillGroup({
   count,
   emptyLabel,
   droppableId,
+  ownPillIds,
   children,
 }: PillGroupProps) {
-  const droppable = useDroppable({ id: droppableId ?? '__none__' });
+  const { active } = useDndContext();
+  const droppable = useDroppable({
+    id: droppableId ?? '__none__',
+    disabled: Boolean(active && ownPillIds?.has(String(active.id))),
+  });
   const isDropTarget = Boolean(droppableId);
   return (
     <section>
@@ -313,7 +365,7 @@ export default function DashboardPage() {
   const { mark } = useTodayMutations();
   const { create: createEvent } = useEventMutations();
   const backlogTasks = useBacklogTasks();
-  const { reorder: reorderBacklog } = useBacklogMutations();
+  const { applyRanks: applyBacklogRanks } = useBacklogMutations();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isMutating = useIsMutating();
@@ -416,11 +468,11 @@ export default function DashboardPage() {
     )
   );
   const markedShownIds = new Set(markedPills.map((p) => p.task.id));
-  // Drag-reorder within Marked is restricted to today's current marks that
-  // are already in the backlog queue — their backlog_rank gives a real
-  // neighborhood to compute a new rank from (see handleDragEnd below).
-  // Unranked current marks and stale past marks still show, just not
-  // sortable (add them to the backlog first via BacklogToggle).
+  // Today's current marks are all drag-sortable: queued ones first (by
+  // backlog_rank), then the unqueued ones. Dropping a pill places it — and
+  // any unqueued pill above it — in the backlog queue in the displayed
+  // order (see planMarkedReorder / handleDragEnd). Stale past marks are not
+  // part of this: dropping one on the zone re-marks it for today instead.
   const markedRankedCurrent = markedPills
     .filter((p) => !p.faded && p.task.backlog_rank !== null)
     .map((p) => p.task);
@@ -428,6 +480,16 @@ export default function DashboardPage() {
     (p) => !p.faded && p.task.backlog_rank === null
   );
   const markedPast = markedPills.filter((p) => p.faded);
+  const markedCurrent = [
+    ...markedRankedCurrent,
+    ...markedUnrankedCurrent.map((p) => p.task),
+  ];
+  // Ids of today's (non-faded) Marked pills. A faded pill is deliberately
+  // not in here: dropping it back on the zone re-marks it for today.
+  const currentMarkedIds = new Set([
+    ...markedRankedCurrent.map((t) => t.id),
+    ...markedUnrankedCurrent.map((p) => p.task.id),
+  ]);
 
   // Target shows tasks whose window covers today (current) plus tasks whose
   // window already ended with work still open (past, rendered yellowish via
@@ -534,44 +596,39 @@ export default function DashboardPage() {
     const task = tasksById.get(String(active.id));
     if (!task) return;
 
-    // Reordering a ranked Marked pill. The new rank is always computed on
-    // the *global* backlog queue (backlogTasks), never on the Marked subset:
-    // a midpoint between two marked neighbors can land exactly on the rank
-    // of an unmarked task queued between them, producing duplicate ranks.
+    // Reordering within Marked: any of today's marks can be dropped on any
+    // other. The ranks come from planMarkedReorder, computed on the *global*
+    // queue (never on the Marked subset), so a rank is always slotted between
+    // two real neighbors and can't collide with an unmarked task.
     //
-    // The target is resolved from the collision list, not only `over`: the
-    // 'marked-zone' droppable wraps the pills and, under the default
-    // rectIntersection (IoU), wins against a neighbor pill when the group is
-    // small — so `over` alone would be 'marked-zone' and the reorder would
-    // silently no-op.
-    const markedRankedIds = new Set(markedRankedCurrent.map((t) => t.id));
-    if (markedRankedIds.has(String(active.id)) && over.id !== active.id) {
-      const overId = String(over.id);
-      const targetId = markedRankedIds.has(overId)
-        ? overId
-        : overId === 'marked-zone'
-          ? e.collisions
-              ?.map((c) => String(c.id))
-              .find((id) => id !== String(active.id) && markedRankedIds.has(id))
-          : undefined;
-      if (targetId) {
-        const oldIndex = backlogTasks.findIndex((t) => t.id === active.id);
-        const newIndex = backlogTasks.findIndex((t) => t.id === targetId);
-        if (oldIndex !== -1 && newIndex !== -1) {
-          reorderBacklog.mutate({
-            taskId: task.id,
-            targetIndex: newIndex,
-            ordered: arrayMove(backlogTasks, oldIndex, newIndex),
-          });
-        }
-        return;
+    // The 'marked-zone' droppable is disabled while a current Marked pill is
+    // dragged (see PillGroup.ownPillIds): enabled, it wraps the pills and
+    // wins `over` against a neighbor under rectIntersection (IoU) when the
+    // group is small, which turned the reorder into a silent no-op.
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (
+      currentMarkedIds.has(activeId) &&
+      currentMarkedIds.has(overId) &&
+      activeId !== overId
+    ) {
+      const from = markedCurrent.findIndex((t) => t.id === activeId);
+      const to = markedCurrent.findIndex((t) => t.id === overId);
+      if (from !== -1 && to !== -1) {
+        const writes = planMarkedReorder(
+          backlogTasks,
+          arrayMove(markedCurrent, from, to),
+          activeId
+        );
+        if (writes.length) applyBacklogRanks.mutate(writes);
       }
+      return;
     }
 
-    // Dropping on the Marked group — its zone or any ranked pill inside it,
-    // since a pill can be `over` instead of the zone — marks the task for
-    // today. (A pill already marked is a no-op, not a reorder.)
-    if (over.id === 'marked-zone' || markedRankedIds.has(String(over.id))) {
+    // Dropping on the Marked group — its zone or any current pill inside
+    // it, since a pill can be `over` instead of the zone — marks the task
+    // for today. (A pill already marked is a no-op, not a reorder.)
+    if (over.id === 'marked-zone' || currentMarkedIds.has(overId)) {
       if (!markedTaskIds.has(task.id)) mark.mutate(task.id);
       return;
     }
@@ -637,12 +694,13 @@ export default function DashboardPage() {
             count={markedPills.length}
             emptyLabel="Drag a task here to mark it for today."
             droppableId="marked-zone"
+            ownPillIds={currentMarkedIds}
           >
             <SortableContext
-              items={markedRankedCurrent.map((t) => t.id)}
+              items={markedCurrent.map((t) => t.id)}
               strategy={verticalListSortingStrategy}
             >
-              {markedRankedCurrent.map((task) => {
+              {markedCurrent.map((task) => {
                 const project = projectForTask(task);
                 return (
                   <SortableTaskPill
@@ -665,29 +723,9 @@ export default function DashboardPage() {
                 );
               })}
             </SortableContext>
-            {markedUnrankedCurrent.map(({ task }) => {
-              const project = projectForTask(task);
-              return (
-                <TaskPill
-                  key={task.id}
-                  task={task}
-                  onOpen={openTask_}
-                  projectName={project?.name}
-                  projectField={fieldNameForProject(project)}
-                >
-                  <Star
-                    size={11}
-                    className="text-eros-400 shrink-0"
-                    fill="currentColor"
-                  />
-                  {task.due && <DueBadge due={task.due} status={task.status} />}
-                </TaskPill>
-              );
-            })}
-            {Boolean(markedPast.length) &&
-              Boolean(
-                markedRankedCurrent.length + markedUnrankedCurrent.length
-              ) && <hr className="border-nyx-700 my-1 w-full" />}
+            {Boolean(markedPast.length) && Boolean(markedCurrent.length) && (
+              <hr className="border-nyx-700 my-1 w-full" />
+            )}
             {markedPast.map(({ task }) => {
               const project = projectForTask(task);
               return (

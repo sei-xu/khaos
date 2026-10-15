@@ -83,5 +83,14 @@ export function useBacklogMutations() {
     onSuccess: invalidate,
   });
 
-  return { add, removeFromBacklog, reorder };
+  // Writes an already-planned set of ranks (see planMarkedReorder), e.g.
+  // when dropping a Today pill places it — and the unqueued pills above it —
+  // in the queue in one go.
+  const applyRanks = useMutation({
+    mutationFn: (updates: { id: Id; backlog_rank: number }[]) =>
+      backlogApi.rebalance(updates),
+    onSuccess: invalidate,
+  });
+
+  return { add, removeFromBacklog, reorder, applyRanks };
 }
