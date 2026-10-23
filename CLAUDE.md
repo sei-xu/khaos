@@ -7,7 +7,7 @@ React/Vite/TypeScript frontend backed by Supabase. Always run via the `npm run <
 - **Build**: `npm run build` (`vite build`).
 - **Typecheck**: `npm run typecheck` (`tsc --noEmit`).
 - **Lint**: `npm run lint` (`eslint . --ext .js,.jsx,.ts,.tsx --max-warnings 0` — zero warnings tolerated, not just zero errors; `npm run lint:fix` to auto-fix).
-- **Test**: **no test suite is configured** — no vitest/jest, no `*.test.ts` files, no `test` script in `package.json`. Don't invent one; verification here is typecheck + lint + manual/browser check.
+- **Test**: no test suite is configured **yet** — no vitest/jest, no `*.test.ts` files, no `test` script in `package.json`. Don't invent tests where there was none just to have them, but **do create them where a change needs it**: pure logic with branches or thresholds (gates, parsers, ranking, coercion, cooldowns) gets automated tests in the same PR. The first one that needs it sets up the runner (vitest) and a `test` script, and updates this line. Typecheck + lint + manual/browser check still cover what tests can't reach (SQL triggers, Realtime, UI).
 - **Format**: `npm run format` (`prettier --write`, not `--check` — it mutates; rules in `.prettierrc`: single quotes, `trailingComma: es5`, plus `prettier-plugin-tailwindcss` for class sorting).
 - **DB**: `npm run db:migration:new` (new Supabase migration), `npm run db:push` (push to linked project), `npm run db:dump` (dump remote schema to `schema.sql` + regenerate the edge-function schema via `gen:edge-schema`).
 
