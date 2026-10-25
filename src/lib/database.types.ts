@@ -12,8 +12,48 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      assistant_nudges: {
+        Row: {
+          created_at: string
+          last_moment_id: string
+        }
+        Insert: {
+          created_at?: string
+          last_moment_id: string
+        }
+        Update: {
+          created_at?: string
+          last_moment_id?: string
+        }
+        Relationships: []
+      }
       chat_history: {
         Row: {
           history: Json
@@ -328,13 +368,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "moments_routine_id_fkey"
-            columns: ["routine_id"]
-            isOneToOne: false
-            referencedRelation: "routines"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "moments_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
@@ -356,6 +389,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      oversight_cursor: {
+        Row: {
+          id: boolean
+          last_processed_at: string
+        }
+        Insert: {
+          id?: boolean
+          last_processed_at?: string
+        }
+        Update: {
+          id?: boolean
+          last_processed_at?: string
+        }
+        Relationships: []
+      }
+      oversight_notes: {
+        Row: {
+          created_at: string
+          entity_refs: Json
+          id: string
+          severity: string
+          summary: string
+          window_end: string
+          window_start: string
+        }
+        Insert: {
+          created_at?: string
+          entity_refs?: Json
+          id?: string
+          severity?: string
+          summary: string
+          window_end: string
+          window_start: string
+        }
+        Update: {
+          created_at?: string
+          entity_refs?: Json
+          id?: string
+          severity?: string
+          summary?: string
+          window_end?: string
+          window_start?: string
+        }
+        Relationships: []
       }
       projects: {
         Row: {
@@ -588,17 +666,17 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "time_entries_task_id_fkey"
-            columns: ["task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "task_logs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entries_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
             referencedColumns: ["id"]
           },
         ]
@@ -679,6 +757,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      telegram_chats: {
+        Row: {
+          chat_id: number
+          history: Json
+          updated_at: string
+        }
+        Insert: {
+          chat_id: number
+          history?: Json
+          updated_at?: string
+        }
+        Update: {
+          chat_id?: number
+          history?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      telegram_notifications: {
+        Row: {
+          chat_id: number
+          kind: string
+          ref: string
+          sent_at: string
+        }
+        Insert: {
+          chat_id: number
+          kind: string
+          ref: string
+          sent_at?: string
+        }
+        Update: {
+          chat_id?: number
+          kind?: string
+          ref?: string
+          sent_at?: string
+        }
+        Relationships: []
       }
       work_tag_entities: {
         Row: {
@@ -790,6 +907,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "task_logs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "time_entries_task_id_fkey"
             columns: ["task_id"]
             isOneToOne: false
@@ -808,38 +932,6 @@ export type Database = {
         Args: { p_previous_task_id: string }
         Returns: undefined
       }
-      google_calendar_status: {
-        Args: never
-        Returns: {
-          calendar_id: string | null
-          connected: boolean
-          last_error: string | null
-          last_sync_at: string | null
-        }[]
-      }
-      insert_moment:
-        | {
-            Args: {
-              p_entity_column: string
-              p_entity_id: string
-              p_moment_type: Database["public"]["Enums"]["moment_types"]
-              p_note?: string
-              p_value?: string
-            }
-            Returns: undefined
-          }
-        | {
-            Args: {
-              p_entity_column: string
-              p_entity_id: string
-              p_moment_type: Database["public"]["Enums"]["moment_types"]
-              p_note?: string
-              p_previous_value?: string
-              p_value?: string
-            }
-            Returns: undefined
-          }
-      moment_entity_column: { Args: { p_table: string }; Returns: string }
       get_active_task_log: {
         Args: never
         Returns: {
@@ -857,6 +949,27 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      google_calendar_status: {
+        Args: never
+        Returns: {
+          calendar_id: string
+          connected: boolean
+          last_error: string
+          last_sync_at: string
+        }[]
+      }
+      insert_moment: {
+        Args: {
+          p_entity_column: string
+          p_entity_id: string
+          p_moment_type: Database["public"]["Enums"]["moment_types"]
+          p_note?: string
+          p_previous_value?: string
+          p_value?: string
+        }
+        Returns: undefined
+      }
+      moment_entity_column: { Args: { p_table: string }; Returns: string }
       stop_active_task: {
         Args: never
         Returns: {
@@ -909,6 +1022,10 @@ export type Database = {
         | "today"
         | "notToday"
         | "backlog"
+        | "deleted"
+        | "renamed"
+        | "moved"
+        | "item"
       priority: "urgent" | "high" | "medium" | "low"
       status:
         | "planning"
@@ -934,12 +1051,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -963,11 +1080,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -988,11 +1105,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1013,11 +1130,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1030,11 +1147,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1044,6 +1161,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       event_types: ["scheduled", "fixed", "routine"],
@@ -1062,6 +1182,10 @@ export const Constants = {
         "today",
         "notToday",
         "backlog",
+        "deleted",
+        "renamed",
+        "moved",
+        "item",
       ],
       priority: ["urgent", "high", "medium", "low"],
       status: [

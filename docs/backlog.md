@@ -58,6 +58,7 @@ work that grows out of them. Roadmap phases live in
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
 | [Integração bidirecional com o Google Calendar (somente eventos fixed)](#integração-bidirecional-com-o-google-calendar-somente-eventos-fixed) | 2026-10-12 |
 | [Assistente sugere projeto, seção e estimativa ao criar tarefa](#assistente-sugere-projeto-seção-e-estimativa-ao-criar-tarefa) | 2026-10-13 |
+| [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 
 ---
 
@@ -1858,6 +1859,94 @@ Convém checar se o editor de target (mesmo tipo de campo) tem o mesmo
 sintoma.
 
 ---
+
+## Assistente detecta mudanças no banco e sugere próxima ação
+
+started 2026-10-24
+
+Pedido do usuário: o assistente deve perceber qualquer mudança feita no
+banco (não só pelo chat) para poder sugerir uma ação em seguida — exemplo
+dado: sugerir que uma tarefa seja feita logo após uma similar ser marcada
+como concluída **no modal**, não pelo próprio assistente.
+
+**Investigação.** Não era bug, era requisito: o feed de moments já existia
+(tabela `moments` + triggers) e já havia um consumidor em background
+(oversight agent), mas três coisas bloqueavam o comportamento pedido — (1)
+cobertura incompleta do feed (routines sem trigger nenhum, `task_items` sem
+trigger mesmo já sendo tool permitida, soft-delete invisível por todos os
+triggers terem guarda `deleted_at IS NULL`, rename/reparenting sem moment);
+(2) nada empurrava uma mudança para o assistente — `runTurn` só rodava em
+mensagem do usuário e no bootstrap, sem Realtime em lugar nenhum, e o
+caminho existente (oversight agent) tinha ~15min de latência e um filtro que
+descartava a maioria dos lotes; (3) atribuição não confiável — um watcher
+ingênuo ecoaria as próprias escritas do assistente, já que `insert_moment`
+nunca setava `authored_by` e o default `'user'` valia também para o
+assistente. Achado colateral: `schema.sql` (e o embed Deno gerado dele)
+estavam desatualizados em relação ao banco real (faltavam `today`/
+`notToday`/`backlog` no enum, `tasks.backlog_rank`, etc.) — a tool
+`search_schema` não conseguia informar o vocabulário completo.
+
+**Implementação (~~9 passos aprovados~~, todos feitos).**
+
+- ~~Migrations `20261024000000`/`20261024010000` (+ `20261024020000`, fix
+  encontrado só no smoke test: `insert_moment` tinha seu próprio whitelist
+  de coluna, separado de `moment_entity_column()`, e não sabia de
+  `routine_id`): cobertura total do feed — `created`/`renamed`/`active`
+  (status) para `routines`, `deleted` fora da guarda `deleted_at IS NULL`
+  para tasks/sections/projects, `renamed` e `moved` (reparenting) para
+  tasks/sections/projects, `item` para `task_items` contra o `task_id` pai.
+  `events` continua sem moments (exclusão deliberada, documentada, não
+  tocada) e reorder dentro do backlog continua silencioso.~~
+- ~~Desvio do plano original, documentado na própria migration: `routines`
+  não tem coluna `due`/`status`/`priority` (só `active`) — "mudar status de
+  uma routine" foi implementado contra `active` (`status` moment
+  `active`/`paused`), e não há trigger de `due`/`priority`/`deleted` para
+  routines porque as colunas não existem.~~
+- ~~`moments` entrou na publicação `supabase_realtime`; tabela
+  `assistant_nudges` para disparo único entre abas (mesma ideia de
+  idempotência de `telegram_notifications`).~~
+- ~~`stampAssistantMoments` (era `backfillReason`) em `toolsCore.ts`: toda
+  escrita do assistente via `insert_row`/`update_rows` agora estampa
+  `authored_by='assistant'` nos moments resultantes incondicionalmente (não
+  só quando havia `reason`) — fecha o requisito de atribuição.~~
+- ~~`src/lib/chat/changeWatcher.ts` (lógica pura — gate determinístico
+  `isNudgeWorthy`, buffer com janela de silêncio, cooldown/teto por hora,
+  formatação do prefixo) + `src/hooks/useDbChangeFeed.ts` (Realtime com
+  fallback de poll de 60s, supressão durante turno em voo + janela de
+  graça, claim via `assistant_nudges`). Primeira lógica pura do repo a
+  justificar um test runner — `vitest` configurado, `npm run test`, 16
+  testes em `changeWatcher.test.ts` escritos antes da implementação.~~
+- ~~`useChatAgent.ts` roda o turno com prefixo `[DB Change: ...]` via
+  `runWithUserContent(..., {silent:true})`, mesmo padrão do bootstrap;
+  prefixo removido de `uiMessages` para não virar bolha vazia.
+  `chatActivityContext.tsx` generalizado (`markOpenerUnseen` →
+  `markAssistantUnseen`, `hasUnseenOpener` → `hasUnseenAssistantMessage`) e
+  `AppShell.tsx` atualizado — mesmo badge para opener e nudge.~~
+- ~~Seção `REACTING TO DATABASE CHANGES` em `prompts.ts`: explica o prefixo,
+  autoriza responder com nada, pede uma próxima ação concreta via
+  `suggest_next_task` em vez de narrar a mudança de volta.~~
+- ~~Tool `suggest_next_task` em `toolsCore.ts`: sucessor em `tasks_sequence`
+  → irmã na mesma seção → `work_tag` em comum → cabeça do `backlog_rank`,
+  mesma convenção de `basis`/`{basis:'none', n:0}` de `suggest_task_estimate`.~~
+- ~~`npm run db:dump` bloqueado neste ambiente (precisa de Docker, que não
+  está disponível na sandbox) — `schema.sql`,
+  `supabase/functions/_shared/schema.sql.ts` e `src/lib/database.types.ts`
+  foram atualizados manualmente para refletir o estado real do banco
+  (confirmado por smoke test com `supabase db query --linked`), incluindo
+  o que já estava desincronizado antes desta PR (enum `today`/`notToday`/
+  `backlog`, `tasks.backlog_rank`). Rodar `npm run db:dump` com Docker
+  disponível continua recomendado na próxima oportunidade para validar essa
+  reconstrução manual contra um dump real.~~
+- ~~Docs (`01-database.md`, `03-ai.md`, `05-roadmap.md`) e este item.~~
+
+Verificado por smoke test direto no banco linkado (`Khaos`,
+`clgycvshoqiczgdfxnyi`): linhas de teste criadas/alteradas/apagadas, moments
+resultantes conferidos um a um, depois removidas (hard delete) — nenhum
+dado de teste ficou no banco. `npm run typecheck`, `npm run lint` e
+`npm run test` cobrem o resto; o fluxo fim-a-fim (marcar done no modal e
+ver a sugestão aparecer) e a degradação do Realtime para poll não puderam
+ser verificados em browser real nesta sessão (sandbox sem navegador) — só
+por leitura de código e pelo smoke test SQL.
 
 ## Resolved
 

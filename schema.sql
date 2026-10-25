@@ -51,7 +51,14 @@ CREATE TYPE "public"."moment_types" AS ENUM (
     'target',
     'note',
     'priority',
-    'definition'
+    'definition',
+    'today',
+    'notToday',
+    'backlog',
+    'deleted',
+    'renamed',
+    'moved',
+    'item'
 );
 
 
@@ -69,7 +76,13 @@ COMMENT ON TYPE "public"."moment_types" IS 'Enum defining valid types of life cy
 - "target": Modifications to target dates.
 - "note": Pure qualitative user text reflection or interaction notes (core source for behavioral analysis).
 - "priority": Operational urgency or critical-level adjustments (e.g., scaling from medium to urgent).
-- "definition": Structural edits, scope reformulations, or core textual redefinitions of an entity.';
+- "definition": Structural edits, scope reformulations, or core textual redefinitions of an entity.
+- "today"/"notToday": The user explicitly marking a task "for"/"not for" a given day (the star toggle), value holding that date.
+- "backlog": A task entering or leaving the global backlog_rank queue (NULL <-> non-NULL transition only).
+- "deleted": The soft-delete transition (deleted_at NULL -> non-NULL) on a task, section, or project.
+- "renamed": The name column changing on a task, section, project, or routine.
+- "moved": A task reparented to a different section, or a section to a different project.
+- "item": A task_items checklist row created, or its done flag toggled — logged against the parent task.';
 
 
 
@@ -203,7 +216,7 @@ CREATE OR REPLACE FUNCTION "public"."insert_moment"("p_entity_column" "text", "p
     LANGUAGE "plpgsql"
     AS $_$
 begin
-  if p_entity_column not in ('project_id', 'section_id', 'task_id', 'event_id') then
+  if p_entity_column not in ('project_id', 'section_id', 'task_id', 'event_id', 'routine_id') then
     raise exception 'insert_moment: invalid entity column "%"', p_entity_column;
   end if;
 
@@ -239,6 +252,7 @@ CREATE OR REPLACE FUNCTION "public"."moment_entity_column"("p_table" "text") RET
     when 'projects' then 'project_id'
     when 'sections' then 'section_id'
     when 'tasks'    then 'task_id'
+    when 'routines' then 'routine_id'
   end;
 $$;
 
@@ -466,6 +480,138 @@ ALTER FUNCTION "public"."trg_moment_priority"() OWNER TO "postgres";
 
 
 COMMENT ON FUNCTION "public"."trg_moment_priority"() IS 'Trigger function that monitors priority classification shifts across entities. It leverages moment_entity_column() to dynamically identify the parent table context and records the strict urgency transition from previous_value to value.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_moment_active_routines"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if old.active is distinct from new.active then
+    perform insert_moment(
+      'routine_id', new.id, 'status',
+      case when new.active then 'active' else 'paused' end,
+      null,
+      case when old.active then 'active' else 'paused' end
+    );
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_moment_active_routines"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_moment_active_routines"() IS 'Logs a status moment (active/paused) when routines.active toggles — routines has no status column of its own, so active is its lifecycle state.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_moment_backlog"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if (old.backlog_rank is null) is distinct from (new.backlog_rank is null) then
+    perform insert_moment('task_id', new.id, 'backlog', new.backlog_rank::text, null, old.backlog_rank::text);
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_moment_backlog"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_moment_backlog"() IS 'Trigger function that logs entering/leaving the backlog queue. Fires only when backlog_rank crosses the NULL boundary (joined or left the queue), not on every reorder, so dragging a task within the queue stays silent in the moments ledger.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_moment_deleted"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if old.deleted_at is null and new.deleted_at is not null then
+    perform insert_moment(moment_entity_column(TG_TABLE_NAME), new.id, 'deleted', new.deleted_at::text);
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_moment_deleted"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_moment_deleted"() IS 'Logs a deleted moment on the soft-delete transition (deleted_at NULL -> non-NULL) only — re-saving an already-deleted row, or clearing deleted_at, does not re-fire this.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_moment_item"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if new.task_id is null then
+    return new;
+  end if;
+
+  if TG_OP = 'INSERT' then
+    perform insert_moment('task_id', new.task_id, 'item', new.done::text);
+  elsif old.done is distinct from new.done then
+    perform insert_moment('task_id', new.task_id, 'item', new.done::text, null, old.done::text);
+  end if;
+
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_moment_item"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_moment_item"() IS 'Logs an item moment against the parent task when a checklist item is created or its done flag toggles (not on description/order edits).';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_moment_moved"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if TG_TABLE_NAME = 'tasks' then
+    if old.section_id is distinct from new.section_id then
+      perform insert_moment('task_id', new.id, 'moved', new.section_id::text, null, old.section_id::text);
+    end if;
+  elsif TG_TABLE_NAME = 'sections' then
+    if old.project_id is distinct from new.project_id then
+      perform insert_moment('section_id', new.id, 'moved', new.project_id::text, null, old.project_id::text);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_moment_moved"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_moment_moved"() IS 'Logs a moved moment when a task is reparented to a different section, or a section to a different project (value/previous_value hold the new/old parent id as text).';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_moment_renamed"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if old.name is distinct from new.name then
+    perform insert_moment(moment_entity_column(TG_TABLE_NAME), new.id, 'renamed', new.name, null, old.name);
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_moment_renamed"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_moment_renamed"() IS 'Trigger function shared by tasks/sections/projects/routines: logs a renamed moment with the old name as previous_value and the new name as value.';
 
 
 
@@ -1067,6 +1213,19 @@ COMMENT ON COLUMN "public"."active_task_log"."task_id" IS 'Foreign key referenci
 
 
 COMMENT ON COLUMN "public"."active_task_log"."duration" IS 'The timestamp range (tstzrange) representing when this tracking session started. The upper bound is infinity, indicating active execution.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."assistant_nudges" (
+    "last_moment_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."assistant_nudges" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."assistant_nudges" IS 'Idempotency ledger so only one browser tab/instance runs the reactive nudge turn for a given batch of moments. Insert conflict on last_moment_id means another instance already claimed it.';
 
 
 
@@ -1674,10 +1833,14 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "section_id" "uuid",
     "deleted_at" timestamp with time zone,
     "target" "tstzrange",
+    "backlog_rank" double precision,
     CONSTRAINT "tasks_schedule_valid" CHECK ((("target" IS NULL) OR ((NOT "isempty"("target")) AND (NOT "lower_inf"("target")) AND (("due" IS NULL) OR (("lower"("target") < "due") AND ("upper_inf"("target") OR ("upper"("target") <= "due")))))))
 );
 
 ALTER TABLE ONLY "public"."tasks" REPLICA IDENTITY FULL;
+
+
+COMMENT ON COLUMN "public"."tasks"."backlog_rank" IS 'Position of this task in the global backlog queue (lower sorts first). NULL means the task is not in the backlog. A plain numeric rank (not a linked list), rebalanced when two neighbors'' ranks collide.';
 
 
 ALTER TABLE "public"."tasks" OWNER TO "postgres";
@@ -1881,6 +2044,11 @@ ALTER TABLE ONLY "public"."moment_tags"
 
 
 
+ALTER TABLE ONLY "public"."assistant_nudges"
+    ADD CONSTRAINT "assistant_nudges_pkey" PRIMARY KEY ("last_moment_id");
+
+
+
 ALTER TABLE ONLY "public"."moments"
     ADD CONSTRAINT "moments_pkey" PRIMARY KEY ("id");
 
@@ -2026,6 +2194,10 @@ CREATE INDEX "idx_tasks_active" ON "public"."tasks" USING "btree" ("id") WHERE (
 
 
 
+CREATE INDEX "tasks_backlog_rank_idx" ON "public"."tasks" USING "btree" ("backlog_rank") WHERE (("backlog_rank" IS NOT NULL) AND ("deleted_at" IS NULL));
+
+
+
 CREATE INDEX "idx_work_tag_entities_event" ON "public"."work_tag_entities" USING "btree" ("event_id") WHERE ("event_id" IS NOT NULL);
 
 
@@ -2095,6 +2267,58 @@ CREATE OR REPLACE TRIGGER "moment_created_sections" AFTER INSERT ON "public"."se
 
 
 CREATE OR REPLACE TRIGGER "moment_created_tasks" AFTER INSERT ON "public"."tasks" FOR EACH ROW EXECUTE FUNCTION "public"."trg_moment_created"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_created_routines" AFTER INSERT ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_moment_created"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_active_routines" AFTER UPDATE ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_moment_active_routines"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_backlog_tasks" AFTER UPDATE ON "public"."tasks" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_backlog"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_renamed_tasks" AFTER UPDATE ON "public"."tasks" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_renamed"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_renamed_sections" AFTER UPDATE ON "public"."sections" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_renamed"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_renamed_projects" AFTER UPDATE ON "public"."projects" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_renamed"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_renamed_routines" AFTER UPDATE ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_moment_renamed"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_deleted_tasks" AFTER UPDATE ON "public"."tasks" FOR EACH ROW WHEN ((("old"."deleted_at" IS NULL) AND ("new"."deleted_at" IS NOT NULL))) EXECUTE FUNCTION "public"."trg_moment_deleted"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_deleted_sections" AFTER UPDATE ON "public"."sections" FOR EACH ROW WHEN ((("old"."deleted_at" IS NULL) AND ("new"."deleted_at" IS NOT NULL))) EXECUTE FUNCTION "public"."trg_moment_deleted"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_deleted_projects" AFTER UPDATE ON "public"."projects" FOR EACH ROW WHEN ((("old"."deleted_at" IS NULL) AND ("new"."deleted_at" IS NOT NULL))) EXECUTE FUNCTION "public"."trg_moment_deleted"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_moved_tasks" AFTER UPDATE ON "public"."tasks" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_moved"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_moved_sections" AFTER UPDATE ON "public"."sections" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_moved"();
+
+
+
+CREATE OR REPLACE TRIGGER "moment_item_tasks" AFTER INSERT OR UPDATE ON "public"."task_items" FOR EACH ROW EXECUTE FUNCTION "public"."trg_moment_item"();
 
 
 
@@ -2407,6 +2631,10 @@ ALTER TABLE ONLY "public"."work_tag_entities"
 
 
 
+CREATE POLICY "allow all" ON "public"."assistant_nudges" USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "allow all" ON "public"."events" USING (true) WITH CHECK (true);
 
 
@@ -2469,6 +2697,9 @@ CREATE POLICY "allow all" ON "public"."work_tag_entities" USING (true) WITH CHEC
 
 CREATE POLICY "allow all" ON "public"."work_tags" USING (true) WITH CHECK (true);
 
+
+
+ALTER TABLE "public"."assistant_nudges" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."events" ENABLE ROW LEVEL SECURITY;
@@ -2643,6 +2874,42 @@ GRANT ALL ON FUNCTION "public"."trg_moment_priority"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_moment_backlog"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_moment_backlog"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_moment_backlog"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_moment_deleted"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_moment_deleted"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_moment_deleted"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_moment_item"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_moment_item"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_moment_item"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_moment_moved"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_moment_moved"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_moment_moved"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_moment_renamed"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_moment_renamed"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_moment_renamed"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."trg_moment_scheduled"() TO "anon";
 GRANT ALL ON FUNCTION "public"."trg_moment_scheduled"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."trg_moment_scheduled"() TO "service_role";
@@ -2796,6 +3063,12 @@ GRANT ALL ON TABLE "public"."moment_tags" TO "service_role";
 GRANT ALL ON TABLE "public"."moments" TO "anon";
 GRANT ALL ON TABLE "public"."moments" TO "authenticated";
 GRANT ALL ON TABLE "public"."moments" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."assistant_nudges" TO "anon";
+GRANT ALL ON TABLE "public"."assistant_nudges" TO "authenticated";
+GRANT ALL ON TABLE "public"."assistant_nudges" TO "service_role";
 
 
 

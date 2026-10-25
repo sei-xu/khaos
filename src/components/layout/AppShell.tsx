@@ -290,8 +290,8 @@ export default function AppShell() {
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
-  const { hasUnseenOpener, markOpenerSeen } = useChatActivity();
-  const hasChatActivity = hasUnseenOpener;
+  const { hasUnseenAssistantMessage, markAssistantSeen } = useChatActivity();
+  const hasChatActivity = hasUnseenAssistantMessage;
   const { isAssistantProcessing } = useProcessingContext();
   const isFetching = useIsFetching();
   const isMutating = useIsMutating();
@@ -424,7 +424,7 @@ export default function AppShell() {
         <button
           onClick={() => {
             setChatSheetOpen(true);
-            markOpenerSeen();
+            markAssistantSeen();
           }}
           className="shadow-panel fixed right-4 bottom-20 z-30 flex items-center justify-center rounded-full lg:hidden"
           aria-label={
