@@ -60,9 +60,9 @@ Máquina de estado compartilhada por `projects`, `sections` e `tasks`.
 ### `moment_types`
 
 `created`, `due`, `estimate`, `status`, `started`, `stopped`, `scheduled`,
-`target`, `note`, `priority`, `definition`, `today`, `notToday`, `backlog`.
-Ver [Concepts](06-concepts.md) para o que cada um significa e quando é
-disparado.
+`target`, `note`, `priority`, `definition`, `today`, `notToday`, `backlog`,
+`deleted`, `renamed`, `moved`, `item`. Ver [Concepts](06-concepts.md) para o
+que cada um significa e quando é disparado.
 
 ## Tabelas
 
@@ -134,6 +134,10 @@ Checklist interno de uma tarefa.
 | description | text | |
 | done | boolean | default `false`, vira `true` automaticamente quando a tarefa vira `done` |
 | order | smallint | Ordem de exibição (identity/sequence) |
+
+Trigger `moment_item_tasks` registra um moment `item` (contra o `task_id` da
+tarefa pai, já que `task_items` não tem coluna própria em `moments`) na
+criação do item e em toda troca do `done` — não em edição de descrição/ordem.
 
 ### `tasks_sequence` & `sections_sequence`
 
@@ -243,6 +247,13 @@ Templates para tarefas recorrentes/hábitos.
 | active | boolean | default `true` |
 | task_id, field_id | FK opcionais | |
 
+`routines` não tem coluna `due`, `status` nem `priority` — o estado de ciclo
+de vida que existe é `active`. Triggers: `moment_created_routines` (criação),
+`moment_renamed_routines` (mudança de `name`) e `moment_active_routines`, que
+registra um moment `status` com valor `active`/`paused` quando `active`
+alterna (não há `deleted_at` em `routines`, então não há moment `deleted`
+para esta tabela).
+
 ### `task_logs`
 
 Registro objetivo de tempo dedicado — substitui a antiga tabela
@@ -281,11 +292,37 @@ Linha do tempo narrativa — histórico de mudanças de estado e contexto.
 | created_at | timestamptz | |
 
 A maior parte dos moments é gerada automaticamente por triggers em
-`projects`/`sections`/`tasks`/`events`/`task_logs` (created, due, estimate,
-priority, status, scheduled, started, stopped, target) — ver função
+`projects`/`sections`/`tasks`/`routines`/`task_items`/`events`/`task_logs`
+(created, due, estimate, priority, status, scheduled, started, stopped,
+target, backlog, deleted, renamed, moved, item) — ver função
 `insert_moment()` e os triggers `trg_moment_*` em `schema.sql`. Só `note`,
 `target` e `definition` dependem de alguém (usuário ou IA) escrever
 diretamente.
+
+Cobertura deliberadamente incompleta, por desenho: `events` nunca gera
+moments (ver comentário em `trg_moment_scheduled`/`moment_scheduled_events`
+em `schema.sql`) e reordenar dentro da fila do backlog (`backlog_rank` sem
+cruzar a fronteira NULL) também não — ver nota em `moment_backlog_tasks`
+acima. `deleted` é logado só na transição `deleted_at` NULL → não-NULL (um
+soft-delete já feito, ou desfeito, não gera outro); `renamed` e `moved` só
+quando `name`/`section_id`(`project_id` para sections) de fato mudam, não em
+todo UPDATE.
+
+Toda escrita feita pelo assistente via `insert_row`/`update_rows` tem seus
+moments resultantes marcados `authored_by = 'assistant'` logo depois do
+INSERT (ver `stampAssistantMoments` em `src/lib/chat/toolsCore.ts`) — é o que
+permite ao watcher reativo (abaixo) distinguir uma mudança do usuário de um
+eco da própria escrita do assistente.
+
+### `assistant_nudges`
+
+Ledger de idempotência para o watcher reativo de mudanças de banco (ver
+[Integração com IA](03-ai.md)): `last_moment_id` (uuid, PK) é o id do último
+moment de um lote que disparou uma sugestão. Qualquer aba/instância que
+consiga inserir essa linha primeiro é quem roda o turno; erro de chave
+duplicada significa que outra já assumiu aquele lote exato. `moments` está
+na publicação `supabase_realtime` para esse watcher assinar
+`postgres_changes` em vez de só pollar.
 
 ### `oversight_cursor` & `oversight_notes`
 

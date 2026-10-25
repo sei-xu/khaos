@@ -135,8 +135,8 @@ const looseFiltersSchema = {
 // in ("whenever you use a tool to modify an entity's status, priority, due
 // date, or estimate, you must... provide it in the 'reason' parameter") —
 // that instruction predates this property actually existing on the schema,
-// so it was silently a no-op until now. See the backfillReason() executor
-// below for how it reaches the resulting moment row.
+// so it was silently a no-op until now. See the stampAssistantMoments()
+// executor below for how it reaches the resulting moment row.
 const reasonSchema = {
   type: 'string',
   description:
@@ -223,6 +223,30 @@ export const READ_TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
       },
       required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'suggest_next_task',
+    description:
+      'Suggests what to work on next right after a task was just settled (e.g. marked done), for reacting to a [DB Change:] turn instead of just narrating the change back. ' +
+      'Tries, in order, and stops at the first level with any match: (a) successors in tasks_sequence unlocked by this task (status moved to todo because every task_previous link is now resolved); ' +
+      '(b) open sibling tasks in the same section; (c) open tasks sharing a work_tag with this task; (d) the head of the global backlog_rank queue. ' +
+      "Returns {basis: 'none', n: 0} when nothing comparable is found — say that plainly rather than inventing a suggestion. " +
+      'Excludes deleted and done/cancelled tasks throughout.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'The task that was just settled (e.g. marked done).',
+        },
+        limit: {
+          type: ['integer', 'string'],
+          description: 'Max candidates to return. Default and cap 5.',
+        },
+      },
+      required: ['task_id'],
       additionalProperties: false,
     },
   },
@@ -499,50 +523,69 @@ function coerceInt(raw: unknown, fallback: number): number {
   return fallback;
 }
 
-// Mirrors moment_entity_column() in schema.sql — only these four tables have
-// entity triggers that log moments. Tables without an entry here (fields,
-// events, task_items, task_logs, moments itself, the tag/sequence tables)
-// either don't get moments at all or aren't reachable through this generic
-// path, so a reason has nothing to attach to.
+// Mirrors moment_entity_column() in schema.sql plus the task_items special
+// case (its moments are logged against the *parent* task_id, not its own
+// id — see trg_moment_item() in 20261024010000_moments_full_coverage.sql).
+// Tables without an entry here (fields, events, task_logs, moments itself,
+// the tag/sequence tables) either don't get moments at all or aren't
+// reachable through this generic path.
 const MOMENT_ENTITY_COLUMN: Partial<Record<AllowedTable, string>> = {
   tasks: 'task_id',
   sections: 'section_id',
   projects: 'project_id',
   routines: 'routine_id',
+  task_items: 'task_id',
+};
+
+// Which field on an affected row to read as the entity id used to scope the
+// moments update — 'id' for every table except task_items, whose own id
+// isn't the moments entity key.
+const MOMENT_ENTITY_ID_FIELD: Partial<Record<AllowedTable, string>> = {
+  task_items: 'task_id',
 };
 
 // The insert/update trigger already logged a moment with moment_note null
 // and authored_by='user' by the time this runs (Postgres AFTER triggers fire
-// synchronously, before the client sees the response) — this attaches the
-// reason the model gave to whichever of those moments resulted from *this*
-// call. Scoped by affected row id, a `since` timestamp captured just before
-// the write, and moment_note still being null, so it can't reach a moment
-// from an unrelated request or overwrite a note someone already gave.
-// Best-effort: a failed backfill shouldn't undo a write that already
+// synchronously, before the client sees the response). This stamps
+// authored_by='assistant' on whichever of those moments resulted from *this*
+// call — unconditionally, so the DB-change watcher (changeWatcher.ts) can
+// tell the assistant's own writes apart from the user's and not loop back on
+// itself — and additionally attaches the model's reason as moment_note when
+// one was given. Scoped by affected row id, a `since` timestamp captured
+// just before the write, and moment_note still being null, so it can't reach
+// a moment from an unrelated request or overwrite a note someone already
+// gave. Best-effort: a failed stamp shouldn't undo a write that already
 // succeeded, so errors are swallowed here rather than thrown.
-async function backfillReason(
+async function stampAssistantMoments(
   db: SupabaseClient,
   table: AllowedTable,
   rows: unknown,
   reason: unknown,
   since: string
 ): Promise<void> {
-  if (typeof reason !== 'string' || !reason.trim()) return;
   const entityColumn = MOMENT_ENTITY_COLUMN[table];
   if (!entityColumn) return;
+  const idField = MOMENT_ENTITY_ID_FIELD[table] ?? 'id';
 
-  const ids = (Array.isArray(rows) ? rows : [])
-    .map((r) => (r as { id?: unknown }).id)
-    .filter((id): id is string => typeof id === 'string');
+  const ids = Array.from(
+    new Set(
+      (Array.isArray(rows) ? rows : [])
+        .map((r) => (r as Record<string, unknown>)[idField])
+        .filter((id): id is string => typeof id === 'string')
+    )
+  );
   if (!ids.length) return;
+
+  const patch: Record<string, unknown> = { authored_by: 'assistant' };
+  if (typeof reason === 'string' && reason.trim()) patch.moment_note = reason;
 
   const { error } = await db
     .from('moments')
-    .update({ moment_note: reason, authored_by: 'assistant' })
+    .update(patch)
     .in(entityColumn, ids)
     .gte('created_at', since)
     .is('moment_note', null);
-  if (error) console.error('backfillReason failed', error.message);
+  if (error) console.error('stampAssistantMoments failed', error.message);
 }
 
 // Mirrors rangeDurationMinutes() in src/lib/range.ts, duplicated rather than
@@ -956,6 +999,125 @@ export async function executeTool(
         samples,
       });
     }
+    case 'suggest_next_task': {
+      const a = args as { task_id?: unknown; limit?: unknown };
+      const taskId = typeof a.task_id === 'string' ? a.task_id : '';
+      if (!taskId) throw new Error('suggest_next_task requires a task_id');
+      const limit = Math.min(coerceInt(a.limit, 5), 5);
+
+      const { data: taskRows, error: taskErr } = await db
+        .from('tasks')
+        .select('id, section_id')
+        .eq('id', taskId)
+        .limit(1);
+      if (taskErr) throw new Error(taskErr.message);
+      const task = (taskRows ?? [])[0] as
+        | { id: string; section_id: string | null }
+        | undefined;
+      if (!task) throw new Error(`suggest_next_task: task ${taskId} not found`);
+
+      const TASK_COLUMNS = 'id, name, status, priority, due, estimate, section_id';
+      let basis: 'sequence' | 'section' | 'work_tag' | 'backlog' | 'none' =
+        'none';
+      let candidates: unknown[] = [];
+
+      const { data: seqRows, error: seqErr } = await db
+        .from('tasks_sequence')
+        .select('task_next')
+        .eq('task_previous', taskId);
+      if (seqErr) throw new Error(seqErr.message);
+      const successorIds = (seqRows ?? [])
+        .map((r: { task_next: string }) => r.task_next)
+        .filter(Boolean);
+      if (successorIds.length) {
+        const { data, error } = await db
+          .from('tasks')
+          .select(TASK_COLUMNS)
+          .in('id', successorIds)
+          .eq('status', 'todo')
+          .is('deleted_at', null)
+          .limit(limit);
+        if (error) throw new Error(error.message);
+        candidates = data ?? [];
+        if (candidates.length) basis = 'sequence';
+      }
+
+      if (!candidates.length && task.section_id) {
+        const { data, error } = await db
+          .from('tasks')
+          .select(TASK_COLUMNS)
+          .eq('section_id', task.section_id)
+          .neq('id', taskId)
+          .not('status', 'in', '(done,cancelled)')
+          .is('deleted_at', null)
+          .order('priority', { ascending: true })
+          .order('due', { ascending: true })
+          .limit(limit);
+        if (error) throw new Error(error.message);
+        candidates = data ?? [];
+        if (candidates.length) basis = 'section';
+      }
+
+      if (!candidates.length) {
+        const { data: tagRows, error: tagErr } = await db
+          .from('work_tag_entities')
+          .select('work_tag_id')
+          .eq('task_id', taskId);
+        if (tagErr) throw new Error(tagErr.message);
+        const tagIds = Array.from(
+          new Set(
+            (tagRows ?? [])
+              .map((r: { work_tag_id: string | null }) => r.work_tag_id)
+              .filter((id): id is string => Boolean(id))
+          )
+        );
+        if (tagIds.length) {
+          const { data: taggedEntities, error: teErr } = await db
+            .from('work_tag_entities')
+            .select('task_id')
+            .in('work_tag_id', tagIds)
+            .not('task_id', 'is', null)
+            .neq('task_id', taskId);
+          if (teErr) throw new Error(teErr.message);
+          const candidateIds = Array.from(
+            new Set(
+              (taggedEntities ?? [])
+                .map((r: { task_id: string | null }) => r.task_id)
+                .filter((id): id is string => Boolean(id))
+            )
+          );
+          if (candidateIds.length) {
+            const { data, error } = await db
+              .from('tasks')
+              .select(TASK_COLUMNS)
+              .in('id', candidateIds)
+              .not('status', 'in', '(done,cancelled)')
+              .is('deleted_at', null)
+              .limit(limit);
+            if (error) throw new Error(error.message);
+            candidates = data ?? [];
+            if (candidates.length) basis = 'work_tag';
+          }
+        }
+      }
+
+      if (!candidates.length) {
+        const { data, error } = await db
+          .from('tasks')
+          .select(TASK_COLUMNS)
+          .not('backlog_rank', 'is', null)
+          .not('status', 'in', '(done,cancelled)')
+          .is('deleted_at', null)
+          .order('backlog_rank', { ascending: true })
+          .limit(limit);
+        if (error) throw new Error(error.message);
+        candidates = data ?? [];
+        if (candidates.length) basis = 'backlog';
+      }
+
+      if (!candidates.length) return { basis: 'none', n: 0 };
+      return cleanPayload({ basis, n: candidates.length, candidates });
+    }
     case 'search_schema': {
       const a = args as { query?: unknown };
       const query = typeof a.query === 'string' ? a.query : '';
@@ -998,7 +1160,7 @@ export async function executeTool(
         .insert(coerceValues(args) as never)
         .select();
       if (error) throw new Error(error.message);
-      await backfillReason(db, a.table, data, a.reason, since);
+      await stampAssistantMoments(db, a.table, data, a.reason, since);
       return { inserted: cleanPayload(data ?? []) };
     }
     case 'update_rows': {
@@ -1013,7 +1175,7 @@ export async function executeTool(
       q = applyFilters(q, coerceFilters(a.filters));
       const { data, error } = await q.select();
       if (error) throw new Error(error.message);
-      await backfillReason(db, a.table, data, a.reason, since);
+      await stampAssistantMoments(db, a.table, data, a.reason, since);
       return { updated: cleanPayload(data ?? []), count: data?.length ?? 0 };
     }
     case 'delete_rows': {

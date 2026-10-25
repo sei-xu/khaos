@@ -13,6 +13,7 @@ import { useProcessingContext } from '../lib/processingContext';
 import { useActiveEntity } from '../lib/activeEntityContext';
 import { useChatActivity } from '../lib/chat/chatActivityContext';
 import { getTimezone } from '../lib/timezone';
+import { useDbChangeFeed } from './useDbChangeFeed';
 
 const BOOTSTRAP_INSTRUCTION =
   '[Session Bootstrap: This is the first turn of a new session — nobody has typed anything yet. Follow your OPENING TURN rules: a brief greeting is fine, but do not offer to help or ask an open-ended question — check current state for something worth surfacing before saying anything else, including anything recall_oversight_notes turns up.]';
@@ -42,7 +43,7 @@ export function useChatAgent() {
   const [isLoaded, setIsLoaded] = useState(false);
   const { setAssistantProcessing } = useProcessingContext();
   const { activeEntity } = useActiveEntity();
-  const { markOpenerUnseen } = useChatActivity();
+  const { markAssistantUnseen } = useChatActivity();
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
@@ -124,7 +125,7 @@ export function useChatAgent() {
       }).then((updatedHistory) => {
         const last = updatedHistory?.[updatedHistory.length - 1];
         if (last?.role === 'assistant' && extractText(last.content)) {
-          markOpenerUnseen();
+          markAssistantUnseen();
         }
       });
     });
@@ -134,6 +135,31 @@ export function useChatAgent() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reacts to database changes nobody routed through the chat tools — e.g.
+  // marking a task done in TaskDetailModal. See useDbChangeFeed.ts /
+  // changeWatcher.ts for the buffering/gating; this just runs a silent turn
+  // with the batch summary once it clears the gate, same shape as the
+  // bootstrap turn above. isSending doubles as "a turn is in flight" for
+  // that hook's own suppression window, so the nudge turn's own tool calls
+  // don't re-trigger themselves.
+  useDbChangeFeed({
+    enabled: isLoaded,
+    isTurnInFlight: isSending,
+    onNudge: useCallback(
+      (prefixedContent: string) => {
+        runWithUserContent(prefixedContent, { silent: true }).then(
+          (updatedHistory) => {
+            const last = updatedHistory?.[updatedHistory.length - 1];
+            if (last?.role === 'assistant' && extractText(last.content)) {
+              markAssistantUnseen();
+            }
+          }
+        );
+      },
+      [runWithUserContent, markAssistantUnseen]
+    ),
+  });
 
   // Wipes the shared conversation everywhere — web instances and Telegram
   // alike — not just this tab's view of it.
@@ -159,6 +185,7 @@ export function useChatAgent() {
         text = text.replace(/^\[Temporal Context:[\s\S]*?\]\s*/g, '');
         text = text.replace(/^\[UI Context:[\s\S]*?\]\s*/g, '');
         text = text.replace(/^\[Session Bootstrap:[\s\S]*?\]\s*/g, '');
+        text = text.replace(/^\[DB Change:[\s\S]*?\]\s*/g, '');
         text = text.replace(/^\[Context:[\s\S]*?\]\s*/g, '');
       }
       return { id: `${m.role}-${index}`, role, text, isError: m.isError };
