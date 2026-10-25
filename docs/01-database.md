@@ -271,8 +271,9 @@ ressuscita, só volta a gerar a partir de agora.
 Um template de `routines` não materializa nada por si só — ocorrências
 (`events`, `event_type='routine'`) são geradas por `supabase/functions/
 routine-events` (cron diário) ou pela tool `materialize_routines` do
-assistente, ambos chamando a mesma lógica pura e testada em
-`src/lib/routines/occurrences.ts`. Ver esse módulo e
+assistente, ambos passando pela mesma `materializeRoutines`
+(`src/lib/routines/materialize.ts`), que por sua vez chama a lógica pura e
+testada em `src/lib/routines/occurrences.ts`. Ver esse módulo e
 `docs/backlog.md`, "Rotinas devem ser criadas por cron/assistente..." para o
 mapeamento completo de frequência → dias e de `preferred_time` → horário.
 

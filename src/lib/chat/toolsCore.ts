@@ -5,13 +5,8 @@
 // bot Edge Function.
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import {
-  plannedOccurrences,
-  ROUTINE_STATUSES,
-  type ExistingOccurrence,
-  type RoutineInput,
-  type RoutineStatus,
-} from '../routines/occurrences';
+import { materializeRoutines } from '../routines/materialize';
+import { ROUTINE_STATUSES } from '../routines/occurrences';
 
 // Everything the tool executor needs from its host, injected rather than
 // imported: the browser app supplies its anon-key client (src/lib/chat/tools.ts)
@@ -574,27 +569,6 @@ export function coerceValues(
     }
   }
   return candidate as Record<string, unknown>;
-}
-
-// tstzrange text -> lower bound Date, duplicated in miniature from
-// supabase/functions/_shared/range.ts rather than imported — that module
-// lives under supabase/functions, outside src/lib, and this file is
-// intentionally import-free of anything but pure sibling modules so it
-// bundles the same way for the browser and for Deno.
-function parseDurationLowerBound(raw: string | null): Date | null {
-  if (!raw) return null;
-  const match = raw.match(/^[[(]\s*"?([^",]+?)"?\s*,/);
-  if (!match) return null;
-  const s = match[1]
-    .trim()
-    .replace(' ', 'T')
-    .replace(/([+-]\d{2})$/, '$1:00');
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function rangeLiteral(start: Date, end: Date): string {
-  return `["${start.toISOString()}","${end.toISOString()}")`;
 }
 
 function coerceBoolean(raw: unknown, fallback: boolean): boolean {
@@ -1284,7 +1258,6 @@ export async function executeTool(
     }
     case 'materialize_routines': {
       const a = args as { from?: unknown; to?: unknown };
-      const timezone = deps.timezone || 'America/Sao_Paulo';
       const from =
         typeof a.from === 'string' && a.from ? new Date(a.from) : new Date();
       const to =
@@ -1301,77 +1274,13 @@ export async function executeTool(
         );
       }
 
-      const { data: routineRows, error: routinesError } = await db
-        .from('routines')
-        .select(
-          'id,name,frequency,preferred_time,estimate,active,task_id,field_id'
-        )
-        .eq('active', true);
-      if (routinesError) throw new Error(routinesError.message);
-      const routines = (routineRows ?? []) as RoutineInput[];
-      if (!routines.length) return { created: 0, skipped: 0, total_planned: 0 };
-
-      // Same 14-day lookback as routine-events' cron run — long enough to
-      // still find a 'skipped' occurrence whose makeup week straddles the
-      // start of this window.
-      const lookback = new Date(from.getTime() - 14 * 86400000);
-      const { data: eventRows, error: eventsError } = await db
-        .from('events')
-        .select('routine_id,duration,routine_status')
-        .eq('event_type', 'routine')
-        .is('deleted_at', null)
-        .in(
-          'routine_id',
-          routines.map((r) => r.id)
-        )
-        .gte('duration', `[${lookback.toISOString()},)`);
-      if (eventsError) throw new Error(eventsError.message);
-
-      const existing: ExistingOccurrence[] = [];
-      for (const row of (eventRows ?? []) as {
-        routine_id: string | null;
-        duration: string | null;
-        routine_status: RoutineStatus | null;
-      }[]) {
-        if (!row.routine_id) continue;
-        const start = parseDurationLowerBound(row.duration);
-        if (!start) continue;
-        existing.push({
-          routine_id: row.routine_id,
-          start,
-          status: row.routine_status,
-        });
-      }
-
-      const planned = plannedOccurrences(
-        routines,
-        from,
-        to,
-        timezone,
-        existing
+      // Same read-plan-insert sequence the daily cron runs
+      // (supabase/functions/routine-events), shared so the two can't drift.
+      const { created, skipped, total_planned } = await materializeRoutines(
+        db,
+        { from, to, timeZone: deps.timezone || 'America/Sao_Paulo' }
       );
-
-      let created = 0;
-      let skipped = 0;
-      for (const occ of planned) {
-        const { error } = await db.from('events').insert({
-          name: occ.name,
-          event_type: 'routine',
-          routine_id: occ.routine_id,
-          task_id: occ.task_id,
-          field_id: occ.field_id,
-          duration: rangeLiteral(occ.start, occ.end),
-        });
-        if (!error) {
-          created++;
-        } else if ((error as { code?: string }).code === '23505') {
-          skipped++; // idx_events_routine_dedup — already materialized
-        } else {
-          throw new Error(error.message);
-        }
-      }
-
-      return { created, skipped, total_planned: planned.length };
+      return { created, skipped, total_planned };
     }
     case 'set_routine_status': {
       const a = args as { event_id?: unknown; status?: unknown };
