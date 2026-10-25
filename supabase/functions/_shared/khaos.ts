@@ -80,6 +80,7 @@ export const db: SupabaseClient = createClient(
 const toolDeps = {
   db,
   searchSchema: (query: string) => searchSchemaCore(SCHEMA_SQL, query),
+  timezone: TIMEZONE,
 };
 
 export function temporalContext(): string {

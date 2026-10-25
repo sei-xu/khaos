@@ -8,7 +8,7 @@
 - [x] Registro automático de moments via triggers do banco (created, due, estimate, priority, status, scheduled, started, stopped, target)
 - [x] Sequences — tasks e sections dependentes, com desbloqueio automático (planning/waiting → todo)
 - [x] Time tracking com `task_logs` (substituiu `time_entries`), incluindo logs em segundo plano (`background`) concorrentes com o log foreground
-- [x] Routines — templates recorrentes que geram `events` do tipo `routine`
+- [x] Routines — templates recorrentes que geram `events` do tipo `routine`. **Correção (2026-10-25):** este item estava listado aqui como concluído desde bem antes de a geração existir de fato — `routines` tinha CRUD completo, mas nada no repositório materializava ocorrências (a única escrita de `event_type: 'routine'` era um mock de página de dev). A geração em si (cron diário `routine-events`, tool do assistente `materialize_routines`, lógica pura em `src/lib/routines/occurrences.ts`) só foi implementada agora — ver `docs/backlog.md`, "Rotinas devem ser criadas por cron/assistente..."
 - [x] Work tags e moment tags — taxonomia extraída pela IA
 - [x] Bot do Telegram com a mesma persona/tools do app (webhook reativo + digest matinal + lembretes agendados)
 - [x] Histórico de chat compartilhado (`chat_history`) entre o app web e o Telegram
@@ -16,7 +16,7 @@
 - [x] PWA / gate de senha simples para acesso mobile
 - [x] Dashboard com pills agrupadas (scheduled/marked/targeted/due), drag-and-drop e auto-refresh
 - [x] Backlog — fila global e persistida (`tasks.backlog_rank`) da ordem em que as tarefas pendentes serão feitas, mandando a ordem de exibição dentro do Today; pré-requisito de "Planejamento assistido" abaixo
-- [x] Integração bidirecional com o Google Calendar, restrita a `events.event_type = 'fixed'` — `scheduled`/`routine` nunca saem do Khaos e nada vindo do Google se materializa como `scheduled`/`routine` (ver `docs/backlog.md`)
+- [x] Integração bidirecional com o Google Calendar para `events.event_type = 'fixed'`, mais push (somente ida) para ocorrências `routine` geradas (desde 2026-10-25) — `scheduled` nunca sai do Khaos, e nada vindo do Google se materializa como `scheduled`/`routine` (uma edição do lado do Google numa ocorrência de rotina a promove a `fixed`, ver `docs/backlog.md`)
 - [x] Reação a mudanças de banco feitas fora do chat (checklist/status marcado direto na UI) — cobertura total do feed de moments (routines, soft-delete, rename, reparenting, `task_items`), watcher Realtime com fallback de poll, e um turno silencioso que propõe a próxima ação via `suggest_next_task` (ver `docs/03-ai.md#reagindo-a-mudanças-de-banco-fora-do-chat`); é a metade **reativa** — perceber o que acabou de acontecer — e não substitui "Planejamento assistido" abaixo, que é a metade proativa de sugerir a ordem do dia
 
 > Nota: "Notificação automática de deploy (Vercel + GitHub Actions →

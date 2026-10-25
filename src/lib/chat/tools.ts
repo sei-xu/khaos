@@ -7,13 +7,18 @@
 // app imported from here before the split, so call sites are unchanged.
 import { supabase } from '../supabaseClient';
 import { searchSchema } from './schemaSearch';
+import { getTimezone } from '../timezone';
 import { executeTool as coreExecuteTool } from './toolsCore';
 
 export function executeTool(
   rawName: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  return coreExecuteTool({ db: supabase, searchSchema }, rawName, args);
+  return coreExecuteTool(
+    { db: supabase, searchSchema, timezone: getTimezone() },
+    rawName,
+    args
+  );
 }
 
 export {
@@ -21,10 +26,12 @@ export {
   READ_TOOL_DEFINITIONS,
   WRITE_TOOL_DEFINITIONS,
   OVERSIGHT_TOOL_DEFINITIONS,
+  ROUTINE_TOOL_DEFINITIONS,
   TOOL_DEFINITIONS,
   READ_TOOLS,
   WRITE_TOOLS,
   OVERSIGHT_TOOLS,
+  ROUTINE_TOOLS,
   normalizeToolName,
   coerceFilters,
   coerceValues,

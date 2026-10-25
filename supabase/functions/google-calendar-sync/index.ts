@@ -1,9 +1,18 @@
-// Bidirectional Google Calendar sync, restricted to events.event_type =
-// 'fixed'. 'scheduled' (task time blocks) and 'routine' (template-generated)
-// events never touch Google — see docs/backlog.md, "Integração bidirecional
-// com o Google Calendar (somente eventos fixed)", and the trigger
-// trg_google_sync_dirty (20261013000000_google_calendar_sync.sql) that is
-// the only thing marking a row for this function to push.
+// Google Calendar sync for events.event_type IN ('fixed', 'routine').
+// 'scheduled' (task time blocks) never touches Google. 'fixed' events are
+// fully bidirectional; generated 'routine' occurrences (see
+// src/lib/routines/occurrences.ts and docs/backlog.md, "Rotinas devem ser
+// criadas por cron/assistente...") are PUSH-ONLY — see the trigger
+// trg_google_sync_dirty (20261013000000_google_calendar_sync.sql,
+// extended by 20261025000000_routine_occurrences.sql) that is the only
+// thing marking a row for this function to push.
+//
+// Why push-only for routine: a pull (see fromGoogleEvent/applyPulledItem
+// below) always writes event_type='fixed', never 'routine' — an edit made
+// on the Google side of a generated occurrence "promotes" it into a real
+// fixed commitment instead of silently rewriting a routine template's
+// occurrence. That keeps the GOOGLE WINS rule below meaningful without
+// inventing separate two-way semantics for a cron-generated row.
 //
 // Cron-invoked (same X-Khaos-Cron-Secret / KHAOS_CRON_SECRET pattern as
 // telegram-notify), never by a browser — see supabase/config.toml and
@@ -16,7 +25,9 @@
 // Conflict rule: GOOGLE WINS. A 'fixed' event is a commitment made with
 // other people; the copy they see is authoritative. A local edit that loses
 // a conflict is logged (google_calendar_sync_log, action='conflict'), never
-// silently dropped.
+// silently dropped. The same rule applies if a push PATCH on a 'routine'
+// occurrence 412s — the occurrence's name/duration gets overwritten with
+// whatever Google currently has, same as 'fixed'.
 //
 // Echo avoidance: trg_google_sync_dirty excludes the google_* / sync_dirty
 // columns from its watched set, so a push that only writes those back never
@@ -233,7 +244,8 @@ async function handlePushConflict(row: EventRow, calendarId: string, accessToken
 
 async function pushOne(row: EventRow, account: Account, accessToken: string): Promise<void> {
   const calendarId = row.google_calendar_id ?? account.calendar_id;
-  const needsDelete = row.deleted_at !== null || row.event_type !== 'fixed';
+  const isSyncable = row.event_type === 'fixed' || row.event_type === 'routine';
+  const needsDelete = row.deleted_at !== null || !isSyncable;
 
   if (needsDelete) {
     if (!row.google_event_id) {
