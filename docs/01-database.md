@@ -175,21 +175,31 @@ Compromissos e blocos de tempo na agenda.
 | google_etag | text | Último etag devolvido pelo Google; compara para detectar edição concorrente |
 | google_synced_at | timestamptz | Timestamp do último push/pull bem-sucedido |
 | sync_dirty | boolean | default `false` — marcado pelo trigger `trg_google_sync_dirty` quando a linha precisa ser empurrada ao Google |
+| routine_status | text | `done` \| `partial` \| `skipped`, só em linhas `event_type='routine'` (CHECK); resultado de hábito registrado depois do fato, nunca pelo gerador |
 
-**Sincronização com o Google Calendar** (só `event_type = 'fixed'` —
-`scheduled`/`routine` nunca saem do Khaos, e nada vindo do Google pode se
-materializar como `scheduled`/`routine`). `trg_google_sync_dirty`
-(`BEFORE INSERT OR UPDATE`) marca `sync_dirty` quando a linha é (ou acabou
-de deixar de ser) `fixed` e uma coluna observável mudou
+**Sincronização com o Google Calendar** — `event_type IN ('fixed', 'routine')`
+empurram (push); só `fixed` é bidirecional de verdade. `scheduled` nunca sai
+do Khaos, e nada vindo do Google pode se materializar como `scheduled` ou
+`routine` — um pull sempre escreve `event_type='fixed'`, então uma edição do
+lado do Google numa ocorrência de rotina a "promove" a compromisso fixo em
+vez de reescrever silenciosamente o template. `trg_google_sync_dirty`
+(`BEFORE INSERT OR UPDATE`) marca `sync_dirty` quando a linha é (ou acabou de
+deixar de ser) `fixed`/`routine` e uma coluna observável mudou
 (`name`/`duration`/`deleted_at`/`event_type`) — as colunas que a própria
 sincronização escreve (`google_*`, `sync_dirty`) ficam de fora do que o
 trigger observa. Um índice único parcial em
 `(google_calendar_id, google_event_id)` (onde `google_event_id` não é nulo)
 impede importar o mesmo evento do Google duas vezes; um índice parcial em
-`(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Ver
+`(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Um
+segundo índice único parcial em `(routine_id, lower(duration))` (só
+`event_type='routine'`, `deleted_at is null`) é a chave de deduplicação do
+gerador de ocorrências — `lower(duration)` é IMMUTABLE e por isso indexável,
+ao contrário de uma expressão com `AT TIME ZONE` (só STABLE). Ver
 `supabase/functions/google-calendar-sync/README.md` para o motor completo
 (push/pull, resolução de conflito — Google sempre vence — e os casos de
-borda de evento de dia inteiro/recorrente).
+borda de evento de dia inteiro/recorrente), e
+`supabase/functions/routine-events/README.md` para o gerador de ocorrências
+de rotina.
 
 ### `google_calendar_account`
 
@@ -249,10 +259,23 @@ Templates para tarefas recorrentes/hábitos.
 
 `routines` não tem coluna `due`, `status` nem `priority` — o estado de ciclo
 de vida que existe é `active`. Triggers: `moment_created_routines` (criação),
-`moment_renamed_routines` (mudança de `name`) e `moment_active_routines`, que
+`moment_renamed_routines` (mudança de `name`), `moment_active_routines`, que
 registra um moment `status` com valor `active`/`paused` quando `active`
 alterna (não há `deleted_at` em `routines`, então não há moment `deleted`
-para esta tabela).
+para esta tabela), e `trg_routine_deactivated` (`AFTER UPDATE`): quando
+`active` vira `true → false`, soft-deleta (`events.deleted_at`) as
+ocorrências dessa rotina ainda não iniciadas (`lower(duration) > now()`) —
+passado e ocorrências em andamento são preservados; reativar não as
+ressuscita, só volta a gerar a partir de agora.
+
+Um template de `routines` não materializa nada por si só — ocorrências
+(`events`, `event_type='routine'`) são geradas por `supabase/functions/
+routine-events` (cron diário) ou pela tool `materialize_routines` do
+assistente, ambos passando pela mesma `materializeRoutines`
+(`src/lib/routines/materialize.ts`), que por sua vez chama a lógica pura e
+testada em `src/lib/routines/occurrences.ts`. Ver esse módulo e
+`docs/backlog.md`, "Rotinas devem ser criadas por cron/assistente..." para o
+mapeamento completo de frequência → dias e de `preferred_time` → horário.
 
 ### `task_logs`
 

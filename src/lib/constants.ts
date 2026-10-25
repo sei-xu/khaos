@@ -206,6 +206,8 @@ export const OPEN_STATUSES: Status[] = [
 
 export const FREQUENCY_OPTIONS = [
   { value: 'daily', label: 'Every day' },
+  { value: 'weekday', label: 'Weekdays' },
+  { value: 'weekend', label: 'Weekends' },
   { value: 'every_2_days', label: 'Every 2 days' },
   { value: '2x_week', label: '2× per week' },
   { value: '3x_week', label: '3× per week' },

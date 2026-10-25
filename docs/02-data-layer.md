@@ -86,7 +86,17 @@ banco, incluindo montar o `tstzrange` de `duration` via `formatRange()`.
 
 `routinesApi.list` (com `fields(name)` embutido), `create`, `update`,
 `remove`, e `listWithEvents(weekStart, weekEnd)` que busca em paralelo os
-routines ativos e os `events` do tipo `routine` na janela da semana.
+routines ativos e os `events` do tipo `routine` na janela da semana. Até
+2026-10-25 essa última função não tinha nenhum chamador — nada no
+repositório gerava `event_type='routine'`, então a query sempre voltava
+vazia (ver `docs/05-roadmap.md` e `docs/backlog.md`, "Rotinas devem ser
+criadas por cron/assistente..."). Agora que `supabase/functions/
+routine-events` e a tool `materialize_routines` materializam ocorrências de
+verdade, a função passa a ter dados reais para retornar; continua sem
+chamador na UI (CalendarPage lê via `eventsApi.list()`, que não filtra por
+`event_type`, então ocorrências de rotina já aparecem lá sem passar por
+`listWithEvents`) — mantida por ser uma consulta útil para uma futura
+visão de semana dedicada a rotinas, não removida como código morto.
 
 ## `moments.ts`
 
