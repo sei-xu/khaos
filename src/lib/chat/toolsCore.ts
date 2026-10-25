@@ -5,6 +5,13 @@
 // bot Edge Function.
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  plannedOccurrences,
+  ROUTINE_STATUSES,
+  type ExistingOccurrence,
+  type RoutineInput,
+  type RoutineStatus,
+} from '../routines/occurrences';
 
 // Everything the tool executor needs from its host, injected rather than
 // imported: the browser app supplies its anon-key client (src/lib/chat/tools.ts)
@@ -13,6 +20,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export interface ToolDeps {
   db: SupabaseClient;
   searchSchema: (query: string) => unknown;
+  // IANA zone used by materialize_routines to resolve preferred_time into a
+  // concrete instant (src/lib/routines/occurrences.ts). The browser binding
+  // passes the user's own getTimezone(); the Telegram/cron side passes its
+  // TIMEZONE constant. Defaults to America/Sao_Paulo (same default the rest
+  // of the server side already assumes) when a host doesn't supply one.
+  timezone?: string;
 }
 
 export const ALLOWED_TABLES = [
@@ -394,6 +407,57 @@ export const OVERSIGHT_TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
 ];
 
+// Routines (public.routines) had full CRUD via the generic tables above
+// long before anything generated the events they describe. These two tools
+// are the "via" the model should use instead of hand-building a routine
+// event: materialize_routines shares the exact scheduling logic
+// (src/lib/routines/occurrences.ts) that the daily cron
+// (supabase/functions/routine-events) runs, so the two can't drift on what
+// "3x_week" or "preferred_time: evening" means; set_routine_status is the
+// only way a routine occurrence's habit outcome (done/partial/skipped) gets
+// recorded, since the DB never infers it on its own.
+export const ROUTINE_TOOL_DEFINITIONS: Anthropic.Tool[] = [
+  {
+    name: 'materialize_routines',
+    description:
+      "Generates routine occurrences (events with event_type='routine') for every active routine across a date window, using the same scheduling rules as the daily cron: frequency distribution (including spreading Nx_week/monthly routines across different days so they don't pile onto the same slot), preferred_time windows, estimate-based duration, and reschedule-on-skip makeups. Safe to call even if the window overlaps what the cron already generated — it never creates a duplicate occurrence. Use this instead of inserting routine events by hand.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          description:
+            'ISO 8601 start of the window (inclusive). Defaults to now.',
+        },
+        to: {
+          type: 'string',
+          description:
+            'ISO 8601 end of the window (exclusive). Defaults to 7 days after from.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'set_routine_status',
+    description:
+      "Marks a generated routine occurrence's habit outcome for that day: 'done', 'partial', or 'skipped'. Only valid on an events row with event_type='routine' — scheduled/fixed events have no such concept and this will fail on them. A 'skipped' occurrence earns exactly one makeup the next time materialize_routines (or the cron) runs, placed on a later, otherwise-free day the same week — this does not reschedule anything itself, it only records the outcome.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: {
+          type: 'string',
+          description: 'id of the events row (the routine occurrence) to mark.',
+        },
+        status: { type: 'string', enum: ROUTINE_STATUSES },
+      },
+      required: ['event_id', 'status'],
+      additionalProperties: false,
+    },
+  },
+];
+
 // Static across calls, same as SYSTEM_BLOCKS — the cache_control on the last
 // entry covers the whole array (caching is cumulative up to the breakpoint),
 // so the tool schemas are read from cache instead of recounted every turn.
@@ -401,6 +465,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   ...READ_TOOL_DEFINITIONS,
   ...WRITE_TOOL_DEFINITIONS,
   ...OVERSIGHT_TOOL_DEFINITIONS,
+  ...ROUTINE_TOOL_DEFINITIONS,
 ];
 TOOL_DEFINITIONS[TOOL_DEFINITIONS.length - 1] = {
   ...TOOL_DEFINITIONS[TOOL_DEFINITIONS.length - 1],
@@ -413,6 +478,9 @@ export const READ_TOOLS = new Set(READ_TOOL_DEFINITIONS.map((t) => t.name));
 export const WRITE_TOOLS = new Set(WRITE_TOOL_DEFINITIONS.map((t) => t.name));
 export const OVERSIGHT_TOOLS = new Set(
   OVERSIGHT_TOOL_DEFINITIONS.map((t) => t.name)
+);
+export const ROUTINE_TOOLS = new Set(
+  ROUTINE_TOOL_DEFINITIONS.map((t) => t.name)
 );
 
 // Recebe `unknown` em vez de `string` de propósito: o que chega aqui vem dos
@@ -506,6 +574,27 @@ export function coerceValues(
     }
   }
   return candidate as Record<string, unknown>;
+}
+
+// tstzrange text -> lower bound Date, duplicated in miniature from
+// supabase/functions/_shared/range.ts rather than imported — that module
+// lives under supabase/functions, outside src/lib, and this file is
+// intentionally import-free of anything but pure sibling modules so it
+// bundles the same way for the browser and for Deno.
+function parseDurationLowerBound(raw: string | null): Date | null {
+  if (!raw) return null;
+  const match = raw.match(/^[[(]\s*"?([^",]+?)"?\s*,/);
+  if (!match) return null;
+  const s = match[1]
+    .trim()
+    .replace(' ', 'T')
+    .replace(/([+-]\d{2})$/, '$1:00');
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function rangeLiteral(start: Date, end: Date): string {
+  return `["${start.toISOString()}","${end.toISOString()}")`;
 }
 
 function coerceBoolean(raw: unknown, fallback: boolean): boolean {
@@ -1012,11 +1101,11 @@ export async function executeTool(
         .limit(1);
       if (taskErr) throw new Error(taskErr.message);
       const task = (taskRows ?? [])[0] as
-        | { id: string; section_id: string | null }
-        | undefined;
+        { id: string; section_id: string | null } | undefined;
       if (!task) throw new Error(`suggest_next_task: task ${taskId} not found`);
 
-      const TASK_COLUMNS = 'id, name, status, priority, due, estimate, section_id';
+      const TASK_COLUMNS =
+        'id, name, status, priority, due, estimate, section_id';
       let basis: 'sequence' | 'section' | 'work_tag' | 'backlog' | 'none' =
         'none';
       let candidates: unknown[] = [];
@@ -1192,6 +1281,120 @@ export async function executeTool(
       const { data, error } = await db.rpc(a.name, a.args || {});
       if (error) throw new Error(error.message);
       return { result: cleanPayload(data) };
+    }
+    case 'materialize_routines': {
+      const a = args as { from?: unknown; to?: unknown };
+      const timezone = deps.timezone || 'America/Sao_Paulo';
+      const from =
+        typeof a.from === 'string' && a.from ? new Date(a.from) : new Date();
+      const to =
+        typeof a.to === 'string' && a.to
+          ? new Date(a.to)
+          : new Date(from.getTime() + 7 * 86400000);
+      if (
+        Number.isNaN(from.getTime()) ||
+        Number.isNaN(to.getTime()) ||
+        to.getTime() <= from.getTime()
+      ) {
+        throw new Error(
+          'materialize_routines requires a valid from < to window'
+        );
+      }
+
+      const { data: routineRows, error: routinesError } = await db
+        .from('routines')
+        .select(
+          'id,name,frequency,preferred_time,estimate,active,task_id,field_id'
+        )
+        .eq('active', true);
+      if (routinesError) throw new Error(routinesError.message);
+      const routines = (routineRows ?? []) as RoutineInput[];
+      if (!routines.length) return { created: 0, skipped: 0, total_planned: 0 };
+
+      // Same 14-day lookback as routine-events' cron run — long enough to
+      // still find a 'skipped' occurrence whose makeup week straddles the
+      // start of this window.
+      const lookback = new Date(from.getTime() - 14 * 86400000);
+      const { data: eventRows, error: eventsError } = await db
+        .from('events')
+        .select('routine_id,duration,routine_status')
+        .eq('event_type', 'routine')
+        .is('deleted_at', null)
+        .in(
+          'routine_id',
+          routines.map((r) => r.id)
+        )
+        .gte('duration', `[${lookback.toISOString()},)`);
+      if (eventsError) throw new Error(eventsError.message);
+
+      const existing: ExistingOccurrence[] = [];
+      for (const row of (eventRows ?? []) as {
+        routine_id: string | null;
+        duration: string | null;
+        routine_status: RoutineStatus | null;
+      }[]) {
+        if (!row.routine_id) continue;
+        const start = parseDurationLowerBound(row.duration);
+        if (!start) continue;
+        existing.push({
+          routine_id: row.routine_id,
+          start,
+          status: row.routine_status,
+        });
+      }
+
+      const planned = plannedOccurrences(
+        routines,
+        from,
+        to,
+        timezone,
+        existing
+      );
+
+      let created = 0;
+      let skipped = 0;
+      for (const occ of planned) {
+        const { error } = await db.from('events').insert({
+          name: occ.name,
+          event_type: 'routine',
+          routine_id: occ.routine_id,
+          task_id: occ.task_id,
+          field_id: occ.field_id,
+          duration: rangeLiteral(occ.start, occ.end),
+        });
+        if (!error) {
+          created++;
+        } else if ((error as { code?: string }).code === '23505') {
+          skipped++; // idx_events_routine_dedup — already materialized
+        } else {
+          throw new Error(error.message);
+        }
+      }
+
+      return { created, skipped, total_planned: planned.length };
+    }
+    case 'set_routine_status': {
+      const a = args as { event_id?: unknown; status?: unknown };
+      if (typeof a.event_id !== 'string' || !a.event_id) {
+        throw new Error('set_routine_status requires event_id');
+      }
+      if (
+        typeof a.status !== 'string' ||
+        !(ROUTINE_STATUSES as readonly string[]).includes(a.status)
+      ) {
+        throw new Error(
+          `set_routine_status requires status to be one of ${ROUTINE_STATUSES.join(', ')}`
+        );
+      }
+      const { data, error } = await db
+        .from('events')
+        .update({ routine_status: a.status })
+        .eq('id', a.event_id)
+        .eq('event_type', 'routine')
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return { updated: cleanPayload(data) };
     }
     case 'recall_oversight_notes': {
       const a = args as { since?: unknown; limit?: unknown };

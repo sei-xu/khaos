@@ -104,6 +104,7 @@ const SAMPLE_EVENT_FIXED: Event = {
   task_id: null,
   field_id: null,
   routine_id: null,
+  routine_status: null,
   recurrent: false,
   deleted_at: null,
   google_event_id: null,
