@@ -2117,6 +2117,28 @@ parar para perguntar — registradas aqui em vez de bloquear):
   repor. Se o dono quiser reposição para outras frequências, é extensão,
   não correção.
 
+**Revisão automatizada (2026-10-25).** Duas mudanças aplicadas direto no
+branch, sem alterar comportamento: (1) o trecho "ler rotinas → ler
+ocorrências existentes → planejar → inserir" estava duplicado entre
+`runOnce()` da Edge Function e o case `materialize_routines` de
+`toolsCore.ts` — a janela de lookback, o tratamento do `23505` e o payload
+do insert são tão parte de "o que é materializar" quanto o
+`plannedOccurrences`, então foram para `src/lib/routines/materialize.ts`,
+chamado pelos dois (a função cron passa um `onInsertError` para continuar
+contando erros em vez de lançar); (2) as ~45 linhas de aritmética de fuso
+em `localMidnight()` da Edge Function foram substituídas por
+`localDayStart()`, exportado de `occurrences.ts`, que já fazia exatamente
+isso internamente.
+
+Dois achados de correção que a revisão **não** aplicou sozinha ficaram
+como comentários `BLOQUEANTE:` no PR #97, para o dono decidir: o
+`event_type='fixed'` que o pull do Google escreve numa ocorrência que já
+tem `routine_status` viola a CHECK `chk_routine_status_only_on_routine`; e
+a chave de de-dup `(routine_id, lower(duration))` ser o instante exato (e
+não o dia) faz qualquer replanejamento — mudar `preferred_time`, ou o dia
+mensal mudar porque outra rotina entrou/saiu da conta de carga — gerar uma
+ocorrência extra em vez de reconhecer a que já existe.
+
 ---
 
 ## Resolved

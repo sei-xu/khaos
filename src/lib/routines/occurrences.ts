@@ -165,6 +165,15 @@ function zonedTimeToUtc(
   return new Date(guess.getTime() - offsetMinutes * 60000);
 }
 
+// UTC instant of local midnight on the calendar day that contains
+// `instant`. Exported for the callers that have to turn "today" / "today +
+// 7 days" into a window before calling plannedOccurrences
+// (supabase/functions/routine-events), so the zone arithmetic lives in one
+// place instead of being re-derived from Intl parts on the caller's side.
+export function localDayStart(instant: Date, timeZone: string): Date {
+  return zonedTimeToUtc(localDay(instant, timeZone), 0, 0, timeZone);
+}
+
 // --- deterministic per-routine hashing --------------------------------
 
 function hashString(s: string): number {
