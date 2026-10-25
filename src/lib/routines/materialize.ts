@@ -113,10 +113,24 @@ export async function materializeRoutines(
 
   const planned = plannedOccurrences(routines, from, to, timeZone, existing);
 
+  // Everything idx_events_routine_dedup could conflict with is already in
+  // `existing` (it covers the same rows, from a wider window than the one
+  // planned here), so an occurrence we already read back needs no insert
+  // attempt at all. On a rolling re-run most of the window is in exactly
+  // that state, and the 23505 round-trip per occurrence was pure waste.
+  // The unique index still backstops a concurrent run, below.
+  const existingKeys = new Set(
+    existing.map((e) => `${e.routine_id}|${e.start.getTime()}`)
+  );
+
   let created = 0;
   let skipped = 0;
   let errors = 0;
   for (const occ of planned) {
+    if (existingKeys.has(`${occ.routine_id}|${occ.start.getTime()}`)) {
+      skipped++;
+      continue;
+    }
     const { error } = await db.from('events').insert({
       name: occ.name,
       event_type: 'routine',
