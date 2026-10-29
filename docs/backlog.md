@@ -59,6 +59,7 @@ work that grows out of them. Roadmap phases live in
 | [Integração bidirecional com o Google Calendar (somente eventos fixed)](#integração-bidirecional-com-o-google-calendar-somente-eventos-fixed) | 2026-10-12 |
 | [Assistente sugere projeto, seção e estimativa ao criar tarefa](#assistente-sugere-projeto-seção-e-estimativa-ao-criar-tarefa) | 2026-10-13 |
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
+| [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 
 ---
 
@@ -1947,6 +1948,161 @@ dado de teste ficou no banco. `npm run typecheck`, `npm run lint` e
 ver a sugestão aparecer) e a degradação do Realtime para poll não puderam
 ser verificados em browser real nesta sessão (sandbox sem navegador) — só
 por leitura de código e pelo smoke test SQL.
+
+---
+
+## Chat do assistente derruba o app ao abrir no mobile
+
+started 2026-10-28
+
+Usuário reportou: o chat de assistente não abre ao clicar na notificação em
+mobile — a tela simplesmente fica em branco.
+
+**Causa-raiz.** Não é layout nem alvo de toque: é um throw síncrono dentro de
+um `useEffect`, sem error boundary em `src/main.tsx` para contê-lo, então o
+React desmonta a árvore inteira — por isso "tudo some". `useDbChangeFeed`
+(`src/hooks/useDbChangeFeed.ts`) assinava sempre o mesmo tópico Realtime fixo
+(`'db-change-feed'`). `@supabase/realtime-js` 2.108.2 não cria um canal novo
+quando já existe um com o mesmo tópico — devolve o existente
+(`RealtimeClient.channel()`) — e `RealtimeChannel.on()` lança `Error` se esse
+canal já está `joined`/`joining` e o tipo é `postgres_changes`. O rail direito
+do `AppShell` mantém seu `ChatPanel` montado mesmo no mobile (só `hidden`/
+`lg:flex` em CSS), então abrir a bottom-sheet monta um **segundo**
+`ChatPanel` → segundo `useChatAgent` → segundo `useDbChangeFeed`, que explode
+na segunda montagem. O mesmo defeito existia no desktop pela rota
+`/assistant` (outro `ChatPanel` montado enquanto o rail `lg:` segue vivo) —
+não era exclusivo do mobile, só mais fácil de disparar lá porque qualquer
+toque na bolha de notificação monta a sheet.
+
+Dois agravantes no mesmo caminho, encontrados na investigação: (a) o cleanup
+chamava `supabase.removeChannel(channel)` com um tópico compartilhado,
+podendo remover o canal de outra instância ainda viva; (b)
+`saveHistory(updatedHistory)` em `useChatAgent.ts` não era aguardado antes de
+`markAssistantUnseen()` no turno de nudge/bootstrap, então a sheet
+recém-montada podia carregar o histórico de antes do nudge.
+
+**Correção.** `useDbChangeFeed` deixou de montar o canal Realtime
+diretamente; a fiação (subscribe + fallback de poll + cleanup) saiu para um
+novo módulo injetável, `src/lib/chat/momentFeed.ts`
+(`subscribeToMomentFeed(client, params)`, no padrão `ToolDeps` já usado em
+`toolsCore.ts`), que gera um tópico próprio por chamada
+(`'db-change-feed-<n>'` via contador de módulo) em vez do tópico fixo —
+`RealtimeClient.channel()` sempre cria um canal novo, `.on()` nunca é
+chamado sobre um canal já inscrito, e o `removeChannel()` de uma instância só
+derruba o canal dela mesma. Não foi preciso coordenar instâncias: o claim em
+`assistant_nudges` (insert de `last_moment_id`) já garante no máximo um turno
+de nudge por lote mesmo com N watchers — o custo extra é só poll/subscribe
+duplicados, aceitável para as 2-3 instâncias possíveis (rail + sheet, ou
+rail + `/assistant`).
+
+Um error boundary (`src/components/layout/ErrorBoundary.tsx`) foi adicionado
+na raiz (`src/main.tsx`, envolvendo `PasswordGate`) para que um throw futuro
+em qualquer efeito/render falhe como tela de erro com botão de reload, não
+como app inteiro apagado — o que converteu este bug de canal específico em
+"tudo some". E `saveHistory` em `useChatAgent.ts` passou a ser `await`ado
+antes de `markAssistantUnseen()` sinalizar a notificação, fechando a corrida
+do histórico.
+
+**Testes.** A lógica pura já cobria `changeWatcher.ts`, mas não a fiação com
+o Supabase, que é onde o bug morava. `src/lib/chat/momentFeed.test.ts` (6
+testes, escritos antes da implementação) usa um client falso que reproduz a
+semântica real do `realtime-js` (reuso de canal por tópico + throw em `.on()`
+após `subscribe()` quando o tópico é compartilhado) e prova: duas assinaturas
+concorrentes não lançam; cada uma recebe um tópico distinto; o `stop()` de
+uma não remove o canal da outra; uma segunda assinatura entrando antes do
+`SUBSCRIBED` da primeira continua funcionando; e o fallback de poll dispara
+se o canal nunca chega a `SUBSCRIBED` dentro da janela de graça. Não foi
+adicionado `jsdom`/`@testing-library/react` — `vitest` roda em ambiente
+`node`, sem nenhum dos dois, e o teste cobre a fiação (client injetado)
+sem precisar montar componentes React.
+
+**Verificação.** `npm run typecheck`, `npm run lint` (zero avisos) e
+`npm run build` limpos; `npm run test` com os 6 testes novos + os 16 já
+existentes de `changeWatcher.test.ts` (22 no total) passando. Checagem
+manual em browser real com Realtime de fato `SUBSCRIBED` (viewport mobile
+com a sheet aberta e o rail ainda montado, e viewport desktop navegando para
+`/assistant`) não pôde ser feita nesta sessão (sandbox sem acesso ao
+Supabase linkado); recomendo essa checagem depois do merge antes de
+considerar o item fechado — a sandbox usada na investigação original tinha,
+coincidentemente, um socket Realtime que nunca chegava a `joined`, o que
+mascarou o bug lá (o `stateCheck` do `.on()` real só dá falso quando o canal
+já está `joined`/`joining`).
+
+Não contradiz `docs/05-roadmap.md` — a detecção de mudanças de banco já
+registrada como concluída continua concluída; isto é correção de defeito
+dentro dela.
+
+### Revisão do PR #98 — 2026-10-29
+
+A revisão automatizada levantou um bloqueante: o tópico-por-instância
+conserta o throw, mas troca o crash por **dois watchers simultâneos no
+caminho normal**. Como o rail é `hidden`/`lg:flex` (CSS), abrir a sheet no
+mobile ou entrar em `/assistant` no desktop passava a ter duas instâncias de
+`useChatAgent` vivas — cada uma com seu `ChangeBuffer`, seu cooldown, seu
+cursor de poll e seu `messages`. O único dedup era o claim em
+`assistant_nudges` por `last_moment_id`, que só desempata se as duas fecharem
+o lote no mesmo último moment; com uma linha chegando na defasagem de até 1s
+entre os `flushTimer`, ou com o fallback de poll (cursores e intervalos de 60s
+independentes), passavam dois inserts → dois turns de nudge sobrepostos, duas
+chamadas de modelo e dois `saveHistory` concorrentes sobre a mesma linha
+`chat_history`, last-write-wins.
+
+**Decisão (usuário, 2026-10-29): içar o agente para um provider** — a opção
+que ataca a causa, em vez de singleton com refcount no `momentFeed` ou de
+endurecer o dedup no servidor. As duas alternativas consertariam só o nudge e
+deixariam vivo o bug irmão: o `ChatPanel` da sheet carrega histórico no mount
+e nunca mais atualiza, então um nudge que chegasse com a sheet aberta ficaria
+invisível até reabrir.
+
+`src/lib/chat/chatAgentContext.tsx` (novo) expõe `ChatAgentProvider` +
+`useChatAgentContext`; é o único lugar que chama `useChatAgent`, e os três
+`ChatPanel` (rail, sheet, `/assistant`) passaram a ser views do mesmo agente.
+Com isso cai para um: um `useDbChangeFeed`, um `messages`, um `saveHistory`.
+
+Dois desvios deliberados em relação ao plano do comentário, por serem
+melhores do que o que foi sugerido lá:
+
+- **O provider mora no `AppShell`, não no `main.tsx`.** As rotas
+  `/dev/vortex/*` renderizam fora do shell e não têm chat nenhum; um agente
+  ali carregaria histórico e poderia disparar o turno de abertura sem ninguém
+  olhando. No `AppShell` a vida do agente fica idêntica à que o `ChatPanel` do
+  rail já tinha. O provider ficou *acima* do layout (`AppShell` só devolve
+  `<ChatAgentProvider><AppShellLayout /></ChatAgentProvider>`), para que uma
+  mudança de estado do agente re-renderize só os painéis que leem o contexto —
+  `<AppShellLayout />` é o mesmo elemento entre esses renders, então o React
+  pula o resto do shell. Sem isso, um turno em andamento re-renderizaria a
+  página inteira a cada mensagem.
+- **`bootstrapClaimedThisLoad` foi mantido**, não deletado. A flag existia
+  para arbitrar entre duas instâncias concorrentes, o que acabou; mas ela
+  também impede, incidentalmente, que o turno de abertura rode de novo quando
+  o `AppShell` remonta (ir para `/dev/vortex/*` e voltar) com o histórico
+  ainda vazio — o caso em que o primeiro bootstrap falhou ou não produziu
+  texto. Deletá-la reabriria esse caminho; o comentário dela foi reescrito
+  para dizer o que ela guarda agora.
+
+O tópico-por-chamada do `momentFeed.ts` **ficou**: já não é o que conserta o
+crash (o provider é), mas mantém o módulo seguro de chamar mais de uma vez —
+remontagem do StrictMode e qualquer segundo chamador futuro — e é o que os
+testes cobrem. Os comentários do `momentFeed.ts` e do `useChatAgent.ts` que
+descreviam o conserto como sendo o tópico foram corrigidos.
+
+A revisão também apontou, como não-bloqueante, que
+`momentFeed.test.ts`'s `'still works if a second subscription races in before
+the first channel is SUBSCRIBED'` não tinha nenhum `expect` — só falhava se
+algo lançasse, cenário já coberto pelo primeiro teste, e o array `rows` que
+ele montava nunca era lido. Corrigido: o `FakeChannel` passou a guardar os
+handlers e expõe `emitInsert`, e o teste agora afirma que os dois canais
+chegaram a `'joined'` e que cada assinatura só ouve o seu (sem crosstalk).
+22 testes seguem passando.
+
+`npm run typecheck`, `npm run lint` (zero avisos — `eslint.config.ts` ganhou
+`chatAgentContext.tsx` e `useChatAgentContext` na exceção de
+`react-refresh/only-export-components`, igual aos outros três módulos de
+contexto), `npm run build` e `npm run test` limpos. **A checagem manual em
+browser segue pendente** e agora cobre mais coisa: com Realtime de fato
+`SUBSCRIBED`, abrir a sheet no mobile com o rail montado, navegar para
+`/assistant` no desktop, e confirmar que uma mudança feita fora do chat
+produz **um** nudge (não dois) e que ele aparece na sheet aberta.
 
 ## Resolved
 

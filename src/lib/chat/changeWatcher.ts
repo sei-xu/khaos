@@ -121,7 +121,7 @@ export function formatDbChangePrefix(rows: MomentRow[]): string {
     const transition =
       r.previous_value != null
         ? `${r.previous_value}->${r.value}`
-        : r.value ?? '';
+        : (r.value ?? '');
     const suffix = transition ? ` (${transition})` : '';
     return `${entityType} ${entityId}: ${r.moment_type}${suffix} [${r.authored_by}]`;
   });
@@ -131,5 +131,4 @@ export function formatDbChangePrefix(rows: MomentRow[]): string {
 export const DEFAULT_SILENCE_MS = 8000;
 export const DEFAULT_COOLDOWN_MINUTES = 10;
 export const DEFAULT_MAX_PER_HOUR = 6;
-export const DEFAULT_POLL_INTERVAL_MS = 60000;
 export const DEFAULT_TURN_GRACE_MS = 5000;

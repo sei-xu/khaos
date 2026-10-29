@@ -32,6 +32,7 @@ import KhaosIcon from '../common/KhaosIcon'; // Certifique-se de que o caminho r
 import { StatusBadge, ProjectChip, FieldBadge } from '../common/ui';
 import { useProcessingContext } from '../../lib/processingContext';
 import { useChatActivity } from '../../lib/chat/chatActivityContext';
+import { ChatAgentProvider } from '../../lib/chat/chatAgentContext';
 
 interface NavItem {
   to: string;
@@ -279,7 +280,19 @@ function Sidebar({
 
 const SIDEBAR_COLLAPSED_KEY = 'khaos.sidebarCollapsed';
 
+// The provider sits above the layout rather than inside it so that an agent
+// state change (a streamed turn, isSending flipping) re-renders only the
+// ChatPanels that read the context — `<AppShellLayout />` is the same element
+// across those renders, so React skips the rest of the shell.
 export default function AppShell() {
+  return (
+    <ChatAgentProvider>
+      <AppShellLayout />
+    </ChatAgentProvider>
+  );
+}
+
+function AppShellLayout() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [chatSheetOpen, setChatSheetOpen] = useState(false);
