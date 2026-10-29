@@ -59,6 +59,7 @@ work that grows out of them. Roadmap phases live in
 | [Integração bidirecional com o Google Calendar (somente eventos fixed)](#integração-bidirecional-com-o-google-calendar-somente-eventos-fixed) | 2026-10-12 |
 | [Assistente sugere projeto, seção e estimativa ao criar tarefa](#assistente-sugere-projeto-seção-e-estimativa-ao-criar-tarefa) | 2026-10-13 |
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
+| [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 
 ---
 
@@ -1947,6 +1948,89 @@ dado de teste ficou no banco. `npm run typecheck`, `npm run lint` e
 ver a sugestão aparecer) e a degradação do Realtime para poll não puderam
 ser verificados em browser real nesta sessão (sandbox sem navegador) — só
 por leitura de código e pelo smoke test SQL.
+
+---
+
+## Chat do assistente derruba o app ao abrir no mobile
+
+started 2026-10-28
+
+Usuário reportou: o chat de assistente não abre ao clicar na notificação em
+mobile — a tela simplesmente fica em branco.
+
+**Causa-raiz.** Não é layout nem alvo de toque: é um throw síncrono dentro de
+um `useEffect`, sem error boundary em `src/main.tsx` para contê-lo, então o
+React desmonta a árvore inteira — por isso "tudo some". `useDbChangeFeed`
+(`src/hooks/useDbChangeFeed.ts`) assinava sempre o mesmo tópico Realtime fixo
+(`'db-change-feed'`). `@supabase/realtime-js` 2.108.2 não cria um canal novo
+quando já existe um com o mesmo tópico — devolve o existente
+(`RealtimeClient.channel()`) — e `RealtimeChannel.on()` lança `Error` se esse
+canal já está `joined`/`joining` e o tipo é `postgres_changes`. O rail direito
+do `AppShell` mantém seu `ChatPanel` montado mesmo no mobile (só `hidden`/
+`lg:flex` em CSS), então abrir a bottom-sheet monta um **segundo**
+`ChatPanel` → segundo `useChatAgent` → segundo `useDbChangeFeed`, que explode
+na segunda montagem. O mesmo defeito existia no desktop pela rota
+`/assistant` (outro `ChatPanel` montado enquanto o rail `lg:` segue vivo) —
+não era exclusivo do mobile, só mais fácil de disparar lá porque qualquer
+toque na bolha de notificação monta a sheet.
+
+Dois agravantes no mesmo caminho, encontrados na investigação: (a) o cleanup
+chamava `supabase.removeChannel(channel)` com um tópico compartilhado,
+podendo remover o canal de outra instância ainda viva; (b)
+`saveHistory(updatedHistory)` em `useChatAgent.ts` não era aguardado antes de
+`markAssistantUnseen()` no turno de nudge/bootstrap, então a sheet
+recém-montada podia carregar o histórico de antes do nudge.
+
+**Correção.** `useDbChangeFeed` deixou de montar o canal Realtime
+diretamente; a fiação (subscribe + fallback de poll + cleanup) saiu para um
+novo módulo injetável, `src/lib/chat/momentFeed.ts`
+(`subscribeToMomentFeed(client, params)`, no padrão `ToolDeps` já usado em
+`toolsCore.ts`), que gera um tópico próprio por chamada
+(`'db-change-feed-<n>'` via contador de módulo) em vez do tópico fixo —
+`RealtimeClient.channel()` sempre cria um canal novo, `.on()` nunca é
+chamado sobre um canal já inscrito, e o `removeChannel()` de uma instância só
+derruba o canal dela mesma. Não foi preciso coordenar instâncias: o claim em
+`assistant_nudges` (insert de `last_moment_id`) já garante no máximo um turno
+de nudge por lote mesmo com N watchers — o custo extra é só poll/subscribe
+duplicados, aceitável para as 2-3 instâncias possíveis (rail + sheet, ou
+rail + `/assistant`).
+
+Um error boundary (`src/components/layout/ErrorBoundary.tsx`) foi adicionado
+na raiz (`src/main.tsx`, envolvendo `PasswordGate`) para que um throw futuro
+em qualquer efeito/render falhe como tela de erro com botão de reload, não
+como app inteiro apagado — o que converteu este bug de canal específico em
+"tudo some". E `saveHistory` em `useChatAgent.ts` passou a ser `await`ado
+antes de `markAssistantUnseen()` sinalizar a notificação, fechando a corrida
+do histórico.
+
+**Testes.** A lógica pura já cobria `changeWatcher.ts`, mas não a fiação com
+o Supabase, que é onde o bug morava. `src/lib/chat/momentFeed.test.ts` (6
+testes, escritos antes da implementação) usa um client falso que reproduz a
+semântica real do `realtime-js` (reuso de canal por tópico + throw em `.on()`
+após `subscribe()` quando o tópico é compartilhado) e prova: duas assinaturas
+concorrentes não lançam; cada uma recebe um tópico distinto; o `stop()` de
+uma não remove o canal da outra; uma segunda assinatura entrando antes do
+`SUBSCRIBED` da primeira continua funcionando; e o fallback de poll dispara
+se o canal nunca chega a `SUBSCRIBED` dentro da janela de graça. Não foi
+adicionado `jsdom`/`@testing-library/react` — `vitest` roda em ambiente
+`node`, sem nenhum dos dois, e o teste cobre a fiação (client injetado)
+sem precisar montar componentes React.
+
+**Verificação.** `npm run typecheck`, `npm run lint` (zero avisos) e
+`npm run build` limpos; `npm run test` com os 6 testes novos + os 16 já
+existentes de `changeWatcher.test.ts` (22 no total) passando. Checagem
+manual em browser real com Realtime de fato `SUBSCRIBED` (viewport mobile
+com a sheet aberta e o rail ainda montado, e viewport desktop navegando para
+`/assistant`) não pôde ser feita nesta sessão (sandbox sem acesso ao
+Supabase linkado); recomendo essa checagem depois do merge antes de
+considerar o item fechado — a sandbox usada na investigação original tinha,
+coincidentemente, um socket Realtime que nunca chegava a `joined`, o que
+mascarou o bug lá (o `stateCheck` do `.on()` real só dá falso quando o canal
+já está `joined`/`joining`).
+
+Não contradiz `docs/05-roadmap.md` — a detecção de mudanças de banco já
+registrada como concluída continua concluída; isto é correção de defeito
+dentro dela.
 
 ## Resolved
 

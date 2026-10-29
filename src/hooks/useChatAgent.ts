@@ -65,7 +65,13 @@ export function useChatAgent() {
           newUserAgentMessage,
         ]);
         setMessages(updatedHistory);
-        saveHistory(updatedHistory);
+        // Awaited: markAssistantUnseen() (fired by the callers below, once
+        // this resolves) is what a freshly-mounted ChatPanel's badge/sheet
+        // reacts to — if a sheet mounted and called loadHistory() before
+        // this write landed, it would load the history as it stood before
+        // the nudge/bootstrap turn, missing the very message the badge
+        // just announced.
+        await saveHistory(updatedHistory);
         return updatedHistory;
       } catch (err) {
         console.error(err);
@@ -172,7 +178,8 @@ export function useChatAgent() {
     .map((m, index) => ({ m, index }))
     .filter(({ m }) => m.role === 'user' || m.role === 'assistant')
     .map(({ m, index }) => {
-      const role = m.role === 'assistant' ? ('model' as const) : ('user' as const);
+      const role =
+        m.role === 'assistant' ? ('model' as const) : ('user' as const);
       // extractText reads only text blocks — a user turn that's actually a
       // tool_result continuation, or an assistant turn that's purely a
       // tool_use with no accompanying text, both collapse to ''. Stripping
