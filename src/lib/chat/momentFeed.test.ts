@@ -13,9 +13,10 @@ type Handler = (payload: unknown) => void;
 
 class FakeChannel {
   state: 'closed' | 'joining' | 'joined' = 'closed';
+  handlers: Handler[] = [];
   constructor(public topic: string) {}
 
-  on(type: string, _filter: unknown, _handler: Handler): this {
+  on(type: string, _filter: unknown, handler: Handler): this {
     if (
       type === 'postgres_changes' &&
       (this.state === 'joined' || this.state === 'joining')
@@ -24,7 +25,14 @@ class FakeChannel {
         `tried to call channel.on() for ${this.topic} after channel.subscribe()`
       );
     }
+    this.handlers.push(handler);
     return this;
+  }
+
+  // Stands in for an INSERT arriving on this channel and nothing else, which
+  // is how the per-call isolation gets checked.
+  emitInsert(row: MomentRow): void {
+    for (const handler of this.handlers) handler({ new: row });
   }
 
   subscribe(callback?: (status: string) => void): this {
@@ -81,6 +89,22 @@ class FakeSupabaseClient {
 
 function fakeClient(): FakeSupabaseClient {
   return new FakeSupabaseClient();
+}
+
+function moment(overrides: Partial<MomentRow> = {}): MomentRow {
+  return {
+    id: 'm1',
+    moment_type: 'status',
+    value: 'done',
+    previous_value: 'todo',
+    authored_by: 'user',
+    created_at: '2026-10-28T00:00:00Z',
+    task_id: 'task-1',
+    section_id: null,
+    project_id: null,
+    routine_id: null,
+    ...overrides,
+  };
 }
 
 describe('FakeSupabaseClient (sanity)', () => {
@@ -159,15 +183,30 @@ describe('subscribeToMomentFeed', () => {
 
   it('still works if a second subscription races in before the first channel is SUBSCRIBED', async () => {
     const client = fakeClient();
-    const rows: MomentRow[][] = [];
+    const firstRows: MomentRow[][] = [];
+    const secondRows: MomentRow[][] = [];
     const first = subscribeToMomentFeed(client as unknown as SupabaseClient, {
-      onRows: (r) => rows.push(r),
+      onRows: (r) => firstRows.push(r),
     });
     const second = subscribeToMomentFeed(client as unknown as SupabaseClient, {
-      onRows: (r) => rows.push(r),
+      onRows: (r) => secondRows.push(r),
     });
 
     await vi.advanceTimersByTimeAsync(0);
+
+    // Both subscriptions are live on their own channel — the second one
+    // calling .on() while the first was still 'joining' is exactly what
+    // threw with a shared topic.
+    const channels = [...client.realtime.channels.values()];
+    expect(channels).toHaveLength(2);
+    expect(channels.map((c) => c.state)).toEqual(['joined', 'joined']);
+
+    // And each one only hears its own channel: no crosstalk, so the two
+    // feeds can't double-report the same INSERT to one callback.
+    channels[0].emitInsert(moment({ id: 'm-first' }));
+    channels[1].emitInsert(moment({ id: 'm-second' }));
+    expect(firstRows).toEqual([[moment({ id: 'm-first' })]]);
+    expect(secondRows).toEqual([[moment({ id: 'm-second' })]]);
 
     first.stop();
     second.stop();

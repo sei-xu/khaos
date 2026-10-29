@@ -21,10 +21,11 @@ const BOOTSTRAP_INSTRUCTION =
 // The conversation is now persisted server-side (table "chat_history", see
 // ../lib/chat/history.ts) and shared across every browser instance and the
 // Telegram bot — it's the same shared thread everywhere, not a per-page-load
-// session. This flag still exists to solve one narrow race: the always-
-// mounted desktop panel and a freshly-opened mobile sheet both mount this
-// hook, and only one of them should claim the opening bootstrap turn once
-// the fetched history turns out to be empty.
+// session. Only one agent runs per page now (see lib/chat/chatAgentContext),
+// so this no longer arbitrates between concurrent panels; what's left is the
+// remount case: AppShell unmounts on the /dev/vortex/* routes, and coming
+// back would otherwise re-run the opening turn if the first one happened to
+// leave the history empty (it failed, or produced no text).
 let bootstrapClaimedThisLoad = false;
 
 // UI-facing shape — this is what ChatPanel and the rest of the app render.
@@ -37,6 +38,9 @@ export interface ChatMessage {
   isError?: boolean;
 }
 
+// Call this only from ChatAgentProvider (lib/chat/chatAgentContext) — the
+// shared thread needs exactly one owner per page. Panels read it with
+// useChatAgentContext().
 export function useChatAgent() {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -65,12 +69,11 @@ export function useChatAgent() {
           newUserAgentMessage,
         ]);
         setMessages(updatedHistory);
-        // Awaited: markAssistantUnseen() (fired by the callers below, once
-        // this resolves) is what a freshly-mounted ChatPanel's badge/sheet
-        // reacts to — if a sheet mounted and called loadHistory() before
-        // this write landed, it would load the history as it stood before
-        // the nudge/bootstrap turn, missing the very message the badge
-        // just announced.
+        // Awaited so a turn isn't "finished" until it's persisted: this
+        // keeps isSending — which doubles as useDbChangeFeed's "a turn is
+        // in flight" suppression — true across the write, and guarantees a
+        // remount's loadHistory() (AppShell unmounts on /dev/vortex/*) sees
+        // the turn instead of the history as it stood before it.
         await saveHistory(updatedHistory);
         return updatedHistory;
       } catch (err) {
@@ -108,11 +111,10 @@ export function useChatAgent() {
     [activeEntity, isSending, runWithUserContent]
   );
 
-  // Fetches the shared history once per mount (every panel/sheet instance
-  // needs its own copy in state), then — only the first instance to finish,
-  // and only if the fetched history is genuinely empty — runs the opening
-  // bootstrap turn. bootstrapClaimedThisLoad guards that second part, not
-  // the fetch itself.
+  // Fetches the shared history once per mount, then — only if the fetched
+  // history is genuinely empty, and only once per page load — runs the
+  // opening bootstrap turn. bootstrapClaimedThisLoad guards that second
+  // part, not the fetch itself.
   useEffect(() => {
     let cancelled = false;
 
@@ -207,3 +209,7 @@ export function useChatAgent() {
     clearHistory,
   };
 }
+
+// What the panels consume, via ChatAgentProvider. Derived from the hook so
+// there's one source of truth for the shape.
+export type ChatAgent = ReturnType<typeof useChatAgent>;

@@ -4,18 +4,19 @@
 // unit-tested against a fake client (momentFeed.test.ts) instead of a real
 // Supabase project.
 //
-// Each call gets its OWN Realtime topic ('db-change-feed-<n>'). This is load-
-// bearing, not cosmetic: @supabase/realtime-js's RealtimeClient.channel(topic)
-// returns the existing channel for a topic instead of creating a new one, and
+// Each call gets its OWN Realtime topic ('db-change-feed-<n>'), so calls are
+// independent: @supabase/realtime-js's RealtimeClient.channel(topic) returns
+// the *existing* channel for a topic instead of creating a new one, and
 // RealtimeChannel.on() throws synchronously if that channel is already
 // joined/joining and the listener type is 'postgres_changes'. With a shared
-// fixed topic, a second mount of this feed (the always-mounted desktop rail's
-// ChatPanel plus a freshly-opened mobile sheet's ChatPanel, or the rail plus
-// /assistant) hit exactly that throw inside a useEffect, with no error
-// boundary to catch it — the whole React tree unmounted. Distinct topics mean
-// RealtimeClient.channel() always creates a fresh channel, so .on() is never
-// called on one already subscribed, and removeChannel() in one instance's
-// cleanup only ever tears down its own channel.
+// fixed topic, a second live feed hit exactly that throw inside a useEffect,
+// with no error boundary to catch it — the whole React tree unmounted. The
+// shell now runs a single agent, so a single feed (see
+// lib/chat/chatAgentContext), which is what actually fixed that crash; this
+// keeps the module safe to call more than once anyway, and leaves the
+// StrictMode remount and any future second caller unable to resurrect it.
+// Distinct topics also mean removeChannel() in one call's stop() only ever
+// tears down its own channel.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MomentRow } from './changeWatcher';
 

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Send, Trash2, User, Loader2, X, Link2 } from 'lucide-react';
 import clsx from 'clsx';
-import { useChatAgent, type ChatMessage } from '../../hooks/useChatAgent';
+import type { ChatMessage } from '../../hooks/useChatAgent';
+import { useChatAgentContext } from '../../lib/chat/chatAgentContext';
 import { useActiveEntity } from '../../lib/activeEntityContext';
 import { parseMessageSegments } from '../../lib/chat/entityRefs';
 import { EntityChip } from './EntityChip';
@@ -83,14 +84,17 @@ function autoResizeTextarea(el: HTMLTextAreaElement, maxLines: number) {
 
 /**
  * Shared chat UI — used as the persistent desktop sidebar, the mobile
- * bottom-sheet, and the standalone /assistant route.
+ * bottom-sheet, and the standalone /assistant route. Several of these can be
+ * mounted at once (the desktop rail stays mounted on mobile too), so it's a
+ * view over the shell's single agent, never an owner of one.
  */
 export default function ChatPanel({
   onRequestClose,
 }: {
   onRequestClose?: () => void;
 }) {
-  const { messages, sendMessage, isSending, clearHistory } = useChatAgent();
+  const { messages, sendMessage, isSending, clearHistory } =
+    useChatAgentContext();
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

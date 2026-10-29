@@ -112,6 +112,7 @@ export default tseslint.config(
     files: [
       'src/lib/activeEntityContext.tsx',
       'src/lib/chat/chatActivityContext.tsx',
+      'src/lib/chat/chatAgentContext.tsx',
       'src/lib/processingContext.tsx',
     ],
     rules: {
@@ -123,6 +124,7 @@ export default tseslint.config(
             'useActiveEntity',
             'useSyncActiveEntity',
             'useChatActivity',
+            'useChatAgentContext',
             'useProcessingContext',
           ],
         },
