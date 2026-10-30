@@ -71,6 +71,16 @@ A sub-part of an item can be done while the item as a whole stays open. Wrap
 that finished slice in `~~…~~` (strikethrough) rather than deleting it or
 waiting for the whole item to resolve.
 
+## Versioning
+
+Follows the Ḫprj methodology (`~/Systems/seixu/hprj/docs/methodology.md`,
+"Versionamento"): `package.json` is bumped **in the PR itself**, never by a
+workflow after the merge (`bump-version.yml` was removed on 2026-10-29). On a
+PR Ḫprj manages, Ḫprj does the bump; on a manual PR, bump `package.json` (and
+`package-lock.json`) in the PR. Level: PATCH for fixes, docs and infra; MINOR
+for a new compatible feature; MAJOR only for a breaking change the owner has
+approved — risk is not a reason for MAJOR.
+
 ## Self-verify pushes with a pull
 
 After pushing a commit, `git pull` (or `git fetch` + compare) in this working
