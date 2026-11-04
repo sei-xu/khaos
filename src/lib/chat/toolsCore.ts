@@ -5,12 +5,12 @@
 // bot Edge Function.
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { materializeRoutines } from '../routines/materialize';
+import { materializeRoutines } from '../routines/materialize.ts';
 import {
   DEFAULT_ROUTINE_TIMEZONE,
   ROUTINE_STATUSES,
   localDayStart,
-} from '../routines/occurrences';
+} from '../routines/occurrences.ts';
 
 // Everything the tool executor needs from its host, injected rather than
 // imported: the browser app supplies its anon-key client (src/lib/chat/tools.ts)

@@ -2440,6 +2440,39 @@ via Telegram, aplicada neste mesmo PR #97:**
    (`DEFAULT_ROUTINE_TIMEZONE`, extraído para `occurrences.ts`) em vez do
    fuso do dispositivo.
 
+**Terceira passada de revisão automatizada (2026-11-04).** Um achado
+aplicado direto no branch, sem mudar comportamento: os imports relativos
+novos que o lado Deno passou a atravessar estavam sem a extensão `.ts`
+(`toolsCore.ts` → `../routines/materialize` e `../routines/occurrences`,
+`materialize.ts` → `./occurrences`). Até esta PR, nenhum módulo de `src/`
+alcançado por Edge Function tinha import relativo nenhum — só `import type`
+de pacote — e todo cruzamento função→`src` no repo já usa a extensão
+explícita (ver `supabase/functions/_shared/khaos.ts`). Deno não adivinha
+extensão: `deno check` numa cópia das árvores `supabase/` + `src/lib` fora
+do escopo do `package.json` da raiz falha com `TS2307 ... Maybe add a '.ts'
+extension` tanto em `routine-events` quanto em `telegram-bot` (que chega lá
+via `khaos.ts` → `toolsCore.ts`) — isto é, o risco não era só a função
+nova, era também derrubar o bot e o digest no deploy. Dentro do repo o
+check passa só porque `package.json`/`node_modules` na raiz colocam esses
+arquivos num escopo de resolução Node. Corrigido adicionando as extensões
+(o `tsconfig.json` já tem `allowImportingTsExtensions`); `typecheck`,
+`lint`, `test` (92) e `build` limpos, e o `deno check` isolado passa com a
+correção.
+
+Três achados ficaram como comentários no PR #97, para o dono decidir:
+movimento de uma ocorrência entre dias no Google (o dedup por dia só cobre
+movimento dentro do mesmo dia — mover de terça para quarta deixa terça
+vazia e o cron recria a ocorrência lá, ao lado da que o dono moveu);
+edição de `frequency`/`preferred_time` de uma rotina ativa não propaga para
+a janela já materializada (só `active: true→false` tem trigger — trocar a
+frequência deixa ocorrências órfãs nos dias que saíram da grade, e trocar
+`preferred_time` é silenciosamente ignorado por até 7 dias, porque o dedup
+por dia reconhece a ocorrência antiga como "já materializada"); e
+`parseDurationLowerBound`/`rangeLiteral` em `materialize.ts` duplicando
+`parseRangeLower`/`rangeLiteral` de `supabase/functions/_shared/range.ts`
+(duplicação consciente e comentada, mas a direção da dependência pode ser
+invertida, já que o lado Deno importa de `src/` e não o contrário).
+
 ---
 
 ## Resolved

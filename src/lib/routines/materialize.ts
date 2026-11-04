@@ -10,7 +10,13 @@
 // insert payload are just as much part of "what materializing means".
 //
 // Import-light on purpose (a type-only Supabase import and a pure sibling),
-// so it bundles the same way for the browser and for Deno.
+// so it bundles the same way for the browser and for Deno. The sibling is
+// imported WITH its '.ts' extension, like every other import Deno reaches
+// in this repo (see supabase/functions/_shared/khaos.ts): plain Deno
+// resolution does no extension guessing, so './occurrences' only resolves
+// here by accident of the repo root's package.json putting these files in
+// a Node resolution scope. tsconfig's allowImportingTsExtensions keeps the
+// browser/Vite side happy with the explicit form.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   localDayStart,
@@ -19,7 +25,7 @@ import {
   type PlannedOccurrence,
   type RoutineInput,
   type RoutineStatus,
-} from './occurrences';
+} from './occurrences.ts';
 
 // How far back to look for a 'skipped' occurrence that still owes a makeup
 // — generous enough to cover a routine whose makeup week (see
