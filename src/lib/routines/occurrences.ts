@@ -357,12 +357,9 @@ function hasExistingThisPeriod(
   routineId: string,
   day: CalendarDay,
   restrictToHalf: boolean,
-  existing: ExistingOccurrence[],
-  timeZone: string
+  existingDays: Map<string, CalendarDay[]>
 ): boolean {
-  for (const e of existing) {
-    if (e.routine_id !== routineId) continue;
-    const ed = localDay(e.start, timeZone);
+  for (const ed of existingDays.get(routineId) ?? []) {
     if (ed.y !== day.y || ed.m !== day.m) continue;
     if (restrictToHalf && ed.d <= 14 !== day.d <= 14) continue;
     if (ed.d === day.d) continue;
@@ -371,14 +368,33 @@ function hasExistingThisPeriod(
   return false;
 }
 
+// localDay() goes through Intl.DateTimeFormat.formatToParts, and
+// hasExistingThisPeriod used to re-derive it for every row of `existing` on
+// every candidate day — O(days x existing) parses of the same handful of
+// instants, the same waste the formatter caches above exist to avoid. Index
+// the local days once per plannedOccurrences() call instead, grouped by
+// routine so the lookup only walks that routine's own rows.
+function indexExistingDays(
+  existing: ExistingOccurrence[],
+  timeZone: string
+): Map<string, CalendarDay[]> {
+  const byRoutine = new Map<string, CalendarDay[]>();
+  for (const e of existing) {
+    const day = localDay(e.start, timeZone);
+    const list = byRoutine.get(e.routine_id);
+    if (list) list.push(day);
+    else byRoutine.set(e.routine_id, [day]);
+  }
+  return byRoutine;
+}
+
 function matchesDay(
   r: RoutineInput,
   day: CalendarDay,
   dow: number,
   load: number[],
   monthlyCache: Map<string, number[]>,
-  existing: ExistingOccurrence[],
-  timeZone: string
+  existingDays: Map<string, CalendarDay[]>
 ): boolean {
   if (r.frequency === 'daily') return true;
   if (r.frequency === 'weekday') return dow <= 4;
@@ -402,13 +418,7 @@ function matchesDay(
     }
     if (!days.includes(day.d)) return false;
     const restrictToHalf = r.frequency === '2x_month';
-    return !hasExistingThisPeriod(
-      r.id,
-      day,
-      restrictToHalf,
-      existing,
-      timeZone
-    );
+    return !hasExistingThisPeriod(r.id, day, restrictToHalf, existingDays);
   }
   return false;
 }
@@ -526,6 +536,15 @@ export function plannedOccurrences(
 
   const load = weeklyTypeLoad(schedulable);
   const monthlyCache = new Map<string, number[]>();
+  // Only the monthly branch of matchesDay() reads this, so a routines list
+  // without one never pays for the indexing.
+  const existingDays =
+    existing.length &&
+    schedulable.some(
+      (r) => r.frequency === '1x_month' || r.frequency === '2x_month'
+    )
+      ? indexExistingDays(existing, timeZone)
+      : new Map<string, CalendarDay[]>();
 
   const base: PlannedOccurrence[] = [];
   let day = localDay(from, timeZone);
@@ -534,8 +553,7 @@ export function plannedOccurrences(
     if (dayStartUtc.getTime() >= to.getTime()) break;
     const dow = isoDow(day);
     for (const r of schedulable) {
-      if (!matchesDay(r, day, dow, load, monthlyCache, existing, timeZone))
-        continue;
+      if (!matchesDay(r, day, dow, load, monthlyCache, existingDays)) continue;
       const occ = buildOccurrence(r, day, timeZone);
       if (
         occ.start.getTime() < from.getTime() ||
