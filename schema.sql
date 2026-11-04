@@ -2177,10 +2177,10 @@ CREATE INDEX "idx_events_sync_dirty" ON "public"."events" USING "btree" ("id") W
 
 
 
-CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", (("timezone"('-03:00'::interval, "lower"("duration")))::"date")) WHERE (("routine_id" IS NOT NULL) AND ("deleted_at" IS NULL));
+CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", (("timezone"('-03:00'::interval, "lower"("duration")))::"date")) WHERE (("event_type" = 'routine'::"public"."event_types") AND ("routine_id" IS NOT NULL) AND ("deleted_at" IS NULL));
 
 
-COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One occurrence per routine per local day (America/Sao_Paulo, fixed -03:00 offset baked into the expression). Deliberately day-grained, not instant-grained, so a Google-side edit that moves the occurrence''s time within the same day (or promotes it to event_type=''fixed'') does not make the generator insert a duplicate at the original slot.';
+COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One routine occurrence (event_type=''routine'') per routine per local day (America/Sao_Paulo, fixed -03:00 offset baked into the expression). Deliberately day-grained, not instant-grained, so a Google-side edit that moves the occurrence''s time within the same day does not make the generator insert a duplicate at the original slot. Scoped to event_type=''routine'' so a row promoted to ''fixed'' by a Google pull never collides with it.';
 
 
 

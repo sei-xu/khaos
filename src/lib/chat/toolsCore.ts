@@ -1273,19 +1273,30 @@ export async function executeTool(
       // an argument with a time component (or none at all, e.g. a bare
       // '2026-11-10') can't shift the window by a few hours relative to the
       // day-grained dedup this module and idx_events_routine_dedup both use.
-      const from =
-        typeof a.from === 'string' && a.from
-          ? localDayStart(new Date(a.from), timeZone)
-          : localDayStart(new Date(), timeZone);
+      //
+      // Unparseable bounds are rejected BEFORE being snapped: localDayStart
+      // goes through Intl.DateTimeFormat.formatToParts, which throws
+      // `RangeError: Invalid time value` on an Invalid Date instead of
+      // returning NaN — so snapping first made the NaN guard below dead code
+      // and surfaced that opaque RangeError to the model rather than this
+      // message.
+      const rawFrom =
+        typeof a.from === 'string' && a.from ? new Date(a.from) : new Date();
+      const rawTo =
+        typeof a.to === 'string' && a.to
+          ? new Date(a.to)
+          : new Date(rawFrom.getTime() + 7 * 86400000);
+      if (Number.isNaN(rawFrom.getTime()) || Number.isNaN(rawTo.getTime())) {
+        throw new Error(
+          'materialize_routines requires a valid from < to window'
+        );
+      }
+      const from = localDayStart(rawFrom, timeZone);
       const to =
         typeof a.to === 'string' && a.to
-          ? localDayStart(new Date(a.to), timeZone)
+          ? localDayStart(rawTo, timeZone)
           : localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
-      if (
-        Number.isNaN(from.getTime()) ||
-        Number.isNaN(to.getTime()) ||
-        to.getTime() <= from.getTime()
-      ) {
+      if (to.getTime() <= from.getTime()) {
         throw new Error(
           'materialize_routines requires a valid from < to window'
         );
