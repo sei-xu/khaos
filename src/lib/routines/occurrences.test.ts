@@ -158,6 +158,27 @@ describe('plannedOccurrences — frequency coverage over a 14-day window', () =>
     expect(daysUsed.size).toBeGreaterThan(1);
   });
 
+  it('a 1x_month occurrence keeps its already-materialized day when another routine changes the load', () => {
+    const monthly = routine({ id: 'monthly-1', frequency: '1x_month' });
+    const occ1 = plannedOccurrences([monthly], MONDAY, daysLater(31), TZ);
+    expect(occ1).toHaveLength(1);
+
+    const existing = [
+      { routine_id: monthly.id, start: occ1[0].start, status: null },
+    ];
+    const weekday = routine({ id: 'weekday-new', frequency: 'weekday' });
+    const occ2 = plannedOccurrences(
+      [monthly, weekday],
+      MONDAY,
+      daysLater(31),
+      TZ,
+      existing
+    );
+    const monthlyOcc2 = occ2.filter((o) => o.routine_id === monthly.id);
+    expect(monthlyOcc2).toHaveLength(1);
+    expect(monthlyOcc2[0].start.getTime()).toBe(occ1[0].start.getTime());
+  });
+
   it('unknown/free-text frequency yields zero occurrences and warns, never throws', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const occ = plannedOccurrences(
@@ -347,6 +368,36 @@ describe('plannedOccurrences — habit status / reschedule on skip', () => {
         { routine_id: 'gym2', start: base[0].start, status },
       ]);
       expect(occ).toHaveLength(base.length);
+    }
+  });
+
+  it('a skipped occurrence on a non-Nx_week routine earns no makeup', () => {
+    for (const frequency of [
+      'daily',
+      'every_2_days',
+      'weekday',
+      'weekend',
+      '1x_month',
+      '2x_month',
+    ]) {
+      // 1x_month/2x_month can land anywhere in days 1-28, so a 14-day window
+      // starting mid-month isn't guaranteed to contain an occurrence —
+      // these two need the wider window the monthly-placement tests above
+      // already use.
+      const windowEnd =
+        frequency === '1x_month' || frequency === '2x_month'
+          ? daysLater(31)
+          : WINDOW_END;
+      const r = routine({ id: `nonweekly-${frequency}`, frequency });
+      const base = plannedOccurrences([r], MONDAY, windowEnd, TZ);
+      expect(base.length).toBeGreaterThan(0);
+      const occ = plannedOccurrences([r], MONDAY, windowEnd, TZ, [
+        { routine_id: r.id, start: base[0].start, status: 'skipped' },
+      ]);
+      expect(occ).toHaveLength(base.length);
+      expect(occ.map((o) => o.start.getTime())).toEqual(
+        base.map((o) => o.start.getTime())
+      );
     }
   });
 });

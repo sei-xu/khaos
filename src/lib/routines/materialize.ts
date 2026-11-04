@@ -156,26 +156,52 @@ export async function materializeRoutines(
   let created = 0;
   let skipped = 0;
   let errors = 0;
+  const toInsert: PlannedOccurrence[] = [];
   for (const occ of planned) {
     if (existingKeys.has(dayKey(occ.routine_id, occ.start))) {
       skipped++;
       continue;
     }
-    const { error } = await db.from('events').insert({
-      name: occ.name,
-      event_type: 'routine',
-      routine_id: occ.routine_id,
-      task_id: occ.task_id,
-      field_id: occ.field_id,
-      duration: rangeLiteral(occ.start, occ.end),
-    });
+    toInsert.push(occ);
+  }
+
+  const eventRow = (occ: PlannedOccurrence) => ({
+    name: occ.name,
+    event_type: 'routine',
+    routine_id: occ.routine_id,
+    task_id: occ.task_id,
+    field_id: occ.field_id,
+    duration: rangeLiteral(occ.start, occ.end),
+  });
+
+  // Fast path: insert everything the filter above left in one round trip.
+  // The only reason a batch insert fails as a whole is a conflict with
+  // another concurrent run (23505) — on that path alone, fall back to the
+  // original one-by-one loop so idx_events_routine_dedup's per-row conflicts
+  // still resolve individually instead of discarding the whole batch.
+  if (toInsert.length) {
+    const { error } = await db.from('events').insert(toInsert.map(eventRow));
     if (!error) {
-      created++;
+      created += toInsert.length;
     } else if ((error as { code?: string }).code === '23505') {
-      skipped++; // idx_events_routine_dedup — already materialized
+      for (const occ of toInsert) {
+        const { error: rowError } = await db
+          .from('events')
+          .insert(eventRow(occ));
+        if (!rowError) {
+          created++;
+        } else if ((rowError as { code?: string }).code === '23505') {
+          skipped++; // idx_events_routine_dedup — already materialized
+        } else if (onInsertError) {
+          onInsertError(occ, rowError.message);
+          errors++;
+        } else {
+          throw new Error(rowError.message);
+        }
+      }
     } else if (onInsertError) {
-      onInsertError(occ, error.message);
-      errors++;
+      for (const occ of toInsert) onInsertError(occ, error.message);
+      errors += toInsert.length;
     } else {
       throw new Error(error.message);
     }

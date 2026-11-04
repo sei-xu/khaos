@@ -343,12 +343,42 @@ function pickMonthlyDays(
 
 // --- base (non-makeup) occurrences --------------------------------------
 
+// `load` (and so pickMonthlyDays' output) depends on the whole active
+// routines list, so creating/deactivating any OTHER routine can shift which
+// day-of-month a 1x_month/2x_month routine picks mid-month. Without this
+// check, that repositioning inserts a second occurrence for the same
+// month (or, for 2x_month, the same half) instead of moving the first one —
+// idx_events_routine_dedup keys by day, not by routine+month, so nothing
+// else stops it. Checking `existing` for a same-period occurrence on a
+// DIFFERENT day makes re-materialization idempotent even when `load`
+// shifts: the routine keeps whichever day it already has until that
+// occurrence itself goes away.
+function hasExistingThisPeriod(
+  routineId: string,
+  day: CalendarDay,
+  restrictToHalf: boolean,
+  existing: ExistingOccurrence[],
+  timeZone: string
+): boolean {
+  for (const e of existing) {
+    if (e.routine_id !== routineId) continue;
+    const ed = localDay(e.start, timeZone);
+    if (ed.y !== day.y || ed.m !== day.m) continue;
+    if (restrictToHalf && ed.d <= 14 !== day.d <= 14) continue;
+    if (ed.d === day.d) continue;
+    return true;
+  }
+  return false;
+}
+
 function matchesDay(
   r: RoutineInput,
   day: CalendarDay,
   dow: number,
   load: number[],
-  monthlyCache: Map<string, number[]>
+  monthlyCache: Map<string, number[]>,
+  existing: ExistingOccurrence[],
+  timeZone: string
 ): boolean {
   if (r.frequency === 'daily') return true;
   if (r.frequency === 'weekday') return dow <= 4;
@@ -370,7 +400,15 @@ function matchesDay(
       days = pickMonthlyDays(r.id, r.frequency === '1x_month' ? 1 : 2, load);
       monthlyCache.set(r.id, days);
     }
-    return days.includes(day.d);
+    if (!days.includes(day.d)) return false;
+    const restrictToHalf = r.frequency === '2x_month';
+    return !hasExistingThisPeriod(
+      r.id,
+      day,
+      restrictToHalf,
+      existing,
+      timeZone
+    );
   }
   return false;
 }
@@ -496,7 +534,8 @@ export function plannedOccurrences(
     if (dayStartUtc.getTime() >= to.getTime()) break;
     const dow = isoDow(day);
     for (const r of schedulable) {
-      if (!matchesDay(r, day, dow, load, monthlyCache)) continue;
+      if (!matchesDay(r, day, dow, load, monthlyCache, existing, timeZone))
+        continue;
       const occ = buildOccurrence(r, day, timeZone);
       if (
         occ.start.getTime() < from.getTime() ||

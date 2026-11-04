@@ -420,19 +420,19 @@ export const ROUTINE_TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: 'materialize_routines',
     description:
-      "Generates routine occurrences (events with event_type='routine') for every active routine across a date window, using the same scheduling rules as the daily cron: frequency distribution (including spreading Nx_week/monthly routines across different days so they don't pile onto the same slot), preferred_time windows, estimate-based duration, and reschedule-on-skip makeups. Safe to call even if the window overlaps what the cron already generated — it never creates a duplicate occurrence. Use this instead of inserting routine events by hand.",
+      "Generates routine occurrences (events with event_type='routine') for every active routine across a date window, using the same scheduling rules as the daily cron: frequency distribution (including spreading Nx_week/monthly routines across different days so they don't pile onto the same slot), preferred_time windows, estimate-based duration, and reschedule-on-skip makeups (only for Nx_week routines — see set_routine_status). Safe to call even if the window overlaps what the cron already generated — it never creates a duplicate occurrence. The window (to - from) cannot exceed 90 days. Use this instead of inserting routine events by hand.",
     input_schema: {
       type: 'object',
       properties: {
         from: {
           type: 'string',
           description:
-            'ISO 8601 start of the window (inclusive). Defaults to the start of the current local day.',
+            'ISO 8601 start of the window (inclusive). Defaults to the start of the current local day. The window is always snapped to local-day boundaries, so a value with a time component is rounded down to the start of that local day.',
         },
         to: {
           type: 'string',
           description:
-            'ISO 8601 end of the window (exclusive). Defaults to the start of the local day 7 days after from.',
+            'ISO 8601 end of the window (exclusive). Defaults to the start of the local day 7 days after from. The window is always snapped to local-day boundaries, so a value with a time component is rounded down to the start of that local day.',
         },
       },
       required: [],
@@ -442,7 +442,7 @@ export const ROUTINE_TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: 'set_routine_status',
     description:
-      "Marks a generated routine occurrence's habit outcome for that day: 'done', 'partial', or 'skipped'. Only valid on an events row with event_type='routine' — scheduled/fixed events have no such concept and this will fail on them. A 'skipped' occurrence earns exactly one makeup the next time materialize_routines (or the cron) runs, placed on a later, otherwise-free day the same week — this does not reschedule anything itself, it only records the outcome.",
+      "Marks a generated routine occurrence's habit outcome for that day: 'done', 'partial', or 'skipped'. Only valid on an events row with event_type='routine' — scheduled/fixed events have no such concept and this will fail on them. A 'skipped' occurrence earns exactly one makeup the next time materialize_routines (or the cron) runs, placed on a later, otherwise-free day the same week — but only for Nx_week routines (1x_week..5x_week); daily, every_2_days, weekday, weekend, 1x_month and 2x_month never get a makeup. This does not reschedule anything itself, it only records the outcome.",
     input_schema: {
       type: 'object',
       properties: {
@@ -1269,13 +1269,17 @@ export async function executeTool(
       // default `from` drops everything earlier today (e.g. a 'morning'
       // routine, planned at 08:00, called at 15:00), and offsetting `to` by
       // exactly 7 days from that instant left the 8th day half-materialized.
+      // Both explicit and defaulted bounds are snapped to local-day start so
+      // an argument with a time component (or none at all, e.g. a bare
+      // '2026-11-10') can't shift the window by a few hours relative to the
+      // day-grained dedup this module and idx_events_routine_dedup both use.
       const from =
         typeof a.from === 'string' && a.from
-          ? new Date(a.from)
+          ? localDayStart(new Date(a.from), timeZone)
           : localDayStart(new Date(), timeZone);
       const to =
         typeof a.to === 'string' && a.to
-          ? new Date(a.to)
+          ? localDayStart(new Date(a.to), timeZone)
           : localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
       if (
         Number.isNaN(from.getTime()) ||
@@ -1284,6 +1288,12 @@ export async function executeTool(
       ) {
         throw new Error(
           'materialize_routines requires a valid from < to window'
+        );
+      }
+      const MAX_WINDOW_DAYS = 90;
+      if (to.getTime() - from.getTime() > MAX_WINDOW_DAYS * 86400000) {
+        throw new Error(
+          `materialize_routines window cannot exceed ${MAX_WINDOW_DAYS} days`
         );
       }
 

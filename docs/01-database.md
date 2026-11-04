@@ -193,10 +193,14 @@ impede importar o mesmo evento do Google duas vezes; um índice parcial em
 `(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Um
 segundo índice único parcial em
 `(routine_id, ((lower(duration) at time zone interval '-03:00')::date))`
-(onde `routine_id` não é nulo e `deleted_at is null` — sem filtro de
-`event_type`, de propósito: uma ocorrência promovida a `fixed` por um pull
-mantém o `routine_id` e precisa continuar ocupando o dia daquela rotina) é
-a chave de deduplicação do gerador de ocorrências — uma ocorrência por
+(onde `event_type = 'routine'`, `routine_id` não é nulo e `deleted_at is
+null` — o filtro de `event_type` é de propósito: uma ocorrência promovida a
+`fixed` por um pull mantém o `routine_id`, mas não deve mais colidir com
+este índice, já que ela pode ser movida para um dia que outra ocorrência da
+mesma rotina já ocupe; o bloqueio de "não recriar o dia da rotina" para essa
+linha promovida continua existindo, só que na aplicação — a query `existing`
+de `materialize.ts` não filtra `event_type`) é a chave de deduplicação do
+gerador de ocorrências — uma ocorrência por
 rotina por dia local (America/Sao_Paulo, offset fixo -03:00, mesma
 suposição de `google-calendar-sync`'s `TZ_OFFSET`), não por instante exato:
 um evento movido de horário no mesmo dia (conflito de push ou pull do

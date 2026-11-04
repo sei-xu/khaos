@@ -80,7 +80,12 @@ export const db: SupabaseClient = createClient(
 const toolDeps = {
   db,
   searchSchema: (query: string) => searchSchemaCore(SCHEMA_SQL, query),
-  timezone: TIMEZONE,
+  // No `timezone` here, deliberately: the routine grid's zone
+  // (idx_events_routine_dedup bakes in -03:00) must be one fixed value every
+  // caller agrees on, so this leaves it unset and lets toolsCore.ts fall
+  // back to DEFAULT_ROUTINE_TIMEZONE — the same source the browser binding
+  // (src/lib/chat/tools.ts) uses — instead of whatever TELEGRAM_TIMEZONE
+  // happens to be set to on this host.
 };
 
 export function temporalContext(): string {
