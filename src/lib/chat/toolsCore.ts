@@ -1282,20 +1282,22 @@ export async function executeTool(
       // message.
       const rawFrom =
         typeof a.from === 'string' && a.from ? new Date(a.from) : new Date();
-      const rawTo =
-        typeof a.to === 'string' && a.to
-          ? new Date(a.to)
-          : new Date(rawFrom.getTime() + 7 * 86400000);
-      if (Number.isNaN(rawFrom.getTime()) || Number.isNaN(rawTo.getTime())) {
+      // Null when the model didn't pass `to`: the default window is derived
+      // from the SNAPPED `from` below, so there is nothing to parse or
+      // NaN-check on that path.
+      const rawTo = typeof a.to === 'string' && a.to ? new Date(a.to) : null;
+      if (
+        Number.isNaN(rawFrom.getTime()) ||
+        (rawTo && Number.isNaN(rawTo.getTime()))
+      ) {
         throw new Error(
           'materialize_routines requires a valid from < to window'
         );
       }
       const from = localDayStart(rawFrom, timeZone);
-      const to =
-        typeof a.to === 'string' && a.to
-          ? localDayStart(rawTo, timeZone)
-          : localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
+      const to = rawTo
+        ? localDayStart(rawTo, timeZone)
+        : localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
       if (to.getTime() <= from.getTime()) {
         throw new Error(
           'materialize_routines requires a valid from < to window'
