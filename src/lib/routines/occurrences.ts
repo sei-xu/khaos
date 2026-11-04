@@ -46,11 +46,10 @@ export type RoutineStatus = 'done' | 'partial' | 'skipped';
 export const ROUTINE_STATUSES: RoutineStatus[] = ['done', 'partial', 'skipped'];
 
 // The routine grid is a property of the owner's calendar, not of whichever
-// device/host called materialize_routines — idx_events_routine_dedup
-// (20261104000000_routine_dedup_by_day.sql) keys on local day with this
-// same fixed -03:00 offset baked in, so every caller resolving
-// preferred_time must agree on the zone or they disagree on which day is
-// already materialized.
+// device/host called materialize_routines — events.routine_day (the
+// idx_events_routine_dedup key) is the local day in this zone, so every
+// caller resolving preferred_time must agree on the zone or they disagree
+// on which day is already materialized.
 export const DEFAULT_ROUTINE_TIMEZONE = 'America/Sao_Paulo';
 
 export interface RoutineInput {
@@ -216,6 +215,30 @@ function zonedTimeToUtc(
 // place instead of being re-derived from Intl parts on the caller's side.
 export function localDayStart(instant: Date, timeZone: string): Date {
   return zonedTimeToUtc(localDay(instant, timeZone), 0, 0, timeZone);
+}
+
+// 'YYYY-MM-DD' of the local calendar day containing `instant` — the value
+// stored in events.routine_day (the day the generator planned an occurrence
+// for) and the shape the de-dup key in materialize.ts compares.
+export function localDateString(instant: Date, timeZone: string): string {
+  const { y, m, d } = localDay(instant, timeZone);
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+// Inverse of localDateString for the planner: an instant that falls on the
+// given local day in `timeZone` (local noon, so it is robust to any offset).
+// materialize.ts uses it to hand plannedOccurrences an `existing` row whose
+// duration Google may have moved to another day but whose routine_day still
+// says which day it stands in for. Null for a malformed string.
+export function localNoon(dateString: string, timeZone: string): Date | null {
+  const match = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return zonedTimeToUtc(
+    { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) },
+    12,
+    0,
+    timeZone
+  );
 }
 
 // --- deterministic per-routine hashing --------------------------------

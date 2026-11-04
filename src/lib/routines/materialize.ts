@@ -19,7 +19,8 @@
 // browser/Vite side happy with the explicit form.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  localDayStart,
+  localDateString,
+  localNoon,
   plannedOccurrences,
   type ExistingOccurrence,
   type PlannedOccurrence,
@@ -96,69 +97,103 @@ export async function materializeRoutines(
   // query and idx_events_routine_dedup disagree on what's materialized and
   // the generator recreates an occurrence the user already moved.
   //
-  // Upper-bounded by `to`: without this, every call reads every future
-  // routine occurrence ever materialized, no matter how far out. The cron
-  // only asks for +7d so this doesn't bite today, but materialize_routines
-  // (src/lib/chat/toolsCore.ts) accepts an arbitrary `to`, and none of the
-  // rows at or past it feed either use of `existing` below (dedup keys past
-  // `to` can't match anything planned, and makeupOccurrences already drops
-  // skips outside the planning window). tstzrange orders by lower bound, so
-  // this cuts on occurrence start, not end.
-  const { data: eventRows, error: eventsError } = await db
-    .from('events')
-    .select('routine_id,duration,routine_status')
-    .is('deleted_at', null)
-    .in(
-      'routine_id',
-      routines.map((r) => r.id)
-    )
-    .gte('duration', `[${lookback.toISOString()},)`)
-    .lt('duration', `[${to.toISOString()},)`);
-  if (eventsError)
-    throw new Error(`existing events query failed: ${eventsError.message}`);
+  // Two windows, merged by id. The occurrence's own `duration` is what the
+  // user sees, but Google can rewrite it to another day, so the row is ALSO
+  // looked up by `routine_day` (the day the generator planned it for, never
+  // touched by the sync): a Tuesday occurrence dragged to next week still
+  // stands in for Tuesday here.
+  //
+  // Both are upper-bounded by `to`: without it, every call reads every
+  // future routine occurrence ever materialized, no matter how far out. The
+  // cron only asks for +7d so this doesn't bite today, but
+  // materialize_routines (src/lib/chat/toolsCore.ts) accepts an arbitrary
+  // `to`, and none of the rows at or past it feed either use of `existing`
+  // below. tstzrange orders by lower bound, so the duration cut is on
+  // occurrence start, not end.
+  const routineIds = routines.map((r) => r.id);
+  const eventColumns = 'id,routine_id,duration,routine_status,routine_day';
+  const [byDuration, byDay] = await Promise.all([
+    db
+      .from('events')
+      .select(eventColumns)
+      .is('deleted_at', null)
+      .in('routine_id', routineIds)
+      .gte('duration', `[${lookback.toISOString()},)`)
+      .lt('duration', `[${to.toISOString()},)`),
+    db
+      .from('events')
+      .select(eventColumns)
+      .is('deleted_at', null)
+      .in('routine_id', routineIds)
+      .gte('routine_day', localDateString(lookback, timeZone))
+      .lte('routine_day', localDateString(to, timeZone)),
+  ]);
+  if (byDuration.error)
+    throw new Error(
+      `existing events query failed: ${byDuration.error.message}`
+    );
+  if (byDay.error)
+    throw new Error(`existing events query failed: ${byDay.error.message}`);
 
-  const existing: ExistingOccurrence[] = [];
-  for (const row of (eventRows ?? []) as {
+  type EventRow = {
+    id: string;
     routine_id: string | null;
     duration: string | null;
     routine_status: RoutineStatus | null;
-  }[]) {
+    routine_day: string | null;
+  };
+  const rows = new Map<string, EventRow>();
+  for (const row of [
+    ...((byDuration.data ?? []) as EventRow[]),
+    ...((byDay.data ?? []) as EventRow[]),
+  ])
+    rows.set(row.id, row);
+
+  // `existing` feeds the pure scheduler, which only reads the LOCAL DAY of
+  // `start`; for a row with a routine_day that day is the planned one, not
+  // wherever Google moved the event, so anchor `start` there. Rows without
+  // one (not produced by the generator) fall back to their own duration.
+  // `existingKeys` is the de-dup set, keyed on that same planned day.
+  const existing: ExistingOccurrence[] = [];
+  const existingKeys = new Set<string>();
+  for (const row of rows.values()) {
     if (!row.routine_id) continue;
-    const start = parseDurationLowerBound(row.duration);
+    const start =
+      (row.routine_day && localNoon(row.routine_day, timeZone)) ||
+      parseDurationLowerBound(row.duration);
     if (!start) continue;
     existing.push({
       routine_id: row.routine_id,
       start,
       status: row.routine_status,
     });
+    existingKeys.add(
+      `${row.routine_id}|${row.routine_day ?? localDateString(start, timeZone)}`
+    );
   }
 
   const planned = plannedOccurrences(routines, from, to, timeZone, existing);
 
   // Everything idx_events_routine_dedup could conflict with is already in
-  // `existing` (it covers the same rows, from a wider window than the one
-  // planned here), so an occurrence we already read back needs no insert
+  // `existingKeys` (it covers the same rows, from a wider window than the
+  // one planned here), so an occurrence we already read back needs no insert
   // attempt at all. On a rolling re-run most of the window is in exactly
   // that state, and the 23505 round-trip per occurrence was pure waste.
   // The unique index still backstops a concurrent run, below.
   //
-  // Keyed by local day, not exact instant, to match the DB index: a
-  // Google-side edit (conflict or pull) can move an occurrence's time
-  // within the same day, and that moved row should still count as "this
-  // routine's occurrence for this day" rather than freeing up the original
-  // slot for the generator to recreate.
-  const dayKey = (routineId: string, at: Date) =>
-    `${routineId}|${localDayStart(at, timeZone).getTime()}`;
-  const existingKeys = new Set(
-    existing.map((e) => dayKey(e.routine_id, e.start))
-  );
+  // Keyed by planned day (routine_day), not by `duration`: Google can move
+  // an occurrence within its day or to another day, and that moved row must
+  // still count as "this routine's occurrence for the day it was planned
+  // for" rather than freeing the slot for the generator to recreate.
+  const dayKey = (occ: PlannedOccurrence) =>
+    `${occ.routine_id}|${localDateString(occ.start, timeZone)}`;
 
   let created = 0;
   let skipped = 0;
   let errors = 0;
   const toInsert: PlannedOccurrence[] = [];
   for (const occ of planned) {
-    if (existingKeys.has(dayKey(occ.routine_id, occ.start))) {
+    if (existingKeys.has(dayKey(occ))) {
       skipped++;
       continue;
     }
@@ -172,6 +207,9 @@ export async function materializeRoutines(
     task_id: occ.task_id,
     field_id: occ.field_id,
     duration: rangeLiteral(occ.start, occ.end),
+    // The day this occurrence is planned for: the de-dup key, immune to
+    // Google later rewriting `duration`.
+    routine_day: localDateString(occ.start, timeZone),
   });
 
   // Fast path: insert everything the filter above left in one round trip.

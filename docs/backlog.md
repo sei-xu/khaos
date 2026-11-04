@@ -2473,6 +2473,46 @@ por dia reconhece a ocorrência antiga como "já materializada"); e
 (duplicação consciente e comentada, mas a direção da dependência pode ser
 invertida, já que o lado Deno importa de `src/` e não o contrário).
 
+**Correção dos bloqueantes restantes (2026-11-04, a pedido do dono).** Dos
+cinco bloqueantes ainda abertos no PR #97, dois já estavam resolvidos no
+HEAD (`f86b901`: contrato do makeup restrito a `Nx_week` em
+`toolsCore.ts`/`prompts.ts`, e a dedup mensal `hasExistingThisPeriod` em
+`occurrences.ts`). Os outros três foram corrigidos aqui:
+
+1. **Movimento entre dias e dedup (opção 1 do review).** Nova coluna
+   `events.routine_day` (`date`): o dia local que o **gerador** planejou,
+   gravado só por `materialize.ts` e nunca pelo `google-calendar-sync`.
+   `idx_events_routine_dedup` passou a ser `(routine_id, routine_day)` (onde
+   `routine_day` e `routine_id` não são nulos e `deleted_at is null`, para
+   qualquer `event_type`), então arrastar a ocorrência de terça para quarta
+   no Google, ou um 412, muda `duration` mas não a chave — terça não é
+   recriada e a linha promovida a `fixed` não colide com nada. `existing`
+   busca por `duration` **e** por `routine_day` (duas queries mescladas por
+   id), para achar a linha mesmo se o Google a levou para fora da janela, e
+   âncora o `start` no meio-dia local do `routine_day`. Isso também elimina
+   a dependência do offset -03:00 cravado no índice. Migration
+   `20261105000000_routine_day_and_edit_propagation.sql` faz o backfill (dia
+   em America/Sao_Paulo; linha `routine` ganha o dia se houver colisão com
+   uma promovida).
+2. **Edição de rotina propaga (opção 1 do review).** `trg_routine_deactivated`
+   agora também dispara quando `frequency`, `preferred_time` ou `estimate`
+   de uma rotina ativa mudam: soft-delete das ocorrências ainda não
+   iniciadas, `event_type='routine'` e sem `routine_status`; a próxima
+   materialização regenera a janela com a definição nova (e o push ao
+   Google acompanha por `deleted_at`). Linhas já marcadas ou promovidas a
+   `fixed` são do dono e ficam.
+3. **Digest do Telegram.** "Rotinas de hoje" passa a incluir `event_type =
+   'fixed'` com `routine_id` não nulo (ocorrência editada no Google).
+
+Testes novos: `materialize.test.ts` (grava `routine_day`; não recria o dia
+quando o Google arrastou a linha para outro dia ou para fora da janela;
+fallback para a `duration` quando `routine_day` é nulo) e dois blocos em
+`occurrences.test.ts` para `localDateString`/`localNoon`. `typecheck`,
+`lint` e `test` (59) limpos. **Pendente do dono:** `npm run db:push` aplica
+a migration (não rodei contra o banco remoto); o trigger e o backfill não
+foram exercitados em Postgres real. O terceiro achado do review
+(`parseDurationLowerBound` duplicado) segue como débito consciente.
+
 ---
 
 ## Resolved

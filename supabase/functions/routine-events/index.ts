@@ -18,9 +18,9 @@
 // coming week's calendar presence (prompts.ts asks the assistant to plan
 // the week ahead) without accumulating months of speculative occurrences.
 // Re-running over the same window is safe — idx_events_routine_dedup
-// (20261025000000_routine_occurrences.sql, re-keyed to local day by
-// 20261104000000_routine_dedup_by_day.sql) makes (routine_id, local day of
-// lower(duration)) unique, and this function treats a 23505 on insert as
+// (20261025000000_routine_occurrences.sql, re-keyed to the planned day by
+// 20261105000000_routine_day_and_edit_propagation.sql) makes (routine_id,
+// routine_day) unique, and this function treats a 23505 on insert as
 // "already there", not an error.
 //
 // Scheduled 07:45 local (10:45 UTC, America/Sao_Paulo has no DST) — before

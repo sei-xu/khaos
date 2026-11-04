@@ -175,6 +175,7 @@ Compromissos e blocos de tempo na agenda.
 | google_etag | text | Último etag devolvido pelo Google; compara para detectar edição concorrente |
 | google_synced_at | timestamptz | Timestamp do último push/pull bem-sucedido |
 | sync_dirty | boolean | default `false` — marcado pelo trigger `trg_google_sync_dirty` quando a linha precisa ser empurrada ao Google |
+| routine_day | date | Dia local que o gerador planejou para a ocorrência (chave de dedup com `routine_id`); só o gerador grava, o Google nunca reescreve; nulo em eventos que não vieram do gerador |
 | routine_status | text | `done` \| `partial` \| `skipped`, só em linhas `event_type='routine'` (CHECK); resultado de hábito registrado depois do fato, nunca pelo gerador |
 
 **Sincronização com o Google Calendar** — `event_type IN ('fixed', 'routine')`
@@ -192,23 +193,20 @@ trigger observa. Um índice único parcial em
 impede importar o mesmo evento do Google duas vezes; um índice parcial em
 `(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Um
 segundo índice único parcial em
-`(routine_id, ((lower(duration) at time zone interval '-03:00')::date))`
-(onde `event_type = 'routine'`, `routine_id` não é nulo e `deleted_at is
-null` — o filtro de `event_type` é de propósito: uma ocorrência promovida a
-`fixed` por um pull mantém o `routine_id`, mas não deve mais colidir com
-este índice, já que ela pode ser movida para um dia que outra ocorrência da
-mesma rotina já ocupe; o bloqueio de "não recriar o dia da rotina" para essa
-linha promovida continua existindo, só que na aplicação — a query `existing`
-de `materialize.ts` não filtra `event_type`) é a chave de deduplicação do
-gerador de ocorrências — uma ocorrência por
-rotina por dia local (America/Sao_Paulo, offset fixo -03:00, mesma
-suposição de `google-calendar-sync`'s `TZ_OFFSET`), não por instante exato:
-um evento movido de horário no mesmo dia (conflito de push ou pull do
-Google) não libera o slot original para o cron recriar. `timezone(interval,
-timestamptz)` devolve um `timestamp` sem fuso, então o `::date` final é
-IMMUTABLE e indexável — ao contrário de
-`(lower(duration) - interval '3 hours')::date`, em que o cast ainda recai
-sobre um `timestamptz` e por isso é só STABLE (não indexável). Ver
+`(routine_id, routine_day)` (onde `routine_day` e `routine_id` não são nulos e
+`deleted_at is null`, para qualquer `event_type`) é a chave de deduplicação do
+gerador de ocorrências — uma ocorrência viva por rotina por dia planejado.
+`routine_day` (`date`) é o dia local que o **gerador** planejou, gravado só
+por `materialize.ts` e nunca pela sincronização com o Google: um pull ou um
+412 (Google vence) que reescreva `duration` — no mesmo dia ou arrastando a
+ocorrência para outro dia — não muda a chave, então o slot original nem é
+recriado pelo cron nem colide com o índice (o movimento altera `duration`, não
+`routine_day`). Uma ocorrência promovida a `fixed` por um pull mantém
+`routine_id` e `routine_day` e continua ocupando o dia de onde veio; a query
+`existing` de `materialize.ts` não filtra `event_type` e também busca por
+`routine_day`, para achar a linha mesmo quando o Google a levou para fora da
+janela. Linhas que não vieram do gerador têm `routine_day` nulo e ficam fora
+do índice. Ver
 `supabase/functions/google-calendar-sync/README.md` para o motor completo
 (push/pull, resolução de conflito — Google sempre vence — e os casos de
 borda de evento de dia inteiro/recorrente), e

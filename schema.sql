@@ -689,10 +689,27 @@ CREATE OR REPLACE FUNCTION "public"."trg_routine_deactivated"() RETURNS "trigger
     AS $$
 begin
   if old.active and not new.active then
+    -- Deactivated: drop every not-yet-started generated occurrence.
     update "public"."events"
        set deleted_at = now()
      where routine_id = new.id
        and event_type = 'routine'
+       and deleted_at is null
+       and lower(duration) > now();
+  elsif new.active
+    and (old.frequency is distinct from new.frequency
+      or old.preferred_time is distinct from new.preferred_time
+      or old.estimate is distinct from new.estimate)
+  then
+    -- Definition changed: drop the not-yet-started occurrences laid out by
+    -- the old definition so the next materialization regenerates them. Rows
+    -- that carry a habit outcome (routine_status) or that a Google pull
+    -- already promoted to 'fixed' are the user's own and are kept.
+    update "public"."events"
+       set deleted_at = now()
+     where routine_id = new.id
+       and event_type = 'routine'
+       and routine_status is null
        and deleted_at is null
        and lower(duration) > now();
   end if;
@@ -704,7 +721,7 @@ $$;
 ALTER FUNCTION "public"."trg_routine_deactivated"() OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."trg_routine_deactivated"() IS 'On routines.active true->false, soft-deletes this routine''s not-yet-started generated occurrences (lower(duration) > now()). Past/in-progress occurrences are preserved — Khaos keeps history instead of erasing it. Reactivating does not restore them; the generator produces new ones going forward.';
+COMMENT ON FUNCTION "public"."trg_routine_deactivated"() IS 'On routines.active true->false, soft-deletes this routine''s not-yet-started generated occurrences (lower(duration) > now()). On an edit of an active routine''s frequency, preferred_time or estimate, soft-deletes the not-yet-started occurrences that have no routine_status and are still event_type=''routine'' (promoted/marked rows are kept) so the next materialization regenerates them from the new definition. Past/in-progress occurrences are preserved — Khaos keeps history instead of erasing it. Reactivating does not restore them; the generator produces new ones going forward.';
 
 
 
@@ -1270,6 +1287,7 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
     "google_synced_at" timestamp with time zone,
     "sync_dirty" boolean DEFAULT false NOT NULL,
     "routine_status" "text",
+    "routine_day" "date",
     CONSTRAINT "duration_must_be_bounded" CHECK (((NOT "lower_inf"("duration")) AND (NOT "upper_inf"("duration")) AND (NOT "isempty"("duration")))),
     CONSTRAINT "chk_routine_status_values" CHECK ((("routine_status" IS NULL) OR ("routine_status" = ANY (ARRAY['done'::"text", 'partial'::"text", 'skipped'::"text"])))),
     CONSTRAINT "chk_routine_status_only_on_routine" CHECK ((("routine_status" IS NULL) OR ("event_type" = 'routine'::"public"."event_types")))
@@ -1304,6 +1322,10 @@ COMMENT ON COLUMN "public"."events"."sync_dirty" IS 'Set by trg_google_sync_dirt
 
 
 COMMENT ON COLUMN "public"."events"."routine_status" IS 'Habit-tracking outcome for a routine occurrence (event_type=''routine''): done, partial, or skipped. Null for ungenerated/not-yet-reviewed occurrences and always null for scheduled/fixed events. Set by the user or assistant after the fact — never by the generator. A ''skipped'' Nx_week occurrence is what src/lib/routines/occurrences.ts reschedules as a makeup on a later free day that same (or the following) week.';
+
+
+
+COMMENT ON COLUMN "public"."events"."routine_day" IS 'Local day (in the timezone the generator ran with) a routine occurrence was PLANNED for. Written only by the generator (src/lib/routines/materialize.ts), never by Google sync, so it stays put when a Google pull or 412 rewrites `duration` (including to another day). With routine_id it is the de-dup key (idx_events_routine_dedup). Null on events that were not produced by the generator.';
 
 
 
@@ -2177,10 +2199,10 @@ CREATE INDEX "idx_events_sync_dirty" ON "public"."events" USING "btree" ("id") W
 
 
 
-CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", (("timezone"('-03:00'::interval, "lower"("duration")))::"date")) WHERE (("event_type" = 'routine'::"public"."event_types") AND ("routine_id" IS NOT NULL) AND ("deleted_at" IS NULL));
+CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", "routine_day") WHERE (("routine_day" IS NOT NULL) AND ("routine_id" IS NOT NULL) AND ("deleted_at" IS NULL));
 
 
-COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One routine occurrence (event_type=''routine'') per routine per local day (America/Sao_Paulo, fixed -03:00 offset baked into the expression). Deliberately day-grained, not instant-grained, so a Google-side edit that moves the occurrence''s time within the same day does not make the generator insert a duplicate at the original slot. Scoped to event_type=''routine'' so a row promoted to ''fixed'' by a Google pull never collides with it.';
+COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One live occurrence per routine per planned day: (routine_id, routine_day). routine_day is written only by the generator, so a Google-side edit of `duration` (same day or another day) neither frees the slot for the generator to refill nor collides with it. Soft-deleted rows are excluded so a deactivated or edited routine can regenerate the slot.';
 
 
 

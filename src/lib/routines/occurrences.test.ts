@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { plannedOccurrences, type RoutineInput } from './occurrences';
+import {
+  localDateString,
+  localNoon,
+  plannedOccurrences,
+  type RoutineInput,
+} from './occurrences';
 
 const TZ = 'America/Sao_Paulo';
 
@@ -399,5 +404,30 @@ describe('plannedOccurrences — habit status / reschedule on skip', () => {
         base.map((o) => o.start.getTime())
       );
     }
+  });
+});
+
+describe('localDateString / localNoon', () => {
+  it('names the local day of an instant, not the UTC day', () => {
+    // 01:00 UTC on the 27th is still the 26th at 22:00 in Sao Paulo.
+    expect(localDateString(new Date('2026-10-27T01:00:00Z'), TZ)).toBe(
+      '2026-10-26'
+    );
+    expect(localDateString(new Date('2026-10-27T03:00:00Z'), TZ)).toBe(
+      '2026-10-27'
+    );
+  });
+
+  it('localNoon round-trips through localDateString in any zone', () => {
+    for (const tz of ['America/Sao_Paulo', 'UTC', 'Pacific/Kiritimati']) {
+      const noon = localNoon('2026-11-10', tz);
+      expect(noon).not.toBeNull();
+      expect(localDateString(noon as Date, tz)).toBe('2026-11-10');
+    }
+  });
+
+  it('localNoon rejects a malformed string', () => {
+    expect(localNoon('2026-11-10T00:00:00Z', TZ)).toBeNull();
+    expect(localNoon('', TZ)).toBeNull();
   });
 });

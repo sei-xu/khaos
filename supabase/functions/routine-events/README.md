@@ -17,7 +17,10 @@ can never drift apart.
 
 1. **Apply the migration** (adds `events.routine_status`, the
    `idx_events_routine_dedup` unique index, and the deactivate-soft-delete
-   trigger):
+   trigger), then `20261105000000_routine_day_and_edit_propagation.sql`
+   (adds `events.routine_day`, re-keys the index on it, and makes the same
+   trigger also regenerate future occurrences when a routine's `frequency`,
+   `preferred_time` or `estimate` is edited):
 
    ```bash
    npm run db:push
@@ -62,8 +65,9 @@ can never drift apart.
 ## What it does each run
 
 - Loads every active routine and, for dedup/makeup purposes, every
-  non-deleted `event_type='routine'` row for those routines from the last 14
-  days.
+  non-deleted row for those routines (any `event_type`, so a Google-promoted
+  one still counts) from the last 14 days — looked up both by `duration` and
+  by `routine_day`, since Google can move an occurrence out of the window.
 - Calls `plannedOccurrences(routines, today, today+7days, timezone, existing)`.
 - Inserts whatever that returns, treating a unique-violation (23505, from
   `idx_events_routine_dedup`) as "already materialized" rather than an

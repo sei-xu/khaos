@@ -16,8 +16,8 @@ export function executeTool(
 ): Promise<unknown> {
   return coreExecuteTool(
     // Fixed, not the device's getTimezone(): the routine grid is a property
-    // of the owner's calendar (idx_events_routine_dedup bakes in the same
-    // -03:00 offset), not of whichever device happens to call this tool —
+    // of the owner's calendar (routine_day, the dedup key, is the local day
+    // in this zone), not of whichever device happens to call this tool —
     // see DEFAULT_ROUTINE_TIMEZONE's comment.
     { db: supabase, searchSchema, timezone: DEFAULT_ROUTINE_TIMEZONE },
     rawName,

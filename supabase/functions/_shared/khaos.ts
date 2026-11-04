@@ -81,8 +81,8 @@ const toolDeps = {
   db,
   searchSchema: (query: string) => searchSchemaCore(SCHEMA_SQL, query),
   // No `timezone` here, deliberately: the routine grid's zone
-  // (idx_events_routine_dedup bakes in -03:00) must be one fixed value every
-  // caller agrees on, so this leaves it unset and lets toolsCore.ts fall
+  // (events.routine_day, the dedup key, is the local day in this zone) must
+  // be one fixed value every caller agrees on, so this leaves it unset and lets toolsCore.ts fall
   // back to DEFAULT_ROUTINE_TIMEZONE — the same source the browser binding
   // (src/lib/chat/tools.ts) uses — instead of whatever TELEGRAM_TIMEZONE
   // happens to be set to on this host.

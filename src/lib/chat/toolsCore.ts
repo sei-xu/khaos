@@ -1272,7 +1272,7 @@ export async function executeTool(
       // Both explicit and defaulted bounds are snapped to local-day start so
       // an argument with a time component (or none at all, e.g. a bare
       // '2026-11-10') can't shift the window by a few hours relative to the
-      // day-grained dedup this module and idx_events_routine_dedup both use.
+      // day-grained dedup (events.routine_day) this module and materialize.ts use.
       //
       // Unparseable bounds are rejected BEFORE being snapped: localDayStart
       // goes through Intl.DateTimeFormat.formatToParts, which throws
