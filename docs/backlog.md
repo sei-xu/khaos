@@ -60,6 +60,7 @@ work that grows out of them. Roadmap phases live in
 | [Assistente sugere projeto, seção e estimativa ao criar tarefa](#assistente-sugere-projeto-seção-e-estimativa-ao-criar-tarefa) | 2026-10-13 |
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 | [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
+| [Versionamento do khaos: bump no PR, não por workflow](#versionamento-do-khaos-bump-no-pr-não-por-workflow) | 2026-10-29 |
 
 ---
 
@@ -2103,6 +2104,35 @@ browser segue pendente** e agora cobre mais coisa: com Realtime de fato
 `SUBSCRIBED`, abrir a sheet no mobile com o rail montado, navegar para
 `/assistant` no desktop, e confirmar que uma mudança feita fora do chat
 produz **um** nudge (não dois) e que ele aparece na sheet aberta.
+
+---
+
+## Versionamento do khaos: bump no PR, não por workflow
+
+started 2026-10-29
+
+Pedido do usuário: rever a regra de bump porque as versões subiam rápido
+demais. No Ḫprj a regra passou a ser SemVer de verdade (PR sei-xu/hprj#92:
+cliff deixa de gerar MAJOR; MAJOR só por breaking change declarado e
+aprovado). O khaos tinha uma regra própria, em conflito com a do Ḫprj: o
+`.github/workflows/bump-version.yml` subia o patch depois de **todo** merge
+em `main` e commitava `chore: release vX.Y.Z` direto na branch, sem olhar o
+que mudou — e dobrava o bump nos PRs que o Ḫprj já bumpa.
+
+O que esta PR faz: remove o workflow; o bump passa a ser feito no próprio PR
+(pelo Ḫprj, ou à mão em PR manual), como no etto e no Monēta. Atualizados o
+`CLAUDE.md` (seção "Versioning"), a seção "Release versioning" do
+`supabase/functions/telegram-bot/README.md` e o comentário do `lint.yml`.
+`package.json` foi para 3.1.6 (patch: só infra e docs).
+
+Efeito colateral a conhecer: sem o workflow, um PR manual que esquecer o bump
+não muda a versão. Também não há mais tags `vX.Y.Z` automáticas nem o commit
+`chore: release`. As entradas antigas deste backlog que dizem "manter o bump
+fora das PRs" descrevem a regra anterior.
+
+Pendente: o usuário dizer **"approved"**. Não verificado: o fluxo real do
+Ḫprj bumpando um PR do khaos depois desta mudança (só confere no próximo
+PR gerenciado).
 
 ## Resolved
 

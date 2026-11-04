@@ -3,8 +3,8 @@ name: Lint and typecheck
 # Runs the same gate CLAUDE.md asks contributors to run by hand (`npm run
 # lint` with --max-warnings 0, plus `npm run typecheck`), so a regression
 # can't land on main without someone noticing. On pull_request it checks the
-# branch; on push to main it also covers the bump-version.yml release
-# commit, which otherwise skips review entirely.
+# branch; on push to main it also covers anything that lands there without
+# a PR run.
 on:
   pull_request:
     branches: [main]

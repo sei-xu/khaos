@@ -138,16 +138,17 @@ Supabase Vault and read it via `vault.decrypted_secrets` instead of inlining.
 
 ## Release versioning
 
-Every PR merged into `main` bumps `package.json`'s patch version and commits
-it straight to `main` as `chore: release vX.Y.Z` (`.github/workflows/bump-version.yml`).
-That commit is a push to `main`, which Vercel's own GitHub integration
-already auto-deploys — the workflow doesn't drive the deploy itself, and it
-doesn't observe or report on the result.
+The version in `package.json` follows the Ḫprj methodology (`hprj/docs/methodology.md`,
+"Versionamento"): it is bumped **in the PR itself** — by Ḫprj on PRs it manages,
+by hand on manual PRs — and never by a workflow after the merge. SemVer: PATCH for
+fixes, docs and infra, MINOR for a new compatible feature, MAJOR only for a
+declared, owner-approved breaking change. Merging to `main` is what Vercel's own
+GitHub integration auto-deploys; nothing here drives or observes that deploy.
 
-If `main` has branch protection requiring PRs (no direct pushes), the bump
-workflow's push will be rejected — either allow the `github-actions[bot]`
-actor to bypass that rule for `main`, or the workflow needs to open a PR
-instead of pushing directly (not what's implemented here).
+(Until 2026-10-29 `.github/workflows/bump-version.yml` bumped the patch version
+and pushed `chore: release vX.Y.Z` to `main` after every merge. It was removed
+because it double-bumped PRs Ḫprj already bumped, and made every merge a patch
+regardless of what changed.)
 
 ## Commands
 
