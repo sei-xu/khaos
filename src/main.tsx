@@ -7,6 +7,7 @@ import { ProcessingProvider } from './lib/processingContext';
 import { ActiveEntityProvider } from './lib/activeEntityContext';
 import { ChatActivityProvider } from './lib/chat/chatActivityContext';
 import { PasswordGate } from './components/layout/PasswordGate';
+import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -21,18 +22,20 @@ const queryClient = new QueryClient({
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <PasswordGate>
-      <QueryClientProvider client={queryClient}>
-        <ProcessingProvider>
-          <ChatActivityProvider>
-            <ActiveEntityProvider>
-              <BrowserRouter>
-                <App />
-              </BrowserRouter>
-            </ActiveEntityProvider>
-          </ChatActivityProvider>
-        </ProcessingProvider>
-      </QueryClientProvider>
-    </PasswordGate>
+    <ErrorBoundary>
+      <PasswordGate>
+        <QueryClientProvider client={queryClient}>
+          <ProcessingProvider>
+            <ChatActivityProvider>
+              <ActiveEntityProvider>
+                <BrowserRouter>
+                  <App />
+                </BrowserRouter>
+              </ActiveEntityProvider>
+            </ChatActivityProvider>
+          </ProcessingProvider>
+        </QueryClientProvider>
+      </PasswordGate>
+    </ErrorBoundary>
   </React.StrictMode>
 );
