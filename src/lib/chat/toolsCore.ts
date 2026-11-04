@@ -6,7 +6,11 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { materializeRoutines } from '../routines/materialize';
-import { ROUTINE_STATUSES } from '../routines/occurrences';
+import {
+  DEFAULT_ROUTINE_TIMEZONE,
+  ROUTINE_STATUSES,
+  localDayStart,
+} from '../routines/occurrences';
 
 // Everything the tool executor needs from its host, injected rather than
 // imported: the browser app supplies its anon-key client (src/lib/chat/tools.ts)
@@ -16,10 +20,11 @@ export interface ToolDeps {
   db: SupabaseClient;
   searchSchema: (query: string) => unknown;
   // IANA zone used by materialize_routines to resolve preferred_time into a
-  // concrete instant (src/lib/routines/occurrences.ts). The browser binding
-  // passes the user's own getTimezone(); the Telegram/cron side passes its
-  // TIMEZONE constant. Defaults to America/Sao_Paulo (same default the rest
-  // of the server side already assumes) when a host doesn't supply one.
+  // concrete instant (src/lib/routines/occurrences.ts). The Telegram/cron
+  // side passes its own TIMEZONE constant; the browser binding
+  // (src/lib/chat/tools.ts) deliberately does not pass the device's zone —
+  // see DEFAULT_ROUTINE_TIMEZONE's comment. Defaults to
+  // DEFAULT_ROUTINE_TIMEZONE when a host doesn't supply one.
   timezone?: string;
 }
 
@@ -1258,12 +1263,20 @@ export async function executeTool(
     }
     case 'materialize_routines': {
       const a = args as { from?: unknown; to?: unknown };
+      const timeZone = deps.timezone || DEFAULT_ROUTINE_TIMEZONE;
+      // Defaults match the cron's window (supabase/functions/routine-events:
+      // localMidnight(0) .. localMidnight(7)) rather than "now" — "now" as a
+      // default `from` drops everything earlier today (e.g. a 'morning'
+      // routine, planned at 08:00, called at 15:00), and offsetting `to` by
+      // exactly 7 days from that instant left the 8th day half-materialized.
       const from =
-        typeof a.from === 'string' && a.from ? new Date(a.from) : new Date();
+        typeof a.from === 'string' && a.from
+          ? new Date(a.from)
+          : localDayStart(new Date(), timeZone);
       const to =
         typeof a.to === 'string' && a.to
           ? new Date(a.to)
-          : new Date(from.getTime() + 7 * 86400000);
+          : localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
       if (
         Number.isNaN(from.getTime()) ||
         Number.isNaN(to.getTime()) ||
@@ -1278,7 +1291,7 @@ export async function executeTool(
       // (supabase/functions/routine-events), shared so the two can't drift.
       const { created, skipped, total_planned } = await materializeRoutines(
         db,
-        { from, to, timeZone: deps.timezone || 'America/Sao_Paulo' }
+        { from, to, timeZone }
       );
       return { created, skipped, total_planned };
     }

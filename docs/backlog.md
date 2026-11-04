@@ -2389,7 +2389,56 @@ pelo dono via Telegram, aplicados neste PR #97:**
    -03:00 (mesma suposição de `TZ_OFFSET` em `google-calendar-sync`,
    America/Sao_Paulo sem DST desde 2019) — e `existingKeys` em
    `materialize.ts` passou a comparar por dia local (`localDayStart`), não
-   por `getTime()` exato.
+   por `getTime()` exato. ~~Essa expressão não sobreviveu ao `db:push`
+   (ver passada seguinte abaixo).~~
+
+**Segunda passada de revisão automatizada (2026-11-04), decidida pelo dono
+via Telegram, aplicada neste mesmo PR #97:**
+
+1. **A migration do item 3 não é `IMMUTABLE`.** `lower(duration) - interval
+   '3 hours'` ainda é `timestamptz`, e `::date` sobre `timestamptz`
+   (`timestamptz_date`) é `STABLE`, não `IMMUTABLE` — depende do
+   `TimeZone` da sessão. `create unique index` rejeita isso com `42P17`, a
+   migration inteira falha e nenhum dedup por dia chega a existir no
+   banco. Corrigido com a opção 1 do comentário original:
+   `timezone(interval, timestamptz) -> timestamp` é `IMMUTABLE`, e
+   `::date` sobre esse resultado (já um `timestamp` puro) também é —
+   `(routine_id, ((lower(duration) AT TIME ZONE INTERVAL '-03:00')::date))`.
+   Mesma semântica de dia local a -03:00, sem depender da sessão.
+   `schema.sql` e `_shared/schema.sql.ts` (via `npm run gen:edge-schema`)
+   atualizados junto.
+2. **Promoção a `fixed` no pull desarmava a dedup.** O índice do item 3 é
+   parcial (`where event_type = 'routine'`), e a query de `existing` em
+   `materialize.ts` filtrava `.eq('event_type','routine')` — então a linha
+   que o pull promove para `'fixed'` (mantendo `routine_id`) saía dos
+   dois, e o cron a recriava: duas ocorrências no mesmo dia, uma promovida
+   e uma nova. Corrigido com a opção 1 do comentário original: tirado
+   `event_type = 'routine'` do predicado do índice (chaveando por
+   `routine_id, dia local` onde `routine_id is not null and deleted_at is
+   null`) e tirado o `.eq('event_type','routine')` da query de `existing`.
+3. **Janela default de `materialize_routines` divergia da do cron.** O cron
+   usa `localMidnight(0)`→`localMidnight(7)`; a tool usava `new Date()`
+   (o instante atual)→`+7d`, então uma chamada à tarde perdia as
+   ocorrências de hoje (`occ.start < from` descarta tudo antes do
+   instante exato) e o 8º dia entrava pela metade. Corrigido reaproveitando
+   `localDayStart` nos defaults, igualando cron e tool.
+4. **Query de `existing` sem limite superior.** Lia `[from-14d, ∞)` —
+   todas as ocorrências de rotina futuras, em toda execução. Inofensivo
+   com a janela de +7d do cron, mas `materialize_routines` aceita `to`
+   arbitrário, e nenhuma linha `>= to` entra em uso (nem dedup nem
+   makeup). Corrigido com `.lt('duration', '[${to},)')`.
+5. **`every_2_days` não distribuía por rotina.** A paridade era global
+   (`epochDay % 2`), sem o hash por `r.id` que `spreadWeekdays` e
+   `pickMonthlyDays` já usam — duas rotinas `every_2_days` caíam sempre
+   nos mesmos dias. Corrigido defasando por rotina:
+   `(epochDay + hashString(r.id)) % 2 === 0`.
+6. **`timezone` da tool vinha do dispositivo, não do dono.** `tools.ts`
+   passava `getTimezone()` (dispositivo/navegador) para
+   `materialize_routines`, enquanto o cron e o índice de dedup usam o
+   offset fixo -03:00 — um fuso diferente materializa/dedupa em dias
+   diferentes. Corrigido passando o mesmo fuso fixo
+   (`DEFAULT_ROUTINE_TIMEZONE`, extraído para `occurrences.ts`) em vez do
+   fuso do dispositivo.
 
 ---
 

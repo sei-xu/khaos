@@ -45,6 +45,14 @@
 export type RoutineStatus = 'done' | 'partial' | 'skipped';
 export const ROUTINE_STATUSES: RoutineStatus[] = ['done', 'partial', 'skipped'];
 
+// The routine grid is a property of the owner's calendar, not of whichever
+// device/host called materialize_routines — idx_events_routine_dedup
+// (20261104000000_routine_dedup_by_day.sql) keys on local day with this
+// same fixed -03:00 offset baked in, so every caller resolving
+// preferred_time must agree on the zone or they disagree on which day is
+// already materialized.
+export const DEFAULT_ROUTINE_TIMEZONE = 'America/Sao_Paulo';
+
 export interface RoutineInput {
   id: string;
   name: string;
@@ -314,8 +322,13 @@ function matchesDay(
   if (r.frequency === 'weekday') return dow <= 4;
   if (r.frequency === 'weekend') return dow >= 5;
   if (r.frequency === 'every_2_days') {
+    // Phased by the routine's own hash, like spreadWeekdays/pickMonthlyDays
+    // below — without it every every_2_days routine shares the same global
+    // parity (epochDay % 2) and they all land on, and only on, the same
+    // half of the calendar days. The phase doesn't depend on the window
+    // (from/to), so this stays deterministic across re-materializations.
     const epochDay = Math.floor(dayToUtcProxy(day).getTime() / 86400000);
-    return epochDay % 2 === 0;
+    return (epochDay + hashString(r.id)) % 2 === 0;
   }
   const nxWeek = NX_WEEK.exec(r.frequency);
   if (nxWeek) return spreadWeekdays(r.id, Number(nxWeek[1])).has(dow);

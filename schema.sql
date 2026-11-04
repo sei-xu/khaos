@@ -2177,10 +2177,10 @@ CREATE INDEX "idx_events_sync_dirty" ON "public"."events" USING "btree" ("id") W
 
 
 
-CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", ((("lower"("duration") - '03:00:00'::interval))::"date")) WHERE (("event_type" = 'routine'::"public"."event_types") AND ("deleted_at" IS NULL) AND ("routine_id" IS NOT NULL));
+CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", (("timezone"('-03:00'::interval, "lower"("duration")))::"date")) WHERE (("routine_id" IS NOT NULL) AND ("deleted_at" IS NULL));
 
 
-COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One routine occurrence per routine per local day (America/Sao_Paulo, fixed -03:00 offset baked into the expression). Deliberately day-grained, not instant-grained, so a Google-side edit that moves the occurrence''s time within the same day does not make the generator insert a duplicate at the original slot.';
+COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One occurrence per routine per local day (America/Sao_Paulo, fixed -03:00 offset baked into the expression). Deliberately day-grained, not instant-grained, so a Google-side edit that moves the occurrence''s time within the same day (or promotes it to event_type=''fixed'') does not make the generator insert a duplicate at the original slot.';
 
 
 

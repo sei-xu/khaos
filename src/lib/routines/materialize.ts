@@ -83,16 +83,31 @@ export async function materializeRoutines(
   if (!routines.length) return empty;
 
   const lookback = new Date(from.getTime() - LOOKBACK_DAYS * 86400000);
+  // No event_type filter: a Google pull promotes a routine occurrence to
+  // event_type='fixed' while keeping routine_id (google-calendar-sync's
+  // pull handler) to preserve the user's edit, and that row must still
+  // count as "this routine's occurrence for its day" here — otherwise this
+  // query and idx_events_routine_dedup disagree on what's materialized and
+  // the generator recreates an occurrence the user already moved.
+  //
+  // Upper-bounded by `to`: without this, every call reads every future
+  // routine occurrence ever materialized, no matter how far out. The cron
+  // only asks for +7d so this doesn't bite today, but materialize_routines
+  // (src/lib/chat/toolsCore.ts) accepts an arbitrary `to`, and none of the
+  // rows at or past it feed either use of `existing` below (dedup keys past
+  // `to` can't match anything planned, and makeupOccurrences already drops
+  // skips outside the planning window). tstzrange orders by lower bound, so
+  // this cuts on occurrence start, not end.
   const { data: eventRows, error: eventsError } = await db
     .from('events')
     .select('routine_id,duration,routine_status')
-    .eq('event_type', 'routine')
     .is('deleted_at', null)
     .in(
       'routine_id',
       routines.map((r) => r.id)
     )
-    .gte('duration', `[${lookback.toISOString()},)`);
+    .gte('duration', `[${lookback.toISOString()},)`)
+    .lt('duration', `[${to.toISOString()},)`);
   if (eventsError)
     throw new Error(`existing events query failed: ${eventsError.message}`);
 
