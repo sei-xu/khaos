@@ -192,15 +192,19 @@ trigger observa. Um índice único parcial em
 impede importar o mesmo evento do Google duas vezes; um índice parcial em
 `(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Um
 segundo índice único parcial em
-`(routine_id, ((lower(duration) - interval '3 hours')::date))` (só
-`event_type='routine'`, `deleted_at is null`) é a chave de deduplicação do
-gerador de ocorrências — uma ocorrência por rotina por dia local
-(America/Sao_Paulo, offset fixo -03:00, mesma suposição de
-`google-calendar-sync`'s `TZ_OFFSET`), não por instante exato: um evento
-movido de horário no mesmo dia (conflito de push ou pull do Google) não
-libera o slot original para o cron recriar. A subtração por intervalo fixo
-é IMMUTABLE e por isso indexável, ao contrário de uma expressão com
-`AT TIME ZONE` (só STABLE). Ver
+`(routine_id, ((lower(duration) at time zone interval '-03:00')::date))`
+(onde `routine_id` não é nulo e `deleted_at is null` — sem filtro de
+`event_type`, de propósito: uma ocorrência promovida a `fixed` por um pull
+mantém o `routine_id` e precisa continuar ocupando o dia daquela rotina) é
+a chave de deduplicação do gerador de ocorrências — uma ocorrência por
+rotina por dia local (America/Sao_Paulo, offset fixo -03:00, mesma
+suposição de `google-calendar-sync`'s `TZ_OFFSET`), não por instante exato:
+um evento movido de horário no mesmo dia (conflito de push ou pull do
+Google) não libera o slot original para o cron recriar. `timezone(interval,
+timestamptz)` devolve um `timestamp` sem fuso, então o `::date` final é
+IMMUTABLE e indexável — ao contrário de
+`(lower(duration) - interval '3 hours')::date`, em que o cast ainda recai
+sobre um `timestamptz` e por isso é só STABLE (não indexável). Ver
 `supabase/functions/google-calendar-sync/README.md` para o motor completo
 (push/pull, resolução de conflito — Google sempre vence — e os casos de
 borda de evento de dia inteiro/recorrente), e

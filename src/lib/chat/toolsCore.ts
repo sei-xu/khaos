@@ -427,12 +427,12 @@ export const ROUTINE_TOOL_DEFINITIONS: Anthropic.Tool[] = [
         from: {
           type: 'string',
           description:
-            'ISO 8601 start of the window (inclusive). Defaults to now.',
+            'ISO 8601 start of the window (inclusive). Defaults to the start of the current local day.',
         },
         to: {
           type: 'string',
           description:
-            'ISO 8601 end of the window (exclusive). Defaults to 7 days after from.',
+            'ISO 8601 end of the window (exclusive). Defaults to the start of the local day 7 days after from.',
         },
       },
       required: [],
