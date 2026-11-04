@@ -13,6 +13,7 @@
 // so it bundles the same way for the browser and for Deno.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  localDayStart,
   plannedOccurrences,
   type ExistingOccurrence,
   type PlannedOccurrence,
@@ -119,15 +120,23 @@ export async function materializeRoutines(
   // attempt at all. On a rolling re-run most of the window is in exactly
   // that state, and the 23505 round-trip per occurrence was pure waste.
   // The unique index still backstops a concurrent run, below.
+  //
+  // Keyed by local day, not exact instant, to match the DB index: a
+  // Google-side edit (conflict or pull) can move an occurrence's time
+  // within the same day, and that moved row should still count as "this
+  // routine's occurrence for this day" rather than freeing up the original
+  // slot for the generator to recreate.
+  const dayKey = (routineId: string, at: Date) =>
+    `${routineId}|${localDayStart(at, timeZone).getTime()}`;
   const existingKeys = new Set(
-    existing.map((e) => `${e.routine_id}|${e.start.getTime()}`)
+    existing.map((e) => dayKey(e.routine_id, e.start))
   );
 
   let created = 0;
   let skipped = 0;
   let errors = 0;
   for (const occ of planned) {
-    if (existingKeys.has(`${occ.routine_id}|${occ.start.getTime()}`)) {
+    if (existingKeys.has(dayKey(occ.routine_id, occ.start))) {
       skipped++;
       continue;
     }

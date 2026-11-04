@@ -277,6 +277,68 @@ describe('plannedOccurrences — habit status / reschedule on skip', () => {
     );
   });
 
+  it('is idempotent: feeding the makeup back as `existing` yields the same makeup instant', () => {
+    const r = routine({
+      id: 'gym3',
+      frequency: '4x_week',
+      preferred_time: 'morning',
+    });
+    const base = plannedOccurrences([r], MONDAY, WINDOW_END, TZ);
+    const skippedOccurrence = base[0];
+    const existingAfterRound1: {
+      routine_id: string;
+      start: Date;
+      status: 'done' | 'partial' | 'skipped' | null;
+    }[] = [
+      { routine_id: 'gym3', start: skippedOccurrence.start, status: 'skipped' },
+    ];
+    const round1 = plannedOccurrences(
+      [r],
+      MONDAY,
+      WINDOW_END,
+      TZ,
+      existingAfterRound1
+    );
+    const baseStarts = new Set(base.map((o) => o.start.getTime()));
+    const makeup1 = round1.find((o) => !baseStarts.has(o.start.getTime()));
+    expect(makeup1).toBeDefined();
+
+    // Round 2: the DB now also has the makeup inserted in round 1, as a
+    // plain event with no routine_status — exactly what materialize.ts
+    // would read back.
+    const existingAfterRound2 = [
+      ...existingAfterRound1,
+      { routine_id: 'gym3', start: makeup1!.start, status: null },
+    ];
+    const round2 = plannedOccurrences(
+      [r],
+      MONDAY,
+      WINDOW_END,
+      TZ,
+      existingAfterRound2
+    );
+    const makeup2 = round2.find((o) => !baseStarts.has(o.start.getTime()));
+    expect(makeup2).toBeDefined();
+    expect(makeup2!.start.getTime()).toBe(makeup1!.start.getTime());
+  });
+
+  it('two skips in the same routine/week get distinct makeup days', () => {
+    const r = routine({ id: 'gym4', frequency: '4x_week' });
+    const base = plannedOccurrences([r], MONDAY, WINDOW_END, TZ);
+    const firstWeek = base.filter(
+      (o) => o.start.getTime() < daysLater(7).getTime()
+    );
+    expect(firstWeek.length).toBeGreaterThanOrEqual(2);
+    const occ = plannedOccurrences([r], MONDAY, WINDOW_END, TZ, [
+      { routine_id: 'gym4', start: firstWeek[0].start, status: 'skipped' },
+      { routine_id: 'gym4', start: firstWeek[1].start, status: 'skipped' },
+    ]);
+    const baseStarts = new Set(base.map((o) => o.start.getTime()));
+    const makeups = occ.filter((o) => !baseStarts.has(o.start.getTime()));
+    expect(makeups).toHaveLength(2);
+    expect(makeups[0].start.getTime()).not.toBe(makeups[1].start.getTime());
+  });
+
   it('a done or partial occurrence never triggers a makeup', () => {
     const r = routine({ id: 'gym2', frequency: '4x_week' });
     const base = plannedOccurrences([r], MONDAY, WINDOW_END, TZ);

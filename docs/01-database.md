@@ -191,10 +191,16 @@ trigger observa. Um índice único parcial em
 `(google_calendar_id, google_event_id)` (onde `google_event_id` não é nulo)
 impede importar o mesmo evento do Google duas vezes; um índice parcial em
 `(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Um
-segundo índice único parcial em `(routine_id, lower(duration))` (só
+segundo índice único parcial em
+`(routine_id, ((lower(duration) - interval '3 hours')::date))` (só
 `event_type='routine'`, `deleted_at is null`) é a chave de deduplicação do
-gerador de ocorrências — `lower(duration)` é IMMUTABLE e por isso indexável,
-ao contrário de uma expressão com `AT TIME ZONE` (só STABLE). Ver
+gerador de ocorrências — uma ocorrência por rotina por dia local
+(America/Sao_Paulo, offset fixo -03:00, mesma suposição de
+`google-calendar-sync`'s `TZ_OFFSET`), não por instante exato: um evento
+movido de horário no mesmo dia (conflito de push ou pull do Google) não
+libera o slot original para o cron recriar. A subtração por intervalo fixo
+é IMMUTABLE e por isso indexável, ao contrário de uma expressão com
+`AT TIME ZONE` (só STABLE). Ver
 `supabase/functions/google-calendar-sync/README.md` para o motor completo
 (push/pull, resolução de conflito — Google sempre vence — e os casos de
 borda de evento de dia inteiro/recorrente), e

@@ -2347,6 +2347,50 @@ não o dia) faz qualquer replanejamento — mudar `preferred_time`, ou o dia
 mensal mudar porque outra rotina entrou/saiu da conta de carga — gerar uma
 ocorrência extra em vez de reconhecer a que já existe.
 
+**Revisão automatizada (2026-11-04), três achados `BLOQUEANTE` decididos
+pelo dono via Telegram, aplicados neste PR #97:**
+
+1. **Makeup de `skipped` não era idempotente.** `makeupOccurrences`
+   escolhia o dia livre buscando em `existing` — que mistura
+   ocorrências-base e makeups já inseridos em rodadas anteriores — então um
+   makeup já cumprido contava como "dia ocupado" e o cron deslizava para o
+   próximo dia livre, inserindo um makeup extra por rodada até a semana
+   encher. Corrigido para colocação determinística (opção 1 do comentário
+   original): o dia do makeup agora depende só do dia pulado e da grade
+   base da rotina (`spreadWeekdays`), nunca de `existing` — mesma entrada,
+   mesmo instante sempre, e o índice de dedup cobre a re-inserção de
+   graça. Skips na mesma semana são processados em ordem de data e cada um
+   reserva seu dia, para não colidirem entre si. Dois testes novos em
+   `occurrences.test.ts` fixam isso: idempotência (realimentar o makeup de
+   volta em `existing` dá o mesmo instante) e dois skips na mesma semana
+   recebendo dias distintos.
+2. **Promoção a `fixed` colidia com `chk_routine_status_only_on_routine`.**
+   `applyPulledItem` (`google-calendar-sync/index.ts`) trocava
+   `event_type` para `'fixed'` sem zerar `routine_status`, e a CHECK
+   rejeitava o UPDATE sempre que a ocorrência já tinha um desfecho de
+   hábito registrado — a linha ficava `sync_dirty=true` para sempre,
+   re-empurrada e falhando a cada ciclo. Corrigido com a opção 1 do
+   comentário original: o patch do pull agora inclui
+   `routine_status: null`. **Dívida registrada aqui por decisão do dono:**
+   isso apaga o registro de "cumprido"/"pulado"/"parcial" daquele dia
+   sempre que o usuário edita no Google o evento de uma ocorrência que já
+   tinha um `routine_status` marcado — não há hoje nenhum lugar que
+   preserve esse histórico antes da promoção.
+3. **Chave de dedup por instante, não por dia.** Com `routine` sincronizável
+   com o Google, um 412 no PATCH (GOOGLE WINS) ou um pull que mude o
+   `duration` de uma ocorrência movia o evento para outro horário do mesmo
+   dia — e como `idx_events_routine_dedup` era `(routine_id,
+   lower(duration))`, o `lower(duration)` da linha movida deixava de
+   casar com o que o cron planeja para aquele dia, recriando o slot
+   original ao lado do evento movido. Corrigido com a opção 1 do
+   comentário original: `idx_events_routine_dedup` foi re-criado como
+   `(routine_id, ((lower(duration) - interval '3 hours')::date))` —
+   migration `20261104000000_routine_dedup_by_day.sql`, offset fixo
+   -03:00 (mesma suposição de `TZ_OFFSET` em `google-calendar-sync`,
+   America/Sao_Paulo sem DST desde 2019) — e `existingKeys` em
+   `materialize.ts` passou a comparar por dia local (`localDayStart`), não
+   por `getTime()` exato.
+
 ---
 
 ## Resolved

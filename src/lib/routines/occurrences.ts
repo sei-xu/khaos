@@ -33,10 +33,14 @@
 // routine_status ('done' | 'partial' | 'skipped'), set by the user/assistant
 // after the fact — it is not part of the planning grid. A 'skipped'
 // Nx_week occurrence owes exactly one makeup occurrence, placed on the
-// next otherwise-free day within that ISO week (or, failing that, within
-// the following week) — never on a day already used by a base occurrence,
-// an existing event, or another makeup. 'done'/'partial' never reschedule;
-// the habit was attempted, not skipped.
+// first day after the skip that isn't a base day for that routine, within
+// that ISO week (or, failing that, within the following week) — chosen
+// deterministically from the skip and the routine's own grid alone, never
+// from `existing`, so the same skip always yields the same makeup instant
+// and re-materializing it is a no-op (dedup handles the rest). With more
+// than one skip landing in the same window, skips are walked in date order
+// and each reserves its day so they don't collide with each other.
+// 'done'/'partial' never reschedule; the habit was attempted, not skipped.
 
 export type RoutineStatus = 'done' | 'partial' | 'skipped';
 export const ROUTINE_STATUSES: RoutineStatus[] = ['done', 'partial', 'skipped'];
@@ -351,9 +355,18 @@ function buildOccurrence(
 
 // --- reschedule-on-skip makeups ------------------------------------------
 
+// Deterministic by design: the makeup day for a skip depends only on the
+// skipped day and the routine's own base grid (spreadWeekdays), never on
+// `existing` — which mixes base occurrences, already-materialized makeups
+// and anything else in `events` for that routine, with no way to tell those
+// apart. Picking from `existing` made the search see a prior round's own
+// makeup as "day taken" and slide to a new day every re-run, inserting one
+// extra makeup per cron tick instead of one per skip (see docs/backlog.md).
+// Same skip, same inputs -> same instant every time, so
+// idx_events_routine_dedup / existingKeys in materialize.ts dedupes the
+// re-insertion for free.
 function makeupOccurrences(
   schedulable: RoutineInput[],
-  base: PlannedOccurrence[],
   existing: ExistingOccurrence[],
   from: Date,
   to: Date,
@@ -364,40 +377,43 @@ function makeupOccurrences(
     schedulable.filter((r) => NX_WEEK.test(r.frequency)).map((r) => r.id)
   );
 
-  const usedDays = new Map<string, Set<string>>();
-  const markUsed = (routineId: string, at: Date) => {
-    const set = usedDays.get(routineId) ?? new Set<string>();
-    set.add(dayKey(localDay(at, timeZone)));
-    usedDays.set(routineId, set);
-  };
-  for (const occ of base) markUsed(occ.routine_id, occ.start);
-  for (const e of existing) markUsed(e.routine_id, e.start);
+  // Skips are processed in date order so that two skips in the same week
+  // reserve distinct makeup days deterministically, regardless of the
+  // order `existing` happens to list them in.
+  const skips = existing
+    .filter((e) => e.status === 'skipped' && weeklyIds.has(e.routine_id))
+    .slice()
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  const reserved = new Map<string, Set<string>>();
 
   const makeups: PlannedOccurrence[] = [];
-  for (const e of existing) {
-    if (e.status !== 'skipped') continue;
+  for (const e of skips) {
     const r = byId.get(e.routine_id);
-    if (!r || !weeklyIds.has(r.id)) continue; // only habit-style Nx_week gets a makeup
+    if (!r) continue;
+    const baseDows = spreadWeekdays(
+      r.id,
+      Number(NX_WEEK.exec(r.frequency)![1])
+    );
 
     const skipDay = localDay(e.start, timeZone);
     const horizon = addDays(weekStart(skipDay), 14); // this week + the next
-    const used = usedDays.get(r.id) ?? new Set<string>();
+    const used = reserved.get(r.id) ?? new Set<string>();
 
     let cursor = addDays(skipDay, 1);
     while (compareDays(cursor, horizon) < 0) {
       const key = dayKey(cursor);
-      if (!used.has(key)) {
+      if (!baseDows.has(isoDow(cursor)) && !used.has(key)) {
+        used.add(key);
+        reserved.set(r.id, used);
         const dayStartUtc = zonedTimeToUtc(cursor, 0, 0, timeZone);
         if (
           dayStartUtc.getTime() >= from.getTime() &&
           dayStartUtc.getTime() < to.getTime()
         ) {
-          const occ = buildOccurrence(r, cursor, timeZone);
-          makeups.push(occ);
-          used.add(key);
-          usedDays.set(r.id, used);
-          break;
+          makeups.push(buildOccurrence(r, cursor, timeZone));
         }
+        break;
       }
       cursor = addDays(cursor, 1);
     }
@@ -447,14 +463,7 @@ export function plannedOccurrences(
     day = addDays(day, 1);
   }
 
-  const makeups = makeupOccurrences(
-    schedulable,
-    base,
-    existing,
-    from,
-    to,
-    timeZone
-  );
+  const makeups = makeupOccurrences(schedulable, existing, from, to, timeZone);
 
   return [...base, ...makeups].sort(
     (a, b) => a.start.getTime() - b.start.getTime()

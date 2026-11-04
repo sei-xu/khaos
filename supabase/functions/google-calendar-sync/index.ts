@@ -414,6 +414,11 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       name: parsed.name,
       duration: parsed.duration,
       event_type: 'fixed',
+      // Promoting a routine occurrence to 'fixed' — chk_routine_status_only_on_routine
+      // forbids a non-null routine_status outside event_type='routine', and this
+      // row is leaving that type, so any habit outcome recorded on it is dropped
+      // here (tracked as debt in docs/backlog.md).
+      routine_status: null,
       deleted_at: null,
       google_etag: item.etag ?? null,
       google_synced_at: new Date().toISOString(),
