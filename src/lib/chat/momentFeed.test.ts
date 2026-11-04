@@ -170,12 +170,14 @@ describe('subscribeToMomentFeed', () => {
       onRows: () => {},
     });
 
-    const topicsBeforeStop = new Set(client.realtime.channels.keys());
+    // Captured in subscription order, so the surviving topic has to be
+    // `second`'s specifically — asserting only that *a* channel survived
+    // would also pass if stop() had torn down the wrong one, which is the
+    // whole thing this test exists to rule out.
+    const [, secondTopic] = client.realtime.channels.keys();
 
     first.stop();
-    expect(client.realtime.channels.size).toBe(1);
-    const [remainingTopic] = client.realtime.channels.keys();
-    expect(topicsBeforeStop.has(remainingTopic)).toBe(true);
+    expect([...client.realtime.channels.keys()]).toEqual([secondTopic]);
 
     second.stop();
     expect(client.realtime.channels.size).toBe(0);

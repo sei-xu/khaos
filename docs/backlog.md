@@ -2105,6 +2105,28 @@ browser segue pendente** e agora cobre mais coisa: com Realtime de fato
 `/assistant` no desktop, e confirmar que uma mudança feita fora do chat
 produz **um** nudge (não dois) e que ele aparece na sheet aberta.
 
+### Segunda revisão do PR #98 — 2026-11-03
+
+Passada de revisão sobre o estado final (pós-`ChatAgentProvider`). Nenhum
+achado de comportamento: o provider único resolve o bloqueante da passada
+anterior, `momentFeed.ts` segue seguro para N chamadas, e `typecheck`, `lint`
+(zero avisos) e `test` (64 testes, incluindo os de outros worktrees varridos
+pelo vitest) passam limpos.
+
+Um único conserto, em teste: o `it('does not remove the other subscription
+channel on stop')` de `momentFeed.test.ts` guardava os **dois** tópicos num
+`Set` e só afirmava que o tópico sobrevivente estava nesse conjunto — uma
+assertiva vazia, verdadeira mesmo se o `stop()` da primeira assinatura
+tivesse derrubado o canal da segunda, que é exatamente o que o teste existe
+para descartar. Agora ele captura o tópico da segunda assinatura (a ordem de
+inserção no `Map` do client falso é a ordem de subscrição) e afirma que o
+canal restante é esse. Mesmo gênero do achado não-bloqueante da passada
+anterior, no teste vizinho.
+
+A **checagem manual em browser segue pendente** e inalterada: é o que falta
+para fechar o item.
+
+
 ---
 
 ## Versionamento do khaos: bump no PR, não por workflow
