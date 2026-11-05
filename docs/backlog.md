@@ -2513,6 +2513,29 @@ a migration (não rodei contra o banco remoto); o trigger e o backfill não
 foram exercitados em Postgres real. O terceiro achado do review
 (`parseDurationLowerBound` duplicado) segue como débito consciente.
 
+**Revisão automatizada (2026-11-05).** Duas correções aplicadas direto no
+branch, sem alterar comportamento: (1) a janela default de materialização
+("hoje até +7 dias, alinhada ao início do dia local") estava reescrita em
+quatro lugares — `runOnce()` da Edge Function cron, o case
+`materialize_routines`, `rematerializeRoutinesWindow` (caminho do
+assistente) e o `rematerialize()` do `useRoutines` — e virou
+`defaultWindow()`/`defaultWindowEnd()` em `src/lib/routines/materialize.ts`,
+ao lado de `LOOKBACK_DAYS`, com todos os quatro passando a chamá-la (quatro
+cópias eram quatro chances de divergir, exatamente o risco que os
+comentários do PR apontam); (2) `supabase/functions/_shared/schema.sql.ts`
+estava desalinhado de `schema.sql` — não tinha
+`trg_routine_name_propagated`, da última migration do PR — então a busca de
+schema do assistente no Telegram não via o trigger novo; regenerado com
+`npm run gen:edge-schema`.
+
+Achados que a revisão **não** aplicou sozinha ficaram como comentários no
+PR #97: `delete_rows` em `routines` pelo assistente (BLOQUEANTE — a FK
+`events_routine_id_fkey` não tem `on delete`, então apagar uma rotina que
+já materializou ocorrências falha com 23503; a UI foi convertida para
+desativar, o caminho do chat não) e a rematerialização do `update_rows`
+rodando em todo patch, inclusive nos que os triggers ignoram (Sugestão — o
+lado do browser já filtra por `REMATERIALIZE_KEYS`).
+
 ---
 
 ## Resolved

@@ -5,7 +5,11 @@
 // bot Edge Function.
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { materializeRoutines } from '../routines/materialize.ts';
+import {
+  defaultWindow,
+  defaultWindowEnd,
+  materializeRoutines,
+} from '../routines/materialize.ts';
 import {
   DEFAULT_ROUTINE_TIMEZONE,
   ROUTINE_STATUSES,
@@ -708,9 +712,7 @@ async function rematerializeRoutinesWindow(
   timezone: string | undefined
 ): Promise<void> {
   const timeZone = timezone || DEFAULT_ROUTINE_TIMEZONE;
-  const from = localDayStart(new Date(), timeZone);
-  const to = localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
-  await materializeRoutines(db, { from, to, timeZone });
+  await materializeRoutines(db, { ...defaultWindow(timeZone), timeZone });
 }
 
 export async function executeTool(
@@ -1292,8 +1294,9 @@ export async function executeTool(
     case 'materialize_routines': {
       const a = args as { from?: unknown; to?: unknown };
       const timeZone = deps.timezone || DEFAULT_ROUTINE_TIMEZONE;
-      // Defaults match the cron's window (supabase/functions/routine-events:
-      // localMidnight(0) .. localMidnight(7)) rather than "now" — "now" as a
+      // Defaults match the cron's window — literally the same helper,
+      // defaultWindow/defaultWindowEnd in ../routines/materialize.ts — rather
+      // than "now": "now" as a
       // default `from` drops everything earlier today (e.g. a 'morning'
       // routine, planned at 08:00, called at 15:00), and offsetting `to` by
       // exactly 7 days from that instant left the 8th day half-materialized.
@@ -1325,7 +1328,7 @@ export async function executeTool(
       const from = localDayStart(rawFrom, timeZone);
       const to = rawTo
         ? localDayStart(rawTo, timeZone)
-        : localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
+        : defaultWindowEnd(from, timeZone);
       if (to.getTime() <= from.getTime()) {
         throw new Error(
           'materialize_routines requires a valid from < to window'

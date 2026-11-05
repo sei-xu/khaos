@@ -45,8 +45,10 @@
 //   $$);
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { materializeRoutines } from '../../../src/lib/routines/materialize.ts';
-import { localDayStart } from '../../../src/lib/routines/occurrences.ts';
+import {
+  defaultWindow,
+  materializeRoutines,
+} from '../../../src/lib/routines/materialize.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -54,25 +56,16 @@ const CRON_SECRET = Deno.env.get('KHAOS_CRON_SECRET') ?? '';
 // Brazil has had no DST since 2019 — same fixed-offset assumption
 // telegram-notify and google-calendar-sync already make.
 const TIMEZONE = Deno.env.get('KHAOS_TIMEZONE') ?? 'America/Sao_Paulo';
-const WINDOW_DAYS = 7;
 
 const db: SupabaseClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-// Local midnight `daysFromNow` days out. A few hours of error around "now"
-// never changes which calendar day this is, so approximating the instant
-// before snapping it to the zone's day start is good enough for a 7-day
-// generation window.
-function localMidnight(daysFromNow: number): Date {
-  return localDayStart(new Date(Date.now() + daysFromNow * 86400000), TIMEZONE);
-}
-
 // The read-plan-insert sequence itself lives in src/lib/routines/materialize.ts,
 // shared with the materialize_routines assistant tool so the two can't drift
-// on the lookback window, the de-dup handling or the insert payload.
+// on the lookback window, the de-dup handling or the insert payload — and so
+// is the window itself (defaultWindow: local midnight today .. +7 days).
 function runOnce() {
   return materializeRoutines(db, {
-    from: localMidnight(0),
-    to: localMidnight(WINDOW_DAYS),
+    ...defaultWindow(TIMEZONE),
     timeZone: TIMEZONE,
     onInsertError: (occ, message) =>
       console.error('routine-events insert failed', occ.routine_id, message),

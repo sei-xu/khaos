@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { routinesApi } from '../lib/api/routines';
-import { materializeRoutines } from '../lib/routines/materialize.ts';
 import {
-  DEFAULT_ROUTINE_TIMEZONE,
-  localDayStart,
-} from '../lib/routines/occurrences.ts';
+  defaultWindow,
+  materializeRoutines,
+} from '../lib/routines/materialize.ts';
+import { DEFAULT_ROUTINE_TIMEZONE } from '../lib/routines/occurrences.ts';
 import { supabase } from '../lib/supabaseClient';
 import type { Id, RoutinePatch, NewRoutine } from '../lib/types';
 
@@ -35,11 +35,7 @@ const REMATERIALIZE_KEYS = [
 // materialization didn't.
 function rematerialize() {
   materializeRoutines(supabase, {
-    from: localDayStart(new Date(), DEFAULT_ROUTINE_TIMEZONE),
-    to: localDayStart(
-      new Date(Date.now() + 7 * 86400000),
-      DEFAULT_ROUTINE_TIMEZONE
-    ),
+    ...defaultWindow(DEFAULT_ROUTINE_TIMEZONE),
     timeZone: DEFAULT_ROUTINE_TIMEZONE,
   }).catch((error: unknown) => {
     console.error('rematerialize after routine save failed', error);

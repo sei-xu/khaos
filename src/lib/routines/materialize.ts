@@ -20,6 +20,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   localDateString,
+  localDayStart,
   localNoon,
   plannedOccurrences,
   type ExistingOccurrence,
@@ -32,6 +33,36 @@ import {
 // — generous enough to cover a routine whose makeup week (see
 // occurrences.ts) started just before the window opens.
 export const LOOKBACK_DAYS = 14;
+
+// The default materialization window, shared by every caller instead of
+// each re-deriving it: the daily cron (supabase/functions/routine-events),
+// the materialize_routines tool and the catch-up rematerialization on both
+// the chat side (src/lib/chat/toolsCore.ts) and the browser side
+// (src/hooks/useRoutines.ts) all mean the same thing by "the window" —
+// today through +7 days, snapped to local-day boundaries so it lines up
+// with the day-grained dedup key (events.routine_day). Four copies of that
+// arithmetic was four chances to drift.
+export const DEFAULT_WINDOW_DAYS = 7;
+
+// Upper bound of the default window starting at `from` (itself expected to
+// be a local-day start). Snapped, like `from`, so a window never ends
+// mid-day.
+export function defaultWindowEnd(from: Date, timeZone: string): Date {
+  return localDayStart(
+    new Date(from.getTime() + DEFAULT_WINDOW_DAYS * 86400000),
+    timeZone
+  );
+}
+
+// The whole default window anchored on `now` (the current instant unless a
+// caller needs determinism): local day start of `now` .. +DEFAULT_WINDOW_DAYS.
+export function defaultWindow(
+  timeZone: string,
+  now: Date = new Date()
+): { from: Date; to: Date } {
+  const from = localDayStart(now, timeZone);
+  return { from, to: defaultWindowEnd(from, timeZone) };
+}
 
 const ROUTINE_COLUMNS =
   'id,name,frequency,preferred_time,estimate,active,task_id,field_id';
