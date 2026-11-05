@@ -691,6 +691,28 @@ function mean(nums: number[]): number | null {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
+// insert_row/update_rows go through the generic CRUD path for 'routines'
+// (full CRUD predates materialize_routines/set_routine_status — see
+// ROUTINE_TOOL_DEFINITIONS' comment), so creating or editing a routine's
+// definition this way hits the exact same triggers the browser's
+// routinesApi does (trg_routine_deactivated, trg_routine_name_propagated):
+// an edit to frequency/preferred_time/estimate/active or a brand-new
+// routine leaves nothing on the calendar until the next materialization.
+// Unlike the browser's best-effort rematerialize (src/hooks/useRoutines.ts),
+// this one is allowed to throw: the model is already in a tool-call loop
+// and can retry or tell the user, rather than a save silently going stale
+// until tomorrow's cron. Same default window as the materialize_routines
+// tool case below (now..+7d, local-day snapped).
+async function rematerializeRoutinesWindow(
+  db: SupabaseClient,
+  timezone: string | undefined
+): Promise<void> {
+  const timeZone = timezone || DEFAULT_ROUTINE_TIMEZONE;
+  const from = localDayStart(new Date(), timeZone);
+  const to = localDayStart(new Date(from.getTime() + 7 * 86400000), timeZone);
+  await materializeRoutines(db, { from, to, timeZone });
+}
+
 export async function executeTool(
   deps: ToolDeps,
   rawName: string,
@@ -1229,6 +1251,9 @@ export async function executeTool(
         .select();
       if (error) throw new Error(error.message);
       await stampAssistantMoments(db, a.table, data, a.reason, since);
+      if (a.table === 'routines') {
+        await rematerializeRoutinesWindow(db, deps.timezone);
+      }
       return { inserted: cleanPayload(data ?? []) };
     }
     case 'update_rows': {
@@ -1244,6 +1269,9 @@ export async function executeTool(
       const { data, error } = await q.select();
       if (error) throw new Error(error.message);
       await stampAssistantMoments(db, a.table, data, a.reason, since);
+      if (a.table === 'routines') {
+        await rematerializeRoutinesWindow(db, deps.timezone);
+      }
       return { updated: cleanPayload(data ?? []), count: data?.length ?? 0 };
     }
     case 'delete_rows': {

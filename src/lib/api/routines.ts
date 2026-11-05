@@ -1,8 +1,3 @@
-import { materializeRoutines } from '../routines/materialize.ts';
-import {
-  DEFAULT_ROUTINE_TIMEZONE,
-  localDayStart,
-} from '../routines/occurrences.ts';
 import { supabase } from '../supabaseClient';
 import type {
   Event,
@@ -45,33 +40,6 @@ export const routinesApi = {
     const response = await supabase
       .from('routines')
       .update(patch)
-      .eq('id', id)
-      .select()
-      .single();
-    const routine = unwrap(response);
-    // trg_routine_deactivated soft-deletes the edited routine's upcoming
-    // occurrences immediately but doesn't regenerate them — that's left to
-    // the next materialization. Without this, the agenda (and Google, via
-    // trg_google_sync_dirty) goes empty for this routine until the next
-    // cron tick, up to ~a day later. Rematerialize right away instead of
-    // scheduling anything new: the same read-plan-insert logic the cron and
-    // materialize_routines already share (src/lib/routines/materialize.ts)
-    // runs isomorphically in the browser.
-    await materializeRoutines(supabase, {
-      from: localDayStart(new Date(), DEFAULT_ROUTINE_TIMEZONE),
-      to: localDayStart(
-        new Date(Date.now() + 7 * 86400000),
-        DEFAULT_ROUTINE_TIMEZONE
-      ),
-      timeZone: DEFAULT_ROUTINE_TIMEZONE,
-    });
-    return routine;
-  },
-
-  remove: async (id: Id): Promise<Routine> => {
-    const response = await supabase
-      .from('routines')
-      .delete()
       .eq('id', id)
       .select()
       .single();

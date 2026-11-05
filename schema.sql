@@ -730,6 +730,30 @@ COMMENT ON FUNCTION "public"."trg_routine_deactivated"() IS 'On routines.active 
 
 
 
+CREATE OR REPLACE FUNCTION "public"."trg_routine_name_propagated"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if old.name is distinct from new.name then
+    update "public"."events"
+       set name = new.name
+     where routine_id = new.id
+       and event_type = 'routine'
+       and deleted_at is null
+       and lower(duration) > now();
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_routine_name_propagated"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_routine_name_propagated"() IS 'On routines.name changing, renames this routine''s not-yet-started, live (not soft-deleted) event_type=''routine'' occurrences to match — in place, keeping routine_day, routine_status and the occurrence itself, unlike trg_routine_deactivated''s drop-and-regenerate. trg_google_sync_dirty already marks a renamed event sync_dirty, so the Google side gets a PATCH.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."google_calendar_status"() RETURNS TABLE("connected" boolean, "calendar_id" "text", "last_sync_at" timestamp with time zone, "last_error" "text")
     LANGUAGE "sql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -2347,6 +2371,10 @@ CREATE OR REPLACE TRIGGER "trg_routine_deactivated" AFTER UPDATE ON "public"."ro
 
 
 
+CREATE OR REPLACE TRIGGER "trg_routine_name_propagated" AFTER UPDATE ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_routine_name_propagated"();
+
+
+
 CREATE OR REPLACE TRIGGER "moment_backlog_tasks" AFTER UPDATE ON "public"."tasks" FOR EACH ROW WHEN (("new"."deleted_at" IS NULL)) EXECUTE FUNCTION "public"."trg_moment_backlog"();
 
 
@@ -2952,6 +2980,12 @@ GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."trg_routine_deactivated"() TO "anon";
 GRANT ALL ON FUNCTION "public"."trg_routine_deactivated"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."trg_routine_deactivated"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_routine_name_propagated"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_routine_name_propagated"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_routine_name_propagated"() TO "service_role";
 
 
 
