@@ -689,9 +689,12 @@ CREATE OR REPLACE FUNCTION "public"."trg_routine_deactivated"() RETURNS "trigger
     AS $$
 begin
   if old.active and not new.active then
-    -- Deactivated: drop every not-yet-started generated occurrence.
+    -- Deactivated: drop every not-yet-started generated occurrence and free
+    -- its slot (routine_day := null) -- nothing should regenerate it, but a
+    -- future reactivation must be free to replan the same day.
     update "public"."events"
-       set deleted_at = now()
+       set deleted_at = now(),
+           routine_day = null
      where routine_id = new.id
        and event_type = 'routine'
        and deleted_at is null
@@ -702,11 +705,13 @@ begin
       or old.estimate is distinct from new.estimate)
   then
     -- Definition changed: drop the not-yet-started occurrences laid out by
-    -- the old definition so the next materialization regenerates them. Rows
-    -- that carry a habit outcome (routine_status) or that a Google pull
-    -- already promoted to 'fixed' are the user's own and are kept.
+    -- the old definition and free their slots so the next materialization
+    -- regenerates them from the new definition. Rows that carry a habit
+    -- outcome (routine_status) or that a Google pull already promoted to
+    -- 'fixed' are the user's own and are kept.
     update "public"."events"
-       set deleted_at = now()
+       set deleted_at = now(),
+           routine_day = null
      where routine_id = new.id
        and event_type = 'routine'
        and routine_status is null
@@ -721,7 +726,7 @@ $$;
 ALTER FUNCTION "public"."trg_routine_deactivated"() OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."trg_routine_deactivated"() IS 'On routines.active true->false, soft-deletes this routine''s not-yet-started generated occurrences (lower(duration) > now()). On an edit of an active routine''s frequency, preferred_time or estimate, soft-deletes the not-yet-started occurrences that have no routine_status and are still event_type=''routine'' (promoted/marked rows are kept) so the next materialization regenerates them from the new definition. Past/in-progress occurrences are preserved — Khaos keeps history instead of erasing it. Reactivating does not restore them; the generator produces new ones going forward.';
+COMMENT ON FUNCTION "public"."trg_routine_deactivated"() IS 'On routines.active true->false, soft-deletes this routine''s not-yet-started generated occurrences (lower(duration) > now()) and clears routine_day so the slot is free to be replanned. On an edit of an active routine''s frequency, preferred_time or estimate, does the same to the not-yet-started occurrences that have no routine_status and are still event_type=''routine'' (promoted/marked rows are kept) so the next materialization regenerates them from the new definition. Past/in-progress occurrences are preserved — Khaos keeps history instead of erasing it. Reactivating does not restore them; the generator produces new ones going forward. Contrast with a soft-delete from elsewhere (events API, Google pull of a cancelled event): those leave routine_day set, so the slot stays claimed and materialize.ts never refills it — that is how the owner''s own cancellation of a single day is distinguished from this trigger''s "please regenerate" delete.';
 
 
 
