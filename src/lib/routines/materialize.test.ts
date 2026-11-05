@@ -19,17 +19,39 @@ interface EventRow {
 // builder, awaiting it resolves to the canned rows. The two `existing` queries
 // are told apart by their upper bound (`.lt` on duration vs `.lte` on
 // routine_day); each returns the rows a real query would match.
-function fakeDb(events: EventRow[]) {
+// `insertResult`, when given, overrides the default always-succeeds insert:
+// called once per `.insert()` with the row(s) of that call and a 1-based
+// call index (1 = the batch attempt, 2+ = the row-by-row fallback, each
+// with a single-row array), so a test can fail the batch and then steer
+// individual rows.
+function fakeDb(
+  events: EventRow[],
+  insertResult?: (
+    rows: Record<string, unknown>[],
+    call: number
+  ) => { error: { code?: string; message: string } | null }
+) {
   const inserted: Record<string, unknown>[] = [];
+  let insertCalls = 0;
   const builder = (table: string) => {
     let byRoutineDay = false;
     const b: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'is', 'in', 'gte', 'lt']) b[m] = () => b;
+    for (const m of ['select', 'eq', 'is', 'in', 'gte', 'lt', 'or'])
+      b[m] = () => b;
     b.lte = () => {
       byRoutineDay = true;
       return b;
     };
-    b.insert = (rows: Record<string, unknown>[]) => {
+    b.insert = (
+      rowOrRows: Record<string, unknown> | Record<string, unknown>[]
+    ) => {
+      insertCalls++;
+      const rows = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows];
+      if (insertResult) {
+        const { error } = insertResult(rows, insertCalls);
+        if (!error) inserted.push(...rows);
+        return Promise.resolve({ error });
+      }
       inserted.push(...rows);
       return Promise.resolve({ error: null });
     };
@@ -139,5 +161,48 @@ describe('materializeRoutines de-dup', () => {
     await materializeRoutines(db, { from: FROM, to: TO, timeZone: TZ });
     expect(inserted.map((r) => r.routine_day)).not.toContain('2026-10-28');
     expect(inserted).toHaveLength(6);
+  });
+
+  it('falls back to row-by-row when the batch insert 23505s, skipping only the duplicate', async () => {
+    const { db, inserted } = fakeDb([], (rows, call) => {
+      if (call === 1) return { error: { code: '23505', message: 'dup' } };
+      // Row-by-row calls happen in `toInsert` order; the first (10-26)
+      // collides, the rest succeed.
+      if (rows[0].routine_day === '2026-10-26')
+        return { error: { code: '23505', message: 'dup' } };
+      return { error: null };
+    });
+    const result = await materializeRoutines(db, {
+      from: FROM,
+      to: TO,
+      timeZone: TZ,
+    });
+    expect(result.created).toBe(6);
+    expect(result.skipped).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(inserted.map((r) => r.routine_day)).not.toContain('2026-10-26');
+  });
+
+  it('falls back to row-by-row on a non-23505 batch error, reporting that one row via onInsertError', async () => {
+    const { db } = fakeDb([], (rows, call) => {
+      if (call === 1)
+        return { error: { code: '23514', message: 'check violation' } };
+      if (rows[0].routine_day === '2026-10-26')
+        return { error: { code: '23514', message: 'check violation' } };
+      return { error: null };
+    });
+    const reported: Array<{ day: string; message: string }> = [];
+    const result = await materializeRoutines(db, {
+      from: FROM,
+      to: TO,
+      timeZone: TZ,
+      onInsertError: (occ, message) =>
+        reported.push({ day: occ.start.toISOString(), message }),
+    });
+    expect(result.created).toBe(6);
+    expect(result.skipped).toBe(0);
+    expect(result.errors).toBe(1);
+    expect(reported).toHaveLength(1);
+    expect(reported[0].message).toBe('check violation');
   });
 });

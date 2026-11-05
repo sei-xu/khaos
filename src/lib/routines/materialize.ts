@@ -90,12 +90,39 @@ export async function materializeRoutines(
   if (!routines.length) return empty;
 
   const lookback = new Date(from.getTime() - LOOKBACK_DAYS * 86400000);
+  // hasExistingThisPeriod (occurrences.ts) needs the whole civil month of
+  // `from` to tell whether a 1x_month/2x_month routine already has an
+  // occurrence this month (or half) — not just the last LOOKBACK_DAYS.
+  // Otherwise a routine whose picked day shifts mid-month (another
+  // routine's load changing) can lose sight of the occurrence it already
+  // has once that occurrence falls outside the lookback window, and gain a
+  // second one for the same month. Only the `byDay` lower bound needs
+  // this — it is what feeds `existingDays` via `existing` below; the
+  // makeup path (`byDuration`) still only needs LOOKBACK_DAYS.
+  const monthStartString = `${localDateString(from, timeZone).slice(0, 8)}01`;
+  const lookbackString = localDateString(lookback, timeZone);
+  const dayLookbackString =
+    monthStartString < lookbackString ? monthStartString : lookbackString;
   // No event_type filter: a Google pull promotes a routine occurrence to
   // event_type='fixed' while keeping routine_id (google-calendar-sync's
   // pull handler) to preserve the user's edit, and that row must still
   // count as "this routine's occurrence for its day" here — otherwise this
   // query and idx_events_routine_dedup disagree on what's materialized and
   // the generator recreates an occurrence the user already moved.
+  //
+  // No `deleted_at is null` filter either, on purpose: a soft-deleted row
+  // can mean two different things, and only `routine_day` tells them apart.
+  // trg_routine_deactivated (deactivation or a definition edit) clears
+  // routine_day to null in the same update that sets deleted_at — its
+  // intent is "forget this, regenerate the slot" — so that row is already
+  // excluded by the `routine_day` checks below and by
+  // idx_events_routine_dedup's `routine_day is not null` predicate. A
+  // soft-delete from anywhere else (the events API, or a Google pull that
+  // turns a cancelled event into one — google-calendar-sync's pull handler)
+  // leaves routine_day set: the owner cancelled that specific day, and the
+  // slot must stay claimed so the generator never refills it. Filtering on
+  // deleted_at here would erase that second case and make a cancelled
+  // occurrence come back on the next tick.
   //
   // Two windows, merged by id. The occurrence's own `duration` is what the
   // user sees, but Google can rewrite it to another day, so the row is ALSO
@@ -113,19 +140,25 @@ export async function materializeRoutines(
   const routineIds = routines.map((r) => r.id);
   const eventColumns = 'id,routine_id,duration,routine_status,routine_day';
   const [byDuration, byDay] = await Promise.all([
+    // Unlike `byDay` below, this is filtered on `duration`, not
+    // `routine_day` — a trigger-cleared row (routine_day null, see the
+    // comment above) can still have a `duration` inside the window, and
+    // without this `.or` it would slip back into `existing` by that path
+    // even though its whole point was to be forgotten. `byDay`'s own
+    // routine_day range filter already excludes those rows for free (a
+    // null column never satisfies gte/lte), so it needs no such filter.
     db
       .from('events')
       .select(eventColumns)
-      .is('deleted_at', null)
       .in('routine_id', routineIds)
+      .or('deleted_at.is.null,routine_day.not.is.null')
       .gte('duration', `[${lookback.toISOString()},)`)
       .lt('duration', `[${to.toISOString()},)`),
     db
       .from('events')
       .select(eventColumns)
-      .is('deleted_at', null)
       .in('routine_id', routineIds)
-      .gte('routine_day', localDateString(lookback, timeZone))
+      .gte('routine_day', dayLookbackString)
       .lte('routine_day', localDateString(to, timeZone)),
   ]);
   if (byDuration.error)
@@ -213,15 +246,18 @@ export async function materializeRoutines(
   });
 
   // Fast path: insert everything the filter above left in one round trip.
-  // The only reason a batch insert fails as a whole is a conflict with
-  // another concurrent run (23505) — on that path alone, fall back to the
-  // original one-by-one loop so idx_events_routine_dedup's per-row conflicts
-  // still resolve individually instead of discarding the whole batch.
+  // A batch insert can fail as a whole for more than just a conflict with
+  // another concurrent run (23505) — any other error (e.g. a CHECK
+  // violation on one row) fails the entire batch too, and onInsertError's
+  // contract (MaterializeOptions above) is per-occurrence, not per-batch.
+  // So on ANY batch error, fall back to the original one-by-one loop: it
+  // keeps today's error granularity, where one bad row only costs itself
+  // instead of taking the whole window's good occurrences down with it.
   if (toInsert.length) {
     const { error } = await db.from('events').insert(toInsert.map(eventRow));
     if (!error) {
       created += toInsert.length;
-    } else if ((error as { code?: string }).code === '23505') {
+    } else {
       for (const occ of toInsert) {
         const { error: rowError } = await db
           .from('events')
@@ -237,11 +273,6 @@ export async function materializeRoutines(
           throw new Error(rowError.message);
         }
       }
-    } else if (onInsertError) {
-      for (const occ of toInsert) onInsertError(occ, error.message);
-      errors += toInsert.length;
-    } else {
-      throw new Error(error.message);
     }
   }
 
