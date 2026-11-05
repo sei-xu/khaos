@@ -46,16 +46,6 @@ export const routinesApi = {
     return unwrap(response);
   },
 
-  remove: async (id: Id): Promise<Routine> => {
-    const response = await supabase
-      .from('routines')
-      .delete()
-      .eq('id', id)
-      .select()
-      .single();
-    return unwrap(response);
-  },
-
   listWithEvents: async (
     weekStart: Date,
     weekEnd: Date

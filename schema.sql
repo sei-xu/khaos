@@ -656,13 +656,13 @@ CREATE OR REPLACE FUNCTION "public"."trg_google_sync_dirty"() RETURNS "trigger"
     AS $$
 begin
   if TG_OP = 'INSERT' then
-    if new.event_type = 'fixed' then
+    if new.event_type in ('fixed', 'routine') then
       new.sync_dirty := true;
     end if;
     return new;
   end if;
 
-  if new.event_type = 'fixed' or old.event_type = 'fixed' then
+  if new.event_type in ('fixed', 'routine') or old.event_type in ('fixed', 'routine') then
     if old.name is distinct from new.name
       or old.duration is distinct from new.duration
       or old.deleted_at is distinct from new.deleted_at
@@ -680,7 +680,77 @@ $$;
 ALTER FUNCTION "public"."trg_google_sync_dirty"() OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type=''fixed'' and a user-visible column changed (name, duration, deleted_at, event_type). A ''fixed''->other transition is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled'' or ''routine''.';
+COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type IN (''fixed'',''routine'') and a user-visible column changed (name, duration, deleted_at, event_type). A transition away from fixed/routine is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled''.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_routine_deactivated"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if old.active and not new.active then
+    -- Deactivated: drop every not-yet-started generated occurrence and free
+    -- its slot (routine_day := null) -- nothing should regenerate it, but a
+    -- future reactivation must be free to replan the same day.
+    update "public"."events"
+       set deleted_at = now(),
+           routine_day = null
+     where routine_id = new.id
+       and event_type = 'routine'
+       and deleted_at is null
+       and lower(duration) > now();
+  elsif new.active
+    and (old.frequency is distinct from new.frequency
+      or old.preferred_time is distinct from new.preferred_time
+      or old.estimate is distinct from new.estimate)
+  then
+    -- Definition changed: drop the not-yet-started occurrences laid out by
+    -- the old definition and free their slots so the next materialization
+    -- regenerates them from the new definition. Rows that carry a habit
+    -- outcome (routine_status) or that a Google pull already promoted to
+    -- 'fixed' are the user's own and are kept.
+    update "public"."events"
+       set deleted_at = now(),
+           routine_day = null
+     where routine_id = new.id
+       and event_type = 'routine'
+       and routine_status is null
+       and deleted_at is null
+       and lower(duration) > now();
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_routine_deactivated"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_routine_deactivated"() IS 'On routines.active true->false, soft-deletes this routine''s not-yet-started generated occurrences (lower(duration) > now()) and clears routine_day so the slot is free to be replanned. On an edit of an active routine''s frequency, preferred_time or estimate, does the same to the not-yet-started occurrences that have no routine_status and are still event_type=''routine'' (promoted/marked rows are kept) so the next materialization regenerates them from the new definition. Past/in-progress occurrences are preserved — Khaos keeps history instead of erasing it. Reactivating does not restore them; the generator produces new ones going forward. Contrast with a soft-delete from elsewhere (events API, Google pull of a cancelled event): those leave routine_day set, so the slot stays claimed and materialize.ts never refills it — that is how the owner''s own cancellation of a single day is distinguished from this trigger''s "please regenerate" delete.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."trg_routine_name_propagated"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+begin
+  if old.name is distinct from new.name then
+    update "public"."events"
+       set name = new.name
+     where routine_id = new.id
+       and event_type = 'routine'
+       and deleted_at is null
+       and lower(duration) > now();
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."trg_routine_name_propagated"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."trg_routine_name_propagated"() IS 'On routines.name changing, renames this routine''s not-yet-started, live (not soft-deleted) event_type=''routine'' occurrences to match — in place, keeping routine_day, routine_status and the occurrence itself, unlike trg_routine_deactivated''s drop-and-regenerate. trg_google_sync_dirty already marks a renamed event sync_dirty, so the Google side gets a PATCH.';
 
 
 
@@ -1245,7 +1315,11 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
     "google_etag" "text",
     "google_synced_at" timestamp with time zone,
     "sync_dirty" boolean DEFAULT false NOT NULL,
-    CONSTRAINT "duration_must_be_bounded" CHECK (((NOT "lower_inf"("duration")) AND (NOT "upper_inf"("duration")) AND (NOT "isempty"("duration"))))
+    "routine_status" "text",
+    "routine_day" "date",
+    CONSTRAINT "duration_must_be_bounded" CHECK (((NOT "lower_inf"("duration")) AND (NOT "upper_inf"("duration")) AND (NOT "isempty"("duration")))),
+    CONSTRAINT "chk_routine_status_values" CHECK ((("routine_status" IS NULL) OR ("routine_status" = ANY (ARRAY['done'::"text", 'partial'::"text", 'skipped'::"text"])))),
+    CONSTRAINT "chk_routine_status_only_on_routine" CHECK ((("routine_status" IS NULL) OR ("event_type" = 'routine'::"public"."event_types")))
 );
 
 
@@ -1272,7 +1346,15 @@ COMMENT ON COLUMN "public"."events"."google_synced_at" IS 'Timestamp of the last
 
 
 
-COMMENT ON COLUMN "public"."events"."sync_dirty" IS 'Set by trg_google_sync_dirty when a fixed event needs to be pushed to Google (created, edited, deleted, or just became/stopped being fixed). Cleared by the google-calendar-sync function once the push succeeds.';
+COMMENT ON COLUMN "public"."events"."sync_dirty" IS 'Set by trg_google_sync_dirty when a fixed or routine event needs to be pushed to Google (created, edited, deleted, or just became/stopped being fixed/routine). Cleared by the google-calendar-sync function once the push succeeds.';
+
+
+
+COMMENT ON COLUMN "public"."events"."routine_status" IS 'Habit-tracking outcome for a routine occurrence (event_type=''routine''): done, partial, or skipped. Null for ungenerated/not-yet-reviewed occurrences and always null for scheduled/fixed events. Set by the user or assistant after the fact — never by the generator. A ''skipped'' Nx_week occurrence is what src/lib/routines/occurrences.ts reschedules as a makeup on a later free day that same (or the following) week.';
+
+
+
+COMMENT ON COLUMN "public"."events"."routine_day" IS 'Local day (in the timezone the generator ran with) a routine occurrence was PLANNED for. Written only by the generator (src/lib/routines/materialize.ts), never by Google sync, so it stays put when a Google pull or 412 rewrites `duration` (including to another day). With routine_id it is the de-dup key (idx_events_routine_dedup). Null on events that were not produced by the generator.';
 
 
 
@@ -2146,6 +2228,13 @@ CREATE INDEX "idx_events_sync_dirty" ON "public"."events" USING "btree" ("id") W
 
 
 
+CREATE UNIQUE INDEX "idx_events_routine_dedup" ON "public"."events" USING "btree" ("routine_id", "routine_day") WHERE (("routine_day" IS NOT NULL) AND ("routine_id" IS NOT NULL) AND ("deleted_at" IS NULL));
+
+
+COMMENT ON INDEX "public"."idx_events_routine_dedup" IS 'One live occurrence per routine per planned day: (routine_id, routine_day). routine_day is written only by the generator, so a Google-side edit of `duration` (same day or another day) neither frees the slot for the generator to refill nor collides with it. Soft-deleted rows are excluded so a deactivated or edited routine can regenerate the slot.';
+
+
+
 CREATE INDEX "idx_google_calendar_sync_log_ts" ON "public"."google_calendar_sync_log" USING "btree" ("ts");
 
 
@@ -2275,6 +2364,14 @@ CREATE OR REPLACE TRIGGER "moment_created_routines" AFTER INSERT ON "public"."ro
 
 
 CREATE OR REPLACE TRIGGER "moment_active_routines" AFTER UPDATE ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_moment_active_routines"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_routine_deactivated" AFTER UPDATE ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_routine_deactivated"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_routine_name_propagated" AFTER UPDATE ON "public"."routines" FOR EACH ROW EXECUTE FUNCTION "public"."trg_routine_name_propagated"();
 
 
 
@@ -2877,6 +2974,18 @@ GRANT ALL ON FUNCTION "public"."trg_moment_priority"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "anon";
 GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."trg_moment_active_routines"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_routine_deactivated"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_routine_deactivated"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_routine_deactivated"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."trg_routine_name_propagated"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_routine_name_propagated"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_routine_name_propagated"() TO "service_role";
 
 
 

@@ -199,7 +199,7 @@ function RoutineModal({ initial, onClose, onSave, saving }: RoutineModalProps) {
 
 export default function RoutinesPage() {
   const { data: routines = [], isLoading } = useRoutines();
-  const { create, update, remove } = useRoutineMutations();
+  const { create, update } = useRoutineMutations();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<RoutineWithField | null>(null);
 
@@ -216,8 +216,8 @@ export default function RoutinesPage() {
   }
 
   function handleDelete(routine: RoutineWithField) {
-    if (window.confirm(`Delete routine "${routine.name}"?`)) {
-      remove.mutate(routine.id);
+    if (window.confirm(`Deactivate routine "${routine.name}"?`)) {
+      update.mutate({ id: routine.id, patch: { active: false } });
     }
   }
 
