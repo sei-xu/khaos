@@ -99,6 +99,17 @@ Callers (cron) POST to the function with a `{ "job": ... }` body and the
 Both are idempotent (`telegram_notifications`), so overlapping/retried fires
 never double-send.
 
+## Confirmation buttons
+
+When the model ends a reply with a `[[confirm: A | B | C]]` token (same token
+the in-app chat renders as buttons — see `src/lib/chat/prompts.ts`),
+`telegram-bot` sends it as an `inline_keyboard` instead of plain text. A tap
+delivers a Telegram `callback_query` update, which the webhook answers,
+removes the keyboard from (so the same confirmation can't be tapped twice),
+and feeds back to the agent as if its label had been typed. An option whose
+label doesn't fit in Telegram's 64-byte `callback_data` limit gets no button;
+the message falls back to "reply by typing: <option>" for that one instead.
+
 ### Wire up cron with pg_cron + pg_net
 
 Run this once in the SQL editor (`America/Sao_Paulo` is UTC−3 year-round, so
@@ -187,3 +198,4 @@ regardless of what changed.)
 | `TELEGRAM_TIMEZONE` | no | `America/Sao_Paulo` | IANA tz for times & digest date |
 | `REMINDER_LEAD_MINUTES` | no | `10` | How early to send task reminders |
 | `STALE_REVIEW_DAYS` | no | `3` | Days in `in_review` before a task is surfaced as stale in the digest |
+| `KHAOS_APP_URL` | no | — (unset) | Base URL of the deployed app. When set, `[[task:uuid]]`/`[[project:uuid]]`/`[[section:uuid]]`/`[[event:uuid]]` tokens the model emits are resolved (service-role SELECT) into a tappable `<a href>` link instead of being stripped. Unset, or an id that doesn't resolve, degrades to the old strip-the-token behaviour — never a broken link. |
