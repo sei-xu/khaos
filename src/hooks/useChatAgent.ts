@@ -14,6 +14,12 @@ import { useActiveEntity } from '../lib/activeEntityContext';
 import { useChatActivity } from '../lib/chat/chatActivityContext';
 import { getTimezone } from '../lib/timezone';
 import { useDbChangeFeed } from './useDbChangeFeed';
+import { TurnQueue } from '../lib/chat/turnQueue';
+import {
+  classifyTurnPrefix,
+  parseDbChangeItems,
+  type DbChangeItem,
+} from '../lib/chat/turnPrefix';
 
 const BOOTSTRAP_INSTRUCTION =
   '[Session Bootstrap: This is the first turn of a new session — nobody has typed anything yet. Follow your OPENING TURN rules: a brief greeting is fine, but do not offer to help or ask an open-ended question — check current state for something worth surfacing before saying anything else, including anything recall_oversight_notes turns up.]';
@@ -36,6 +42,19 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   isError?: boolean;
+  // A [DB Change: ...] turn, rendered as an activity line (icon + human
+  // phrase + entity chip) instead of a user bubble — see turnPrefix.ts.
+  kind?: 'message' | 'activity';
+  activityItems?: DbChangeItem[];
+  // Sitting in the queue, not yet sent to the model — see turnQueue.ts.
+  pending?: boolean;
+}
+
+interface QueuedChatTurn {
+  content: string;
+  silent?: boolean;
+  pendingId?: string;
+  onDone?: (history: AgentMessage[] | null) => void;
 }
 
 // Call this only from ChatAgentProvider (lib/chat/chatAgentContext) — the
@@ -50,6 +69,11 @@ export function useChatAgent() {
   const { markAssistantUnseen } = useChatActivity();
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const [pendingUserTexts, setPendingUserTexts] = useState<
+    { id: string; text: string }[]
+  >([]);
+  const queueRef = useRef(new TurnQueue<QueuedChatTurn>());
+  const turnCounterRef = useRef(0);
 
   // Shared by sendMessage and the session-opening bootstrap turn below —
   // both are "push a user-role message, run the agent loop, record the
@@ -98,17 +122,56 @@ export function useChatAgent() {
     [setAssistantProcessing]
   );
 
+  // Runs one queued turn: clears its "queued" bubble (if any) right as it
+  // starts, then delegates to runWithUserContent same as before. Stable
+  // across renders so queueRef.current.drain(...) can be called repeatedly
+  // without re-draining.
+  const runQueuedTurn = useCallback(
+    async (item: QueuedChatTurn) => {
+      if (item.pendingId) {
+        const { pendingId } = item;
+        setPendingUserTexts((prev) => prev.filter((p) => p.id !== pendingId));
+      }
+      const updatedHistory = await runWithUserContent(item.content, {
+        silent: item.silent,
+      });
+      item.onDone?.(updatedHistory);
+    },
+    [runWithUserContent]
+  );
+
+  const enqueueTurn = useCallback(
+    (item: QueuedChatTurn) => {
+      const id = `turn-${++turnCounterRef.current}`;
+      queueRef.current.enqueue(id, item);
+      void queueRef.current.drain(runQueuedTurn);
+    },
+    [runQueuedTurn]
+  );
+
+  // Previously this returned early — and silently dropped the message — if
+  // a turn was already in flight (`if (isSending) return`). Now the turn is
+  // always accepted: it enters the FIFO queue (turnQueue.ts) and shows up
+  // immediately as a "queued" bubble (see pendingUserTexts below), and the
+  // single queue executor above runs it once whatever's ahead of it
+  // finishes — never two turns racing the same history/saveHistory.
   const sendMessage = useCallback(
-    async (inputText: string) => {
-      if (!inputText.trim() || isSending) return;
+    (inputText: string) => {
+      const trimmed = inputText.trim();
+      if (!trimmed) return;
 
       const activeCtx = activeEntity
         ? `[UI Context: user is currently looking at ${activeEntity.type} ${activeEntity.id}]\n`
         : '';
       const timeCtx = `[Temporal Context: current_time is ${new Date().toISOString()}, timezone is ${getTimezone()}]\n`;
-      await runWithUserContent(`${timeCtx}${activeCtx}${inputText}`);
+      const pendingId = `pending-${++turnCounterRef.current}`;
+      setPendingUserTexts((prev) => [...prev, { id: pendingId, text: trimmed }]);
+      enqueueTurn({
+        content: `${timeCtx}${activeCtx}${trimmed}`,
+        pendingId,
+      });
     },
-    [activeEntity, isSending, runWithUserContent]
+    [activeEntity, enqueueTurn]
   );
 
   // Fetches the shared history once per mount, then — only if the fetched
@@ -128,13 +191,15 @@ export function useChatAgent() {
       bootstrapClaimedThisLoad = true;
 
       const timeCtx = `[Temporal Context: current_time is ${new Date().toISOString()}, timezone is ${getTimezone()}]\n`;
-      runWithUserContent(`${timeCtx}${BOOTSTRAP_INSTRUCTION}`, {
+      enqueueTurn({
+        content: `${timeCtx}${BOOTSTRAP_INSTRUCTION}`,
         silent: true,
-      }).then((updatedHistory) => {
-        const last = updatedHistory?.[updatedHistory.length - 1];
-        if (last?.role === 'assistant' && extractText(last.content)) {
-          markAssistantUnseen();
-        }
+        onDone: (updatedHistory) => {
+          const last = updatedHistory?.[updatedHistory.length - 1];
+          if (last?.role === 'assistant' && extractText(last.content)) {
+            markAssistantUnseen();
+          }
+        },
       });
     });
 
@@ -153,19 +218,24 @@ export function useChatAgent() {
   // don't re-trigger themselves.
   useDbChangeFeed({
     enabled: isLoaded,
-    isTurnInFlight: isSending,
     onNudge: useCallback(
       (prefixedContent: string) => {
-        runWithUserContent(prefixedContent, { silent: true }).then(
-          (updatedHistory) => {
+        // Goes through the same queue as sendMessage — previously this
+        // nudge was suppressed outright while a turn was in flight
+        // (useDbChangeFeed's own isTurnInFlight gate) and the batch was
+        // simply lost; now it waits its turn instead.
+        enqueueTurn({
+          content: prefixedContent,
+          silent: true,
+          onDone: (updatedHistory) => {
             const last = updatedHistory?.[updatedHistory.length - 1];
             if (last?.role === 'assistant' && extractText(last.content)) {
               markAssistantUnseen();
             }
-          }
-        );
+          },
+        });
       },
-      [runWithUserContent, markAssistantUnseen]
+      [enqueueTurn, markAssistantUnseen]
     ),
   });
 
@@ -190,19 +260,50 @@ export function useChatAgent() {
       // context prefix, so checking emptiness first would let it through
       // as a blank bubble instead of dropping it.
       let text = extractText(m.content);
+      let kind: ChatMessage['kind'] = 'message';
+      let activityItems: DbChangeItem[] | undefined;
       if (role === 'user') {
-        text = text.replace(/^\[Temporal Context:[\s\S]*?\]\s*/g, '');
-        text = text.replace(/^\[UI Context:[\s\S]*?\]\s*/g, '');
-        text = text.replace(/^\[Session Bootstrap:[\s\S]*?\]\s*/g, '');
-        text = text.replace(/^\[DB Change:[\s\S]*?\]\s*/g, '');
-        text = text.replace(/^\[Context:[\s\S]*?\]\s*/g, '');
+        // classifyTurnPrefix replaces four separate first-"]"-anchored
+        // regexes that used to strip these prefixes — a [DB Change: ...]
+        // batch with more than one moment broke that approach (see
+        // turnPrefix.ts) because the regex stopped at the first "]", which
+        // belongs to a moment's own "[user]" suffix, not the prefix's own
+        // closing bracket.
+        const classified = classifyTurnPrefix(text);
+        text = classified.rest;
+        if (classified.type === 'db-change') {
+          kind = 'activity';
+          activityItems = parseDbChangeItems(classified.dbChangeBody ?? '');
+        }
       }
-      return { id: `${m.role}-${index}`, role, text, isError: m.isError };
+      return {
+        id: `${m.role}-${index}`,
+        role,
+        text,
+        isError: m.isError,
+        kind,
+        activityItems,
+      };
     })
-    .filter(({ text }) => Boolean(text));
+    // An activity line renders even with no text (it has its own chips/
+    // icon); every other message still needs real text to be worth a
+    // bubble — a hidden turn that's nothing but a context prefix collapses
+    // to '' and is dropped, same as before.
+    .filter(
+      ({ kind, activityItems, text }) =>
+        (kind === 'activity' && activityItems && activityItems.length > 0) ||
+        Boolean(text)
+    );
+
+  const pendingMessages: ChatMessage[] = pendingUserTexts.map(({ id, text }) => ({
+    id,
+    role: 'user',
+    text,
+    pending: true,
+  }));
 
   return {
-    messages: uiMessages,
+    messages: [...uiMessages, ...pendingMessages],
     sendMessage,
     isSending,
     isLoaded,

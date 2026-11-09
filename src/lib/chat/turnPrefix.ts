@@ -100,7 +100,7 @@ export function parseDbChangeItems(body: string): DbChangeItem[] {
     .split(';')
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => {
+    .map((part): DbChangeItem | null => {
       const match = ITEM_RE.exec(part);
       if (!match) return null;
       const [, entityType, entityId, momentType, transition, authoredBy] =

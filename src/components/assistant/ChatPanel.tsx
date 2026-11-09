@@ -1,37 +1,152 @@
 import { useEffect, useRef, useState } from 'react';
-import { Send, Trash2, User, Loader2, X, Link2 } from 'lucide-react';
+import {
+  Send,
+  Trash2,
+  User,
+  Loader2,
+  X,
+  Link2,
+  CheckCircle2,
+  PlusCircle,
+  Trash,
+  Star,
+  ListPlus,
+  Activity,
+} from 'lucide-react';
 import clsx from 'clsx';
 import type { ChatMessage } from '../../hooks/useChatAgent';
 import { useChatAgentContext } from '../../lib/chat/chatAgentContext';
 import { useActiveEntity } from '../../lib/activeEntityContext';
 import { parseMessageSegments } from '../../lib/chat/entityRefs';
+import type { DbChangeItem } from '../../lib/chat/turnPrefix';
 import { EntityChip } from './EntityChip';
 import KhaosIcon from '../common/KhaosIcon';
 import KhaoticText from '../common/KhaoticText';
 
 const MAX_TEXTAREA_LINES = 5;
 
-function MessageContent({ text }: { text: string }) {
+function MessageContent({
+  text,
+  onConfirm,
+}: {
+  text: string;
+  onConfirm?: (label: string) => void;
+}) {
   const segments = parseMessageSegments(text);
   return (
     <>
-      {segments.map((seg, i) =>
-        seg.type === 'entity' ? (
-          <EntityChip key={i} entityType={seg.entityType} id={seg.id} />
-        ) : (
+      {segments.map((seg, i) => {
+        if (seg.type === 'entity') {
+          return <EntityChip key={i} entityType={seg.entityType} id={seg.id} />;
+        }
+        if (seg.type === 'confirm') {
+          return (
+            <div key={i} className="my-1 flex flex-wrap gap-1.5">
+              {seg.options.map((option) => (
+                <button
+                  key={option}
+                  onClick={() => onConfirm?.(option)}
+                  className="border-eros-500/40 text-eros-300 hover:bg-eros-500/15 rounded-full border px-3 py-1 text-caption font-medium"
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          );
+        }
+        return (
           seg.value && (
-            <span key={i} className="whitespace-pre-wrap">
+            <span key={i} className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
               {seg.value}
             </span>
           )
-        )
-      )}
+        );
+      })}
     </>
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+// Human phrase for each moment type/transition in a [DB Change: ...] batch —
+// see turnPrefix.ts's parseDbChangeItems. Falls back to the raw moment type
+// for anything not called out explicitly (due/estimate/priority/renamed/
+// moved/item/note etc.), which still reads fine next to the entity chip.
+function describeMoment(item: DbChangeItem): { icon: typeof Activity; phrase: string } {
+  if (item.momentType === 'status') {
+    if (item.transition?.endsWith('done')) {
+      return { icon: CheckCircle2, phrase: 'concluiu' };
+    }
+    if (item.transition?.endsWith('cancelled')) {
+      return { icon: Trash, phrase: 'cancelou' };
+    }
+    return { icon: Activity, phrase: 'atualizou o status de' };
+  }
+  switch (item.momentType) {
+    case 'created':
+      return { icon: PlusCircle, phrase: 'criou' };
+    case 'deleted':
+      return { icon: Trash, phrase: 'removeu' };
+    case 'today':
+      return { icon: Star, phrase: 'marcou para hoje' };
+    case 'backlog':
+      return { icon: ListPlus, phrase: 'adicionou ao backlog' };
+    default:
+      return { icon: Activity, phrase: item.momentType };
+  }
+}
+
+// Renders a settled out-of-chat DB change as a formatted activity line
+// (icon + human phrase + entity chip) instead of a raw user bubble. Before
+// this, these turns were hidden by stripping a "[DB Change: ...]" prefix
+// with a regex anchored on the first "]" — which left residue behind as
+// unreadable UUID-laden text when a batch had more than one moment (see
+// turnPrefix.ts).
+function ActivityLine({ items }: { items: DbChangeItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-col gap-1 pl-9">
+      {items.map((item, i) => {
+        const { icon: Icon, phrase } = describeMoment(item);
+        const entityType =
+          item.entityType === 'task' ||
+          item.entityType === 'project' ||
+          item.entityType === 'section' ||
+          item.entityType === 'event'
+            ? item.entityType
+            : null;
+        return (
+          <div
+            key={i}
+            className="text-nyx-500 flex min-w-0 items-center gap-1.5 text-caption"
+          >
+            <Icon size={12} className="shrink-0" />
+            <span className="shrink-0">{phrase}</span>
+            {entityType ? (
+              <div className="min-w-0 flex-1">
+                <EntityChip entityType={entityType} id={item.entityId} />
+              </div>
+            ) : (
+              <span className="truncate">{item.entityId}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  onConfirm,
+}: {
+  message: ChatMessage;
+  onConfirm: (label: string) => void;
+}) {
   const isUser = message.role === 'user';
+
+  if (message.kind === 'activity') {
+    return <ActivityLine items={message.activityItems ?? []} />;
+  }
+
   return (
     <div className={clsx('flex gap-2', isUser && 'flex-row-reverse')}>
       {isUser ? (
@@ -48,13 +163,19 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       )}
       <div
         className={clsx(
-          'max-w-[85%] rounded-lg px-4 py-2 text-body leading-relaxed',
+          'max-w-[85%] min-w-0 rounded-lg px-4 py-2 text-body leading-relaxed',
           isUser ? 'bg-nyx-700 text-nyx-100' : 'bg-nyx-800 text-nyx-200',
           message.isError &&
-            'text-tartarus-400 border-tartarus-500/40 bg-tartarus-500/10 border'
+            'text-tartarus-400 border-tartarus-500/40 bg-tartarus-500/10 border',
+          message.pending && 'opacity-50'
         )}
       >
-        <MessageContent text={message.text} />
+        <MessageContent text={message.text} onConfirm={onConfirm} />
+        {message.pending && (
+          <div className="text-nyx-500 mt-1 text-label tracking-wide uppercase">
+            Na fila…
+          </div>
+        )}
       </div>
     </div>
   );
@@ -114,12 +235,22 @@ export default function ChatPanel({
     }
   }, [input]);
 
-  async function submit() {
-    if (!input.trim() || isSending) return;
+  // No longer gated on isSending — sendMessage always accepts now and
+  // queues the turn (turnQueue.ts) instead of discarding it mid-turn.
+  function submit() {
+    if (!input.trim()) return;
     const toSend = input;
     setInput('');
     sendMessage(toSend);
   }
+
+  // Confirmation buttons ([[confirm: ...]] tokens, entityRefs.ts) only fire
+  // on the most recent assistant message — stale buttons left over from an
+  // earlier turn must not be clickable, or the same confirmation could be
+  // re-executed twice.
+  const lastModelMessageId = [...messages]
+    .reverse()
+    .find((m) => m.role === 'model')?.id;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -186,7 +317,7 @@ export default function ChatPanel({
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
+        className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto p-4"
       >
         {!messages.length && (
           <div className="text-nyx-600 flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -198,7 +329,11 @@ export default function ChatPanel({
           </div>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble
+            key={m.id}
+            message={m}
+            onConfirm={(label) => m.id === lastModelMessageId && sendMessage(label)}
+          />
         ))}
 
         {isSending && (
@@ -219,12 +354,17 @@ export default function ChatPanel({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ask Khaos… (⌘+Enter to send)"
-          disabled={isSending}
-          className="border-nyx-700 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 flex-1 resize-none rounded border px-4 py-2 text-body leading-normal focus:outline-hidden disabled:opacity-60"
+          // text-base (16px) below lg: iOS Safari zooms the viewport on
+          // focusing any input with font-size < 16px, which is what made
+          // the textarea "expand to 100% of the screen" on focus and left
+          // the whole layout with horizontal scroll. The 14px design token
+          // (--text-body) is restored from lg: up, where no mobile browser
+          // does this.
+          className="border-nyx-700 bg-nyx-800 text-nyx-100 placeholder:text-nyx-500 focus:border-eros-400 flex-1 resize-none rounded border px-4 py-2 text-base leading-normal focus:outline-hidden lg:text-body"
         />
         <button
           type="submit"
-          disabled={isSending || !input.trim()}
+          disabled={!input.trim()}
           className="bg-eros-500 text-nyx-900 hover:bg-eros-400 flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-40"
         >
           <Send size={16} />

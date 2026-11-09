@@ -11,11 +11,18 @@
 // Supabase JWT. Access is gated by the secret_token header set with setWebhook
 // plus the chat-id allowlist.
 
-import { ALLOWED_CHAT_ID_SET, sendMessage, typing } from '../_shared/telegram.ts';
+import {
+  ALLOWED_CHAT_ID_SET,
+  sendMessage,
+  typing,
+  answerCallbackQuery,
+  removeInlineKeyboard,
+} from '../_shared/telegram.ts';
 import {
   BOOTSTRAP_INSTRUCTION,
   clearHistory,
   runAgent,
+  renderForTelegram,
   temporalContext,
 } from '../_shared/khaos.ts';
 
@@ -24,10 +31,55 @@ const WEBHOOK_SECRET = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? '';
 interface TgUpdate {
   message?: TgMessage;
   edited_message?: TgMessage;
+  callback_query?: TgCallbackQuery;
 }
 interface TgMessage {
   text?: string;
   chat: { id: number };
+}
+interface TgCallbackQuery {
+  id: string;
+  data?: string;
+  message?: { message_id: number; chat: { id: number } };
+}
+
+async function replyWithAgent(chatId: number, text: string): Promise<void> {
+  try {
+    const reply = await runAgent(chatId, text);
+    const rendered = await renderForTelegram(reply || 'Done.');
+    await sendMessage(chatId, rendered.text, {
+      html: true,
+      inlineKeyboard: rendered.inlineKeyboard,
+    });
+  } catch (err) {
+    console.error('replyWithAgent failed', err);
+    await sendMessage(
+      chatId,
+      'Something went wrong on my side. Try again in a moment.'
+    );
+  }
+}
+
+// A confirm button's callback_data is "c:<option label>" (telegramRender.ts
+// / buildInlineKeyboard) — decode it back into the label and feed that to
+// the agent as if the user had typed it, same as a confirm-button click in
+// the web app (ChatPanel.tsx).
+async function handleCallbackQuery(cb: TgCallbackQuery): Promise<void> {
+  const chatId = cb.message?.chat?.id;
+  if (!chatId || !ALLOWED_CHAT_ID_SET.has(String(chatId))) {
+    await answerCallbackQuery(cb.id);
+    return;
+  }
+  await answerCallbackQuery(cb.id);
+  if (cb.message) {
+    // Remove the keyboard first so the same confirmation can't be clicked
+    // twice while the agent is still working on the first click.
+    await removeInlineKeyboard(chatId, cb.message.message_id);
+  }
+  const label = (cb.data ?? '').startsWith('c:') ? cb.data!.slice(2) : cb.data;
+  if (!label) return;
+  await typing(chatId);
+  await replyWithAgent(chatId, `${temporalContext()}${label}`);
 }
 
 async function handleUpdate(update: TgUpdate): Promise<void> {
@@ -61,7 +113,11 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
       chatId,
       `${temporalContext()}${BOOTSTRAP_INSTRUCTION}`
     );
-    await sendMessage(chatId, opener || 'Khaos online.');
+    const rendered = await renderForTelegram(opener || 'Khaos online.');
+    await sendMessage(chatId, rendered.text, {
+      html: true,
+      inlineKeyboard: rendered.inlineKeyboard,
+    });
     return;
   }
 
@@ -71,16 +127,7 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
   }
 
   await typing(chatId);
-  try {
-    const reply = await runAgent(chatId, `${temporalContext()}${text}`);
-    await sendMessage(chatId, reply || 'Done.');
-  } catch (err) {
-    console.error('handleUpdate failed', err);
-    await sendMessage(
-      chatId,
-      'Something went wrong on my side. Try again in a moment.'
-    );
-  }
+  await replyWithAgent(chatId, `${temporalContext()}${text}`);
 }
 
 Deno.serve(async (req) => {
@@ -105,9 +152,11 @@ Deno.serve(async (req) => {
   // Return 200 immediately so Telegram marks the update delivered and never
   // retries (which would double-process the message); the agent loop runs to
   // completion in the background.
-  const work = handleUpdate(update).catch((err) =>
-    console.error('background handleUpdate error', err)
-  );
+  const work = (
+    update.callback_query
+      ? handleCallbackQuery(update.callback_query)
+      : handleUpdate(update)
+  ).catch((err) => console.error('background update error', err));
   const runtime = (
     globalThis as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }
   ).EdgeRuntime;
