@@ -22,7 +22,7 @@ import {
   BOOTSTRAP_INSTRUCTION,
   clearHistory,
   runAgent,
-  renderForTelegram,
+  sendRenderedMessage,
   temporalContext,
 } from '../_shared/khaos.ts';
 
@@ -46,11 +46,7 @@ interface TgCallbackQuery {
 async function replyWithAgent(chatId: number, text: string): Promise<void> {
   try {
     const reply = await runAgent(chatId, text);
-    const rendered = await renderForTelegram(reply || 'Done.');
-    await sendMessage(chatId, rendered.text, {
-      html: true,
-      inlineKeyboard: rendered.inlineKeyboard,
-    });
+    await sendRenderedMessage(chatId, reply || 'Done.');
   } catch (err) {
     console.error('replyWithAgent failed', err);
     await sendMessage(
@@ -113,11 +109,7 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
       chatId,
       `${temporalContext()}${BOOTSTRAP_INSTRUCTION}`
     );
-    const rendered = await renderForTelegram(opener || 'Khaos online.');
-    await sendMessage(chatId, rendered.text, {
-      html: true,
-      inlineKeyboard: rendered.inlineKeyboard,
-    });
+    await sendRenderedMessage(chatId, opener || 'Khaos online.');
     return;
   }
 

@@ -2230,6 +2230,23 @@ resolvido, o Telegram volta a apagar o token (nunca manda link quebrado);
 `KHAOS_APP_URL` é nova env var, default ausente (sem links) — deploys
 existentes degradam em vez de quebrar.
 
+Revisão do PR #100 aplicou três correções direto no branch: as opções de
+fallback do `(reply by typing: ...)` passavam sem escape num envio com
+`parse_mode: HTML` (um `<` ou `&` no label faria o Telegram recusar a
+mensagem inteira); `messagesRef` em `useChatAgent.ts` passou a ser
+atualizado à mão, porque a fila começa o turno seguinte no microtask após
+o anterior e um turno que falhe antes do primeiro `await` deixaria o
+próximo mandar/persistir um histórico sem ele; e o trio
+`renderForTelegram` + `sendMessage({html, inlineKeyboard})`, repetido em
+três call sites, virou `sendRenderedMessage` em `_shared/khaos.ts`.
+Dois achados ficaram para o dono decidir, comentados no PR: a supressão
+removida em `useDbChangeFeed.ts` (o payload Realtime do INSERT traz
+`authored_by = 'user'`, porque `stampAssistantMoments` corrige isso num
+UPDATE posterior — então o filtro por `authored_by` sozinho não barra as
+escritas do próprio assistente) e a rigidez de `parseDbChangeItems` (um
+valor com `)` ou `;`, comum em `created`/`renamed`, não casa o regex e a
+linha de atividade desaparece).
+
 Pendente: o usuário dizer **"approved"**.
 
 ## Resolved

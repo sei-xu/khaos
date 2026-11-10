@@ -85,13 +85,21 @@ export function useChatAgent() {
       if (!silent) setAssistantProcessing(true);
 
       const newUserAgentMessage: AgentMessage = { role: 'user', content };
+      // messagesRef is updated by hand here, not only by the render below
+      // it: the queue (turnQueue.ts) starts the next turn in the microtask
+      // right after this one resolves, and that turn reads messagesRef to
+      // build the history it sends. Leaving the ref to the next render
+      // would make back-to-back queued turns depend on React having
+      // flushed in between — which it does while awaiting the network, but
+      // not when a turn fails before its first await: the next turn would
+      // then send (and persist) a history missing the failed turn.
+      const historyWithUser = [...messagesRef.current, newUserAgentMessage];
+      messagesRef.current = historyWithUser;
       setMessages((prev) => [...prev, newUserAgentMessage]);
 
       try {
-        const { updatedHistory } = await runTurn([
-          ...messagesRef.current,
-          newUserAgentMessage,
-        ]);
+        const { updatedHistory } = await runTurn(historyWithUser);
+        messagesRef.current = updatedHistory;
         setMessages(updatedHistory);
         // Awaited so a turn isn't "finished" until it's persisted: this
         // keeps isSending — which doubles as useDbChangeFeed's "a turn is

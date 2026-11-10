@@ -25,9 +25,11 @@ import type { ChatEntityType } from '../../../src/lib/chat/entityRefs.ts';
 import {
   renderTelegramMessage,
   buildInlineKeyboard,
+  escapeHtml,
   type ResolvedEntity,
   type InlineKeyboardButton,
 } from './telegramRender.ts';
+import { sendMessage } from './telegram.ts';
 import { SCHEMA_SQL } from './schema.sql.ts';
 
 export const MODEL_NAME = Deno.env.get('LLM_MODEL') ?? 'claude-sonnet-5';
@@ -293,8 +295,27 @@ export async function renderForTelegram(text: string): Promise<{
   if (!options.length) return { text: rendered };
 
   const { inline_keyboard, textFallbackOptions } = buildInlineKeyboard(options);
+  // Escaped like every other part of `rendered`: these labels come from the
+  // model and go out with parse_mode HTML, so a "<" or "&" in one would make
+  // Telegram reject the whole sendMessage ("can't parse entities") and the
+  // reply would never arrive.
   const fallbackNote = textFallbackOptions.length
-    ? `\n\n(reply by typing: ${textFallbackOptions.join(' / ')})`
+    ? `\n\n(reply by typing: ${textFallbackOptions.map(escapeHtml).join(' / ')})`
     : '';
   return { text: `${rendered}${fallbackNote}`, inlineKeyboard: inline_keyboard };
+}
+
+// The one way to send agent output to Telegram: resolve its tokens, then
+// send with parse_mode HTML and whatever keyboard came out of a confirm
+// token. Callers used to repeat this trio inline, which left `html: true`
+// (and the keyboard) as something each new call site had to remember.
+export async function sendRenderedMessage(
+  chatId: number,
+  text: string
+): Promise<void> {
+  const rendered = await renderForTelegram(text);
+  await sendMessage(chatId, rendered.text, {
+    html: true,
+    inlineKeyboard: rendered.inlineKeyboard,
+  });
 }

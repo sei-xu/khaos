@@ -27,7 +27,7 @@ import { parseRangeLower } from '../_shared/range.ts';
 import {
   db,
   runAgent,
-  renderForTelegram,
+  sendRenderedMessage,
   temporalContext,
   TIMEZONE,
 } from '../_shared/khaos.ts';
@@ -103,13 +103,7 @@ async function runDigest(): Promise<void> {
         chatId,
         `${temporalContext()}${DIGEST_INSTRUCTION}`
       );
-      if (briefing.trim()) {
-        const rendered = await renderForTelegram(briefing);
-        await sendMessage(chatId, rendered.text, {
-          html: true,
-          inlineKeyboard: rendered.inlineKeyboard,
-        });
-      }
+      if (briefing.trim()) await sendRenderedMessage(chatId, briefing);
     } catch (err) {
       console.error('digest failed for chat', chatId, err);
     }
