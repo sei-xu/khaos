@@ -29,6 +29,11 @@ export interface ClassifiedTurn {
   dbChangeBody?: string;
 }
 
+// Deliberately missing "Context" (the old `[Context: ...]` prefix) — nothing
+// emits it any more, so it's not worth a case here. A turn stored by a build
+// that predates this one can still carry it in chat_history (shared across
+// builds, see docs/backlog.md), and will render raw if so; accepted rather
+// than handled, since current history has already rotated past it.
 const PREFIX_NAMES: Array<{ name: string; type: TurnPrefixType }> = [
   { name: 'Temporal Context', type: 'temporal-context' },
   { name: 'UI Context', type: 'ui-context' },

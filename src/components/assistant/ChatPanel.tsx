@@ -28,9 +28,11 @@ const MAX_TEXTAREA_LINES = 5;
 function MessageContent({
   text,
   onConfirm,
+  confirmEnabled,
 }: {
   text: string;
   onConfirm?: (label: string) => void;
+  confirmEnabled?: boolean;
 }) {
   const segments = parseMessageSegments(text);
   return (
@@ -45,8 +47,9 @@ function MessageContent({
               {seg.options.map((option) => (
                 <button
                   key={option}
+                  disabled={!confirmEnabled}
                   onClick={() => onConfirm?.(option)}
-                  className="border-eros-500/40 text-eros-300 hover:bg-eros-500/15 rounded-full border px-3 py-1 text-caption font-medium"
+                  className="border-eros-500/40 text-eros-300 hover:bg-eros-500/15 rounded-full border px-3 py-1 text-caption font-medium disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   {option}
                 </button>
@@ -137,9 +140,11 @@ function ActivityLine({ items }: { items: DbChangeItem[] }) {
 function MessageBubble({
   message,
   onConfirm,
+  confirmEnabled,
 }: {
   message: ChatMessage;
   onConfirm: (label: string) => void;
+  confirmEnabled: boolean;
 }) {
   const isUser = message.role === 'user';
 
@@ -170,7 +175,11 @@ function MessageBubble({
           message.pending && 'opacity-50'
         )}
       >
-        <MessageContent text={message.text} onConfirm={onConfirm} />
+        <MessageContent
+          text={message.text}
+          onConfirm={onConfirm}
+          confirmEnabled={confirmEnabled}
+        />
         {message.pending && (
           <div className="text-nyx-500 mt-1 text-label tracking-wide uppercase">
             Na fila…
@@ -248,9 +257,22 @@ export default function ChatPanel({
   // on the most recent assistant message — stale buttons left over from an
   // earlier turn must not be clickable, or the same confirmation could be
   // re-executed twice.
-  const lastModelMessageId = [...messages]
-    .reverse()
-    .find((m) => m.role === 'model')?.id;
+  let lastModelMessageId: string | undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'model') {
+      lastModelMessageId = messages[i].id;
+      break;
+    }
+  }
+
+  // A confirmation button is also disabled once clicked, even on the latest
+  // message — clicking "Criar" twice in a row used to queue two identical
+  // turns (the Telegram side avoids this by removing its inline keyboard
+  // after the first tap; sendMessage no longer discards a second click for
+  // us now that it queues instead of bailing on isSending).
+  const [confirmedMessageIds, setConfirmedMessageIds] = useState<Set<string>>(
+    new Set()
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -332,7 +354,16 @@ export default function ChatPanel({
           <MessageBubble
             key={m.id}
             message={m}
-            onConfirm={(label) => m.id === lastModelMessageId && sendMessage(label)}
+            confirmEnabled={
+              m.id === lastModelMessageId && !confirmedMessageIds.has(m.id)
+            }
+            onConfirm={(label) => {
+              if (m.id !== lastModelMessageId || confirmedMessageIds.has(m.id)) {
+                return;
+              }
+              setConfirmedMessageIds((prev) => new Set(prev).add(m.id));
+              sendMessage(label);
+            }}
           />
         ))}
 

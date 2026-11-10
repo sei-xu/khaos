@@ -2,6 +2,7 @@
 // scheduled notifier (telegram-notify).
 
 import type { InlineKeyboardButton } from './telegramRender.ts';
+import { findChunkEnd } from './telegramChunk.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
@@ -15,6 +16,11 @@ export const ALLOWED_CHAT_IDS: string[] = (
 export const ALLOWED_CHAT_ID_SET = new Set(ALLOWED_CHAT_IDS);
 
 const TELEGRAM_MAX_CHARS = 4096;
+// Truncate HTML replies well under the real limit — the agent's answers
+// are meant to be short, so one running past ~3900 chars is already a
+// symptom. Keeping replies this short makes the tag-aware chunking below a
+// safety net rather than the normal path.
+const HTML_TRUNCATE_CHARS = 3900;
 
 export async function tg(
   method: string,
@@ -49,13 +55,21 @@ export async function sendMessage(
   text: string,
   opts: { html?: boolean; inlineKeyboard?: InlineKeyboardButton[][] } = {}
 ): Promise<void> {
-  const clean = stripTokens(text) || '(no response)';
-  // Telegram caps a single message at 4096 chars; chunk longer answers. The
+  let clean = stripTokens(text) || '(no response)';
+  if (opts.html && clean.length > HTML_TRUNCATE_CHARS) {
+    const end = findChunkEnd(clean, HTML_TRUNCATE_CHARS);
+    clean = `${clean.slice(0, end)}…`;
+  }
+  // Telegram caps a single message at 4096 chars; chunk longer answers,
+  // preferring a break that doesn't fall inside an HTML tag or entity. The
   // keyboard (if any) only makes sense attached to the last chunk — it's
   // the reply to this specific message.
   const chunks: string[] = [];
-  for (let i = 0; i < clean.length; i += TELEGRAM_MAX_CHARS) {
-    chunks.push(clean.slice(i, i + TELEGRAM_MAX_CHARS));
+  let rest = clean;
+  while (rest.length) {
+    const end = findChunkEnd(rest, TELEGRAM_MAX_CHARS);
+    chunks.push(rest.slice(0, end));
+    rest = rest.slice(end).replace(/^[\n ]+/, '');
   }
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {

@@ -101,6 +101,24 @@ export function canNudge(params: {
   return recentCount < maxPerHour;
 }
 
+// formatDbChangePrefix interpolates free-form moment text (a task/section
+// name, a note body, ...) into "(...)" segments that turnPrefix.ts's
+// ITEM_RE/findMatchingBracketEnd rely on being free of ';', '(', ')', '[' and
+// ']' — any of those in the value breaks the parse (an unmatched line is
+// dropped silently; an unmatched '[' or ']' can derail the whole prefix, see
+// turnPrefix.test.ts). Stripping them here, at the source, is simpler than an
+// escape/unescape round trip and loses nothing meaningful for a one-line
+// activity summary; also cap length so one long rename can't blow up the
+// prefix.
+const MOMENT_TEXT_MAX_LENGTH = 40;
+
+function sanitizeMomentText(text: string): string {
+  const stripped = text.replace(/[;()[\]]/g, '');
+  return stripped.length > MOMENT_TEXT_MAX_LENGTH
+    ? `${stripped.slice(0, MOMENT_TEXT_MAX_LENGTH)}…`
+    : stripped;
+}
+
 // Renders the compact batch summary that becomes the [DB Change: ...]
 // prefix on the hidden turn (see useChatAgent.ts / prompts.ts). One line per
 // moment: entity type + id, moment type, previous->new (or just the value
@@ -118,10 +136,11 @@ export function formatDbChangePrefix(rows: MomentRow[]): string {
             : 'unknown';
     const entityId =
       r.task_id ?? r.section_id ?? r.project_id ?? r.routine_id ?? 'unknown';
+    const value = r.value != null ? sanitizeMomentText(r.value) : null;
+    const previousValue =
+      r.previous_value != null ? sanitizeMomentText(r.previous_value) : null;
     const transition =
-      r.previous_value != null
-        ? `${r.previous_value}->${r.value}`
-        : (r.value ?? '');
+      previousValue != null ? `${previousValue}->${value}` : value ?? '';
     const suffix = transition ? ` (${transition})` : '';
     return `${entityType} ${entityId}: ${r.moment_type}${suffix} [${r.authored_by}]`;
   });

@@ -34,18 +34,22 @@ export function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Returns null when the entity genuinely can't resolve to a route — a
+// section whose project_id is null (sections.project_id is nullable,
+// database.types.ts) has nowhere to link to, and the caller must treat that
+// the same as an unresolved id (strip) rather than emit `/projects/`.
 function entityPath(
   entityType: ChatEntityType,
   id: string,
   resolved: ResolvedEntity
-): string {
+): string | null {
   switch (entityType) {
     case 'task':
       return `/tasks?taskId=${id}`;
     case 'project':
       return `/projects/${id}`;
     case 'section':
-      return `/projects/${resolved.projectId ?? ''}`;
+      return resolved.projectId ? `/projects/${resolved.projectId}` : null;
     case 'event':
       return `/calendar?eventId=${id}`;
   }
@@ -75,7 +79,9 @@ export async function renderTelegramMessage(
       ? await opts.resolveEntity(segment.entityType, segment.id)
       : null;
     if (!resolved) continue; // strip: unresolved id, or no app URL configured
-    const href = `${opts.appUrl}${entityPath(segment.entityType, segment.id, resolved)}`;
+    const path = entityPath(segment.entityType, segment.id, resolved);
+    if (!path) continue; // strip: resolved, but with nowhere to link to
+    const href = `${opts.appUrl}${path}`;
     out += `<a href="${escapeHtml(href)}">${escapeHtml(resolved.name)}</a>`;
   }
 

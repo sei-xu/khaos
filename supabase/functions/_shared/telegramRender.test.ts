@@ -59,6 +59,15 @@ describe('renderTelegramMessage', () => {
     );
   });
 
+  it('strips a section token whose resolved entity has no project_id instead of linking to /projects/', async () => {
+    const resolveEntity = async () => ({ name: 'Orphan section' });
+    const { text } = await renderTelegramMessage(
+      'See [[section:cccccccc]] now',
+      { appUrl: 'https://khaos.example', resolveEntity }
+    );
+    expect(text).toBe('See  now');
+  });
+
   it('strips a token whose id does not resolve, same as the pre-existing stripTokens fallback', async () => {
     const resolveEntity = async () => null;
     const { text } = await renderTelegramMessage(

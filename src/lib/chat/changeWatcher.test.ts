@@ -217,4 +217,33 @@ describe('formatDbChangePrefix', () => {
     expect(text).toContain('task task-2');
     expect(text).toContain('created');
   });
+
+  it('strips ;()[] from a free-text value so turnPrefix.ts can parse the line back', () => {
+    const text = formatDbChangePrefix([
+      moment({
+        moment_type: 'renamed',
+        value: '(login); [fix]',
+        previous_value: null,
+        task_id: 'task-3',
+      }),
+    ]);
+    expect(text).toContain('login fix');
+    expect(text).not.toContain('(login)');
+    expect(text).not.toContain('login);');
+    expect(text).not.toContain('[fix]');
+  });
+
+  it('truncates a long free-text value instead of letting one item blow up the prefix', () => {
+    const longName = 'x'.repeat(100);
+    const text = formatDbChangePrefix([
+      moment({
+        moment_type: 'renamed',
+        value: longName,
+        previous_value: null,
+        task_id: 'task-4',
+      }),
+    ]);
+    expect(text).toContain(`${'x'.repeat(40)}…`);
+    expect(text).not.toContain(longName);
+  });
 });

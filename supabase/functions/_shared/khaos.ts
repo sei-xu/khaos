@@ -93,8 +93,20 @@ export const db: SupabaseClient = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
+// Separate client, same credentials, tagged with `x-khaos-author: assistant`
+// on every request — insert_moment() (see the matching migration) reads
+// that header to stamp authored_by on the INSERT itself, so the DB-change
+// watcher's authored_by filter doesn't race a later UPDATE. Only the tool
+// executor's writes are the assistant acting on its own tool calls; `db`
+// above (chat_history, etc.) stays untagged.
+const toolDb: SupabaseClient = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  { global: { headers: { 'x-khaos-author': 'assistant' } } }
+);
+
 const toolDeps = {
-  db,
+  db: toolDb,
   searchSchema: (query: string) => searchSchemaCore(SCHEMA_SQL, query),
 };
 
