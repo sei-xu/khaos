@@ -35,3 +35,35 @@ export function findChunkEnd(text: string, maxLen: number): number {
   while (end > 0 && isInsideTagOrEntity(text, end)) end--;
   return end || maxLen;
 }
+
+// Makes a slice of rendered HTML safe to send on its own. findChunkEnd
+// prefers a boundary that isn't inside a tag or entity, but it can't always
+// find one, and even a boundary it considers clean can fall between an
+// `<a href="...">` and its `</a>` — nothing is "inside a tag" in the middle
+// of a link's label. Telegram answers 400 ("can't parse entities") for an
+// unclosed start tag and tg() only logs it, so that slice is dropped
+// outright rather than shortened: for a truncated reply (telegram.ts's
+// HTML_TRUNCATE_CHARS) that means the whole answer never arrives.
+//
+// So repair the slice instead of trusting the boundary: drop a half-written
+// tag or entity at the very end, then close any `<a>` whose `</a>` fell on
+// the other side of the cut. Only `<a>` is handled because that is the only
+// element renderTelegramMessage emits (telegramRender.ts); everything else
+// in the text is escaped.
+export function repairHtmlCut(chunk: string): string {
+  let out = chunk;
+  const lastLt = out.lastIndexOf('<');
+  if (lastLt > out.lastIndexOf('>')) out = out.slice(0, lastLt);
+  const lastAmp = out.lastIndexOf('&');
+  if (
+    lastAmp !== -1 &&
+    out.length - lastAmp <= 10 &&
+    out.lastIndexOf(';') < lastAmp
+  ) {
+    out = out.slice(0, lastAmp);
+  }
+  const opens = (out.match(/<a\b/g) ?? []).length;
+  const closes = (out.match(/<\/a>/g) ?? []).length;
+  if (opens > closes) out += '</a>'.repeat(opens - closes);
+  return out;
+}

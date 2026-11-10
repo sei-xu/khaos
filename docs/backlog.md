@@ -2247,6 +2247,36 @@ escritas do próprio assistente) e a rigidez de `parseDbChangeItems` (um
 valor com `)` ou `;`, comum em `created`/`renamed`, não casa o regex e a
 linha de atividade desaparece).
 
+Segunda revisão do PR #100 (2026-11-10) — dois reparos aplicados direto no
+branch. (a) `telegramChunk.ts` ganhou `repairHtmlCut`: a truncagem em
+`HTML_TRUNCATE_CHARS` (3900) só evitava cortar *dentro* de uma tag, mas um
+corte no meio do rótulo de um link (`<a href="…">Nome bem compri`) não está
+"dentro de tag" nenhuma e deixa a tag aberta — o Telegram responde 400
+("can't parse entities"), `tg()` só loga, e a resposta inteira desaparece em
+vez de chegar encurtada. `repairHtmlCut` descarta uma tag/entidade pela
+metade no fim do corte e fecha o `<a>` cujo `</a>` ficou do outro lado; só
+`<a>` é tratado porque é o único elemento que `renderTelegramMessage` emite.
+O loop de chunk não usa o reparo de propósito: uma resposta HTML já vem
+truncada abaixo do limite, logo é sempre um chunk só, e fechar o `<a>` num
+chunk deixaria o seguinte começando com `</a>` órfão. (b) O `onDone` do
+turno de bootstrap e o do nudge de DB change, idênticos palavra por palavra,
+viraram `markUnseenIfAssistantSpoke` em `useChatAgent.ts` — e o comentário
+da chamada de `useDbChangeFeed` que ainda dizia que `isSending` serve de
+supressão foi corrigido (a supressão saiu; o filtro agora é `authored_by`,
+estampado por `insert_moment` a partir do header `x-khaos-author`).
+
+Achados dessa passada que ficaram para o dono decidir (comentados no PR):
+`confirmedMessageIds` em `ChatPanel.tsx` sobrevive ao `clearHistory` e os
+ids de mensagem são posicionais (`model-1`), então um `[[confirm: …]]` que
+caia no mesmo índice depois de limpar o chat nasce com os botões mortos; e
+a linha de atividade mostra UUID cru para moments de `routine` (e para
+`unknown`), porque `EntityChip` não tem variante de routine — exatamente o
+"gibberish" do item 5, num canto estreito. Notadas como sugestão: as frases
+novas da linha de atividade e o "Na fila…" estão em português num painel
+cujo resto é inglês (e o `default` de `describeMoment` devolve o enum cru,
+misturando os dois na mesma lista), e vários `[[confirm: …]]` numa resposta
+só rendem teclado para o último no Telegram, enquanto o app renderiza todos.
+
 Pendente: o usuário dizer **"approved"**.
 
 ## Resolved

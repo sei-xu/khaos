@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findChunkEnd } from './telegramChunk';
+import { findChunkEnd, repairHtmlCut } from './telegramChunk';
 
 describe('findChunkEnd', () => {
   it('returns the text length when it already fits', () => {
@@ -25,5 +25,30 @@ describe('findChunkEnd', () => {
     const end = findChunkEnd(text, 20);
     const before = text.slice(0, end);
     expect(before.includes('&') ? before.includes('&amp;') : true).toBe(true);
+  });
+});
+
+describe('repairHtmlCut', () => {
+  it('closes an <a> whose </a> fell past the cut', () => {
+    // The shape a truncated reply hits: the limit lands in the middle of a
+    // link label, where findChunkEnd sees nothing "inside a tag" and cuts.
+    const full = `<a href="https://example.com/p">Nome bem comprido da task</a> resto`;
+    const end = findChunkEnd(full, 40);
+    expect(repairHtmlCut(full.slice(0, end))).toBe(
+      '<a href="https://example.com/p">Nome </a>'
+    );
+  });
+
+  it('drops a half-written tag at the end', () => {
+    expect(repairHtmlCut('texto <a href="https://exa')).toBe('texto ');
+  });
+
+  it('drops a half-written entity at the end', () => {
+    expect(repairHtmlCut('a &amp; b &a')).toBe('a &amp; b ');
+  });
+
+  it('leaves well-formed HTML untouched', () => {
+    const ok = 'feito: <a href="https://example.com/p">Task</a> &amp; mais';
+    expect(repairHtmlCut(ok)).toBe(ok);
   });
 });

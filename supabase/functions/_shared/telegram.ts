@@ -2,7 +2,7 @@
 // scheduled notifier (telegram-notify).
 
 import type { InlineKeyboardButton } from './telegramRender.ts';
-import { findChunkEnd } from './telegramChunk.ts';
+import { findChunkEnd, repairHtmlCut } from './telegramChunk.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
@@ -58,10 +58,14 @@ export async function sendMessage(
   let clean = stripTokens(text) || '(no response)';
   if (opts.html && clean.length > HTML_TRUNCATE_CHARS) {
     const end = findChunkEnd(clean, HTML_TRUNCATE_CHARS);
-    clean = `${clean.slice(0, end)}…`;
+    clean = `${repairHtmlCut(clean.slice(0, end))}…`;
   }
   // Telegram caps a single message at 4096 chars; chunk longer answers,
-  // preferring a break that doesn't fall inside an HTML tag or entity. The
+  // preferring a break that doesn't fall inside an HTML tag or entity. An
+  // HTML reply is already truncated under that cap above, so it is always a
+  // single chunk here — which is why no repairHtmlCut is needed per chunk
+  // (and must not be: closing an <a> in one chunk would leave the next one
+  // starting with an orphaned </a>). The
   // keyboard (if any) only makes sense attached to the last chunk — it's
   // the reply to this specific message.
   const chunks: string[] = [];

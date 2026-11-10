@@ -182,6 +182,20 @@ export function useChatAgent() {
     [activeEntity, enqueueTurn]
   );
 
+  // Both silent turns below (the session-opening bootstrap and the DB-change
+  // nudge) end the same way: a reply nobody was looking at only counts once
+  // the assistant actually said something, so the unread marker is set off
+  // the turn's last message rather than off the turn completing.
+  const markUnseenIfAssistantSpoke = useCallback(
+    (updatedHistory: AgentMessage[] | null) => {
+      const last = updatedHistory?.[updatedHistory.length - 1];
+      if (last?.role === 'assistant' && extractText(last.content)) {
+        markAssistantUnseen();
+      }
+    },
+    [markAssistantUnseen]
+  );
+
   // Fetches the shared history once per mount, then — only if the fetched
   // history is genuinely empty, and only once per page load — runs the
   // opening bootstrap turn. bootstrapClaimedThisLoad guards that second
@@ -202,12 +216,7 @@ export function useChatAgent() {
       enqueueTurn({
         content: `${timeCtx}${BOOTSTRAP_INSTRUCTION}`,
         silent: true,
-        onDone: (updatedHistory) => {
-          const last = updatedHistory?.[updatedHistory.length - 1];
-          if (last?.role === 'assistant' && extractText(last.content)) {
-            markAssistantUnseen();
-          }
-        },
+        onDone: markUnseenIfAssistantSpoke,
       });
     });
 
@@ -221,9 +230,10 @@ export function useChatAgent() {
   // marking a task done in TaskDetailModal. See useDbChangeFeed.ts /
   // changeWatcher.ts for the buffering/gating; this just runs a silent turn
   // with the batch summary once it clears the gate, same shape as the
-  // bootstrap turn above. isSending doubles as "a turn is in flight" for
-  // that hook's own suppression window, so the nudge turn's own tool calls
-  // don't re-trigger themselves.
+  // bootstrap turn above. The hook no longer suppresses on a turn being in
+  // flight: the nudge is queued like any other turn, and the assistant's
+  // own writes are excluded by authored_by (insert_moment stamps it from
+  // the x-khaos-author header) rather than by timing.
   useDbChangeFeed({
     enabled: isLoaded,
     onNudge: useCallback(
@@ -235,15 +245,10 @@ export function useChatAgent() {
         enqueueTurn({
           content: prefixedContent,
           silent: true,
-          onDone: (updatedHistory) => {
-            const last = updatedHistory?.[updatedHistory.length - 1];
-            if (last?.role === 'assistant' && extractText(last.content)) {
-              markAssistantUnseen();
-            }
-          },
+          onDone: markUnseenIfAssistantSpoke,
         });
       },
-      [enqueueTurn, markAssistantUnseen]
+      [enqueueTurn, markUnseenIfAssistantSpoke]
     ),
   });
 
