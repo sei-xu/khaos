@@ -87,6 +87,8 @@ export type Database = {
           project_id: string | null
           recurrent: boolean
           routine_id: string | null
+          routine_day: string | null
+          routine_status: string | null
           sync_dirty: boolean
           task_id: string | null
         }
@@ -104,6 +106,8 @@ export type Database = {
           project_id?: string | null
           recurrent?: boolean
           routine_id?: string | null
+          routine_day?: string | null
+          routine_status?: string | null
           sync_dirty?: boolean
           task_id?: string | null
         }
@@ -121,6 +125,8 @@ export type Database = {
           project_id?: string | null
           recurrent?: boolean
           routine_id?: string | null
+          routine_day?: string | null
+          routine_status?: string | null
           sync_dirty?: boolean
           task_id?: string | null
         }

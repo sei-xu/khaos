@@ -7,13 +7,22 @@
 // app imported from here before the split, so call sites are unchanged.
 import { supabase } from '../supabaseClient';
 import { searchSchema } from './schemaSearch';
+import { DEFAULT_ROUTINE_TIMEZONE } from '../routines/occurrences';
 import { executeTool as coreExecuteTool } from './toolsCore';
 
 export function executeTool(
   rawName: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  return coreExecuteTool({ db: supabase, searchSchema }, rawName, args);
+  return coreExecuteTool(
+    // Fixed, not the device's getTimezone(): the routine grid is a property
+    // of the owner's calendar (routine_day, the dedup key, is the local day
+    // in this zone), not of whichever device happens to call this tool —
+    // see DEFAULT_ROUTINE_TIMEZONE's comment.
+    { db: supabase, searchSchema, timezone: DEFAULT_ROUTINE_TIMEZONE },
+    rawName,
+    args
+  );
 }
 
 export {
@@ -21,10 +30,12 @@ export {
   READ_TOOL_DEFINITIONS,
   WRITE_TOOL_DEFINITIONS,
   OVERSIGHT_TOOL_DEFINITIONS,
+  ROUTINE_TOOL_DEFINITIONS,
   TOOL_DEFINITIONS,
   READ_TOOLS,
   WRITE_TOOLS,
   OVERSIGHT_TOOLS,
+  ROUTINE_TOOLS,
   normalizeToolName,
   coerceFilters,
   coerceValues,
