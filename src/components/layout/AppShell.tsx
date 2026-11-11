@@ -463,7 +463,11 @@ function AppShellLayout() {
             className="absolute inset-0 bg-black/60"
             onClick={() => setChatSheetOpen(false)}
           />
-          <div className="border-nyx-700 bg-nyx-900 shadow-panel relative flex h-[88vh] flex-col rounded-t-2xl border-t">
+          {/* dvh, not vh: vh is the layout viewport, which doesn't shrink
+              when the mobile keyboard opens — the sheet (and the textarea
+              inside it) would then sit partly behind the keyboard. dvh
+              tracks the actual visible viewport. */}
+          <div className="border-nyx-700 bg-nyx-900 shadow-panel relative flex h-[88dvh] flex-col rounded-t-2xl border-t">
             <ChatPanel onRequestClose={() => setChatSheetOpen(false)} />
           </div>
         </div>

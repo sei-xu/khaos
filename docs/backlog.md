@@ -61,6 +61,7 @@ work that grows out of them. Roadmap phases live in
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 | [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 | [Versionamento do khaos: bump no PR, não por workflow](#versionamento-do-khaos-bump-no-pr-não-por-workflow) | 2026-10-29 |
+| [Melhorias no chat](#melhorias-no-chat) | 2026-11-09 |
 
 ---
 
@@ -2155,6 +2156,128 @@ fora das PRs" descrevem a regra anterior.
 Pendente: o usuário dizer **"approved"**. Não verificado: o fluxo real do
 Ḫprj bumpando um PR do khaos depois desta mudança (só confere no próximo
 PR gerenciado).
+
+## Melhorias no chat
+
+started 2026-11-09
+
+Pedido do usuário, cinco itens sobre o chat: (1) scroll horizontal ao focar
+o textarea no mobile; (2) fila de mensagens — o chat hoje recusa/descarta
+uma mensagem enquanto processa outra; (3) confirmações devem vir com
+botões, no app e no Telegram; (4) estilizar objetos (tasks, seções,
+projetos) nas mensagens, com link no Telegram; (5) a mensagem que aparece
+no chat quando uma ação é feita fora dele (ex: marcar tarefa `done` no
+modal) parece "gibberish".
+
+Investigação completa antes de implementar — causa raiz de cada item:
+
+- ~~(1) Duas causas: o textarea usava o token de 14px (`--text-body`), e
+  iOS Safari dá zoom automático em qualquer campo focado com
+  `font-size < 16px` — isso *é* o "expande para 100% da tela"; e as bolhas
+  de mensagem não quebravam uma string longa sem espaço (UUID, URL),
+  estourando a largura do painel independente do foco.~~ Corrigido:
+  textarea usa `text-base` (16px) abaixo de `lg:`, bolhas ganham
+  `break-words`/`overflow-wrap: anywhere`, scroll container ganha
+  `overflow-x-hidden`, e o sheet mobile trocou `88vh` por `88dvh` para o
+  teclado virtual não empurrar o layout.
+- ~~(2) Impossível por construção: `sendMessage` recusava
+  (`if (isSending) return`) e descartava a entrada; bootstrap e o nudge de
+  mudança de banco disputavam o mesmo `runWithUserContent` direto.~~
+  Corrigido: `src/lib/chat/turnQueue.ts` é uma fila FIFO serial (testada);
+  `sendMessage` sempre aceita agora e mostra a mensagem como bolha "na
+  fila" imediatamente; bootstrap e nudge passam pela mesma fila.
+- ~~(3) Não existia gate de botões nem no app nem no Telegram — a
+  confirmação é conversacional, por texto. Decisão: não ressuscitar o gate
+  de confirmação por tool removido no commit `3ccd29f` (contrariaria uma
+  decisão já tomada); a confirmação conversacional ganha botões.~~
+  Corrigido: token `[[confirm: A | B | C]]` (`entityRefs.ts`); `ChatPanel`
+  renderiza botões na última mensagem do assistente; no Telegram,
+  `inline_keyboard` + tratamento de `callback_query` (antes ignorado pelo
+  webhook).
+- ~~(4) `section` não era um tipo de token (só task/project/event); no
+  Telegram os tokens eram apagados (`stripTokens`) e o prompt de canal
+  proibia emiti-los.~~ Corrigido: `section` é o quarto tipo de token
+  (card linka para o projeto pai, já que seção não tem rota própria); no
+  Telegram, `renderForTelegram` (`_shared/khaos.ts` +
+  `_shared/telegramRender.ts`) resolve cada token com um `SELECT`
+  service-role e injeta `<a href>` via a nova env var `KHAOS_APP_URL`
+  (`parse_mode: 'HTML'`), degradando para apagar o token quando a env var
+  não está configurada ou o id não resolve.
+- ~~(5) Bug confirmado: `useChatAgent.ts` apagava o prefixo `[DB Change:
+  ...]` com um regex não-guloso ancorado no primeiro `]` — que, com mais
+  de um moment no lote, parava no `]` que fecha o `[user]` do primeiro
+  moment, deixando o resto (um segundo moment + o `]` real do prefixo)
+  como se fosse texto digitado pelo usuário.~~ Corrigido:
+  `src/lib/chat/turnPrefix.ts` conta profundidade de colchetes em vez de
+  parar no primeiro `]` (testado com o caso exato do bug); o turno passa a
+  renderizar como uma linha de atividade estilizada (ícone + frase humana
+  + `EntityChip`) em vez de bolha de usuário raspada.
+
+Também: `src/lib/chat/useDbChangeFeed.ts` não suprime mais o buffer
+enquanto um turno está em voo (isso **perdia** lotes que se fechassem
+durante um turno, em vez de só esperar) — agora que o nudge passa pela
+fila, essa corrida não existe mais. Verificado contra `docs/05-roadmap.md`:
+nenhuma fase contraria estes itens. Testes: `turnQueue.test.ts`,
+`turnPrefix.test.ts` (regressão do bug exato), `entityRefs.test.ts`
+(retroativo + token de seção/confirmação, não tinha teste nenhum antes),
+`telegramRender.test.ts`. Suíte completa, typecheck, lint e `deno check`
+nos arquivos Deno novos/alterados passaram.
+
+Suposições registradas (decidido sem parar para perguntar, por rodar sem
+supervisão): labels de botão de confirmação são mandados de volta
+verbatim como o próximo turno; sem `KHAOS_APP_URL` configurada ou id não
+resolvido, o Telegram volta a apagar o token (nunca manda link quebrado);
+`KHAOS_APP_URL` é nova env var, default ausente (sem links) — deploys
+existentes degradam em vez de quebrar.
+
+Revisão do PR #100 aplicou três correções direto no branch: as opções de
+fallback do `(reply by typing: ...)` passavam sem escape num envio com
+`parse_mode: HTML` (um `<` ou `&` no label faria o Telegram recusar a
+mensagem inteira); `messagesRef` em `useChatAgent.ts` passou a ser
+atualizado à mão, porque a fila começa o turno seguinte no microtask após
+o anterior e um turno que falhe antes do primeiro `await` deixaria o
+próximo mandar/persistir um histórico sem ele; e o trio
+`renderForTelegram` + `sendMessage({html, inlineKeyboard})`, repetido em
+três call sites, virou `sendRenderedMessage` em `_shared/khaos.ts`.
+Dois achados ficaram para o dono decidir, comentados no PR: a supressão
+removida em `useDbChangeFeed.ts` (o payload Realtime do INSERT traz
+`authored_by = 'user'`, porque `stampAssistantMoments` corrige isso num
+UPDATE posterior — então o filtro por `authored_by` sozinho não barra as
+escritas do próprio assistente) e a rigidez de `parseDbChangeItems` (um
+valor com `)` ou `;`, comum em `created`/`renamed`, não casa o regex e a
+linha de atividade desaparece).
+
+Segunda revisão do PR #100 (2026-11-10) — dois reparos aplicados direto no
+branch. (a) `telegramChunk.ts` ganhou `repairHtmlCut`: a truncagem em
+`HTML_TRUNCATE_CHARS` (3900) só evitava cortar *dentro* de uma tag, mas um
+corte no meio do rótulo de um link (`<a href="…">Nome bem compri`) não está
+"dentro de tag" nenhuma e deixa a tag aberta — o Telegram responde 400
+("can't parse entities"), `tg()` só loga, e a resposta inteira desaparece em
+vez de chegar encurtada. `repairHtmlCut` descarta uma tag/entidade pela
+metade no fim do corte e fecha o `<a>` cujo `</a>` ficou do outro lado; só
+`<a>` é tratado porque é o único elemento que `renderTelegramMessage` emite.
+O loop de chunk não usa o reparo de propósito: uma resposta HTML já vem
+truncada abaixo do limite, logo é sempre um chunk só, e fechar o `<a>` num
+chunk deixaria o seguinte começando com `</a>` órfão. (b) O `onDone` do
+turno de bootstrap e o do nudge de DB change, idênticos palavra por palavra,
+viraram `markUnseenIfAssistantSpoke` em `useChatAgent.ts` — e o comentário
+da chamada de `useDbChangeFeed` que ainda dizia que `isSending` serve de
+supressão foi corrigido (a supressão saiu; o filtro agora é `authored_by`,
+estampado por `insert_moment` a partir do header `x-khaos-author`).
+
+Achados dessa passada que ficaram para o dono decidir (comentados no PR):
+`confirmedMessageIds` em `ChatPanel.tsx` sobrevive ao `clearHistory` e os
+ids de mensagem são posicionais (`model-1`), então um `[[confirm: …]]` que
+caia no mesmo índice depois de limpar o chat nasce com os botões mortos; e
+a linha de atividade mostra UUID cru para moments de `routine` (e para
+`unknown`), porque `EntityChip` não tem variante de routine — exatamente o
+"gibberish" do item 5, num canto estreito. Notadas como sugestão: as frases
+novas da linha de atividade e o "Na fila…" estão em português num painel
+cujo resto é inglês (e o `default` de `describeMoment` devolve o enum cru,
+misturando os dois na mesma lista), e vários `[[confirm: …]]` numa resposta
+só rendem teclado para o último no Telegram, enquanto o app renderiza todos.
+
+Pendente: o usuário dizer **"approved"**.
 
 ## Resolved
 

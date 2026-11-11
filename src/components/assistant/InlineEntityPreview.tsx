@@ -2,7 +2,7 @@ import { StatusBadge, PriorityBadge, DueBadge } from '../common/ui';
 import type { Status, Priority } from '../../lib/types';
 
 interface InlineEntityPreviewProps {
-  entityType: 'task' | 'project';
+  entityType: 'task' | 'project' | 'section';
   data: Record<string, unknown>;
 }
 
