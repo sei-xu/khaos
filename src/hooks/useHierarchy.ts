@@ -12,6 +12,7 @@ import { momentsApi } from '../lib/api/moments';
 import { orderFromEdges } from '../lib/reorder';
 import type {
   Id,
+  Project,
   Section,
   SectionsSequence,
   SectionPatch,
@@ -131,7 +132,22 @@ export function useProjectMutations() {
     update: useMutation({
       mutationFn: ({ id, patch }: { id: Id; patch: ProjectPatch }) =>
         projectsApi.update(id, patch),
-      onSuccess: invalidate,
+      // Optimistic: the server's own echo of this update (via invalidate,
+      // below) must never be allowed to be the ONLY thing that lands the
+      // edit on screen — that round-trip is what used to make fast typing
+      // in the name field flicker/revert between keystrokes.
+      onMutate: async ({ id, patch }) => {
+        await qc.cancelQueries({ queryKey: ['projects'] });
+        const previous = qc.getQueryData<Project[]>(['projects']);
+        qc.setQueryData<Project[]>(['projects'], (old) =>
+          old?.map((p) => (p.id === id ? { ...p, ...patch } : p))
+        );
+        return { previous };
+      },
+      onError: (_err, _vars, context) => {
+        if (context?.previous) qc.setQueryData(['projects'], context.previous);
+      },
+      onSettled: invalidate,
     }),
     remove: useMutation({
       mutationFn: (id: Id) => projectsApi.remove(id),
@@ -151,7 +167,21 @@ export function useSectionMutations() {
     update: useMutation({
       mutationFn: ({ id, patch }: { id: Id; patch: SectionPatch }) =>
         sectionsApi.update(id, patch),
-      onSuccess: invalidate,
+      // Optimistic, same reasoning as useProjectMutations().update: the
+      // refetch this triggers must never be the only path by which the
+      // edit shows up, or a slow round-trip reverts fast typing mid-edit.
+      onMutate: async ({ id, patch }) => {
+        await qc.cancelQueries({ queryKey: ['sections'] });
+        const previous = qc.getQueryData<Section[]>(['sections']);
+        qc.setQueryData<Section[]>(['sections'], (old) =>
+          old?.map((s) => (s.id === id ? { ...s, ...patch } : s))
+        );
+        return { previous };
+      },
+      onError: (_err, _vars, context) => {
+        if (context?.previous) qc.setQueryData(['sections'], context.previous);
+      },
+      onSettled: invalidate,
     }),
     remove: useMutation({
       mutationFn: (id: Id) => sectionsApi.remove(id),
@@ -197,7 +227,8 @@ export function useTaskItemMutations(taskId: Id) {
   const qc = useQueryClient();
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: ['taskItems', taskId] });
-  const onError = (err: unknown) => console.error('Task item mutation failed:', err);
+  const onError = (err: unknown) =>
+    console.error('Task item mutation failed:', err);
   return {
     create: useMutation({
       mutationFn: (payload: NewTaskItem) => taskItemsApi.create(payload),

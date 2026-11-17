@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSyncActiveEntity } from '../../lib/activeEntityContext';
 import clsx from 'clsx';
@@ -76,6 +76,7 @@ import {
   useBacklogPosition,
 } from '../../hooks/useBacklog';
 import { useTaskSequence, useSequenceMutations } from '../../hooks/useSequence';
+import { useDebouncedField } from '../../hooks/useDebouncedField';
 import { wouldCreateCycle } from '../../lib/sequenceGraph';
 import type {
   Id,
@@ -424,48 +425,6 @@ function ItemProgressDots({ done, total }: { done: number; total: number }) {
       </span>
     </span>
   );
-}
-
-// Local draft + debounced commit — lets text fields feel instant while
-// typing without firing a mutation on every keystroke. Flushes immediately
-// on blur so nothing is lost when the user tabs away or closes the modal.
-function useDebouncedField<T>(
-  value: T,
-  commit: (next: T) => void,
-  delay = 500
-) {
-  const [draft, setDraft] = useState(value);
-  const draftRef = useRef(value);
-  const dirtyRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => {
-    if (!dirtyRef.current) {
-      setDraft(value);
-      draftRef.current = value;
-    }
-  }, [value]);
-
-  function set(next: T) {
-    setDraft(next);
-    draftRef.current = next;
-    dirtyRef.current = true;
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      dirtyRef.current = false;
-      commit(next);
-    }, delay);
-  }
-
-  function flush() {
-    clearTimeout(timerRef.current);
-    if (dirtyRef.current) {
-      dirtyRef.current = false;
-      commit(draftRef.current);
-    }
-  }
-
-  return [draft, set, flush] as const;
 }
 
 // Same numbers as minutesToHuman, but "1h30m" instead of "1h 30m" — used
