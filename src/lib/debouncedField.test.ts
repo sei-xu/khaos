@@ -98,6 +98,23 @@ describe('createDebouncedField', () => {
     expect(field.getDraft()).toBe('abcde');
   });
 
+  it('commits through the callback set last, not the one it was built with', () => {
+    const stale = vi.fn();
+    const fresh = vi.fn();
+    const field = createDebouncedField({
+      value: '',
+      commit: stale,
+      delay: 500,
+    });
+
+    field.setCommit(fresh);
+    field.set('abc');
+    vi.advanceTimersByTime(500);
+
+    expect(stale).not.toHaveBeenCalled();
+    expect(fresh).toHaveBeenCalledWith('abc');
+  });
+
   it('cancel discards the pending edit and commits nothing', () => {
     const commit = vi.fn();
     const field = createDebouncedField({ value: 'abc', commit, delay: 500 });

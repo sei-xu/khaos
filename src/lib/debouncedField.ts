@@ -6,6 +6,11 @@
 // back over whatever the user is still typing.
 export interface DebouncedFieldController<T> {
   getDraft(): T;
+  // The React wrapper outlives any single render, so it re-points the
+  // controller at the current render's callback instead of letting it hold
+  // the closure it was created with (which keeps seeing that render's
+  // props — see useDebouncedField.ts).
+  setCommit(next: (value: T) => void): void;
   set(next: T): void;
   flush(): void;
   receiveExternal(next: T): void;
@@ -14,13 +19,14 @@ export interface DebouncedFieldController<T> {
 
 export function createDebouncedField<T>({
   value,
-  commit,
+  commit: initialCommit,
   delay = 500,
 }: {
   value: T;
   commit: (next: T) => void;
   delay?: number;
 }): DebouncedFieldController<T> {
+  let commit = initialCommit;
   let draft = value;
   let lastCommitted = value;
   let dirty = false;
@@ -73,5 +79,14 @@ export function createDebouncedField<T>({
     lastCommitted = resetTo;
   }
 
-  return { getDraft: () => draft, set, flush, receiveExternal, cancel };
+  return {
+    getDraft: () => draft,
+    setCommit: (next: (value: T) => void) => {
+      commit = next;
+    },
+    set,
+    flush,
+    receiveExternal,
+    cancel,
+  };
 }

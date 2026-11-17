@@ -18,6 +18,17 @@ export function useDebouncedField<T>(
   const [controller] = useState(() =>
     createDebouncedField({ value, commit, delay })
   );
+
+  // The controller is created once, so it would otherwise keep calling the
+  // first render's `commit` closure — which keeps seeing that render's
+  // props forever. In ProjectDetailPage the first render happens while the
+  // projects query is still loading, so `project` is undefined in it and
+  // every later rename would be committed by a closure that does nothing.
+  // Re-point it at the current callback after each render; every commit
+  // path (timer, blur/Enter, unmount cleanup) runs after this effect.
+  useEffect(() => {
+    controller.setCommit(commit);
+  });
   const [draft, setDraft] = useState(value);
 
   // Adjust state during render (React's documented pattern for deriving
