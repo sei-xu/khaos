@@ -61,43 +61,35 @@ describe('createDebouncedField', () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
-  it('applies an external value while the draft is clean', () => {
+  it('shouldAccept is true while the draft is clean', () => {
     const commit = vi.fn();
     const field = createDebouncedField({ value: 'abc', commit, delay: 500 });
 
-    field.receiveExternal('xyz');
-    expect(field.getDraft()).toBe('xyz');
+    expect(field.shouldAccept()).toBe(true);
   });
 
-  it('ignores an external value while dirty or a commit is in flight', () => {
+  it('shouldAccept is false while dirty or a commit is in flight', () => {
     // Every real call site commits asynchronously (mutateAsync) so inFlight
     // stays true until the promise settles — mirror that contract here.
     const commit = vi.fn(() => new Promise<void>(() => {}));
     const field = createDebouncedField({ value: 'abc', commit, delay: 500 });
 
     field.set('abcd');
-    field.receiveExternal('abc'); // stale server echo mid-edit
-    expect(field.getDraft()).toBe('abcd');
+    expect(field.shouldAccept()).toBe(false); // dirty
 
-    vi.advanceTimersByTime(500); // commit fires, now in flight
+    field.flush(); // commit fires, now in flight
     expect(commit).toHaveBeenCalledWith('abcd');
-    field.receiveExternal('abc'); // still the old echo
-    expect(field.getDraft()).toBe('abcd');
+    expect(field.shouldAccept()).toBe(false); // in flight
   });
 
-  it('resumes following the server once the echo matches the last commit', () => {
+  it('shouldAccept is true again once the commit settles', () => {
     const commit = vi.fn();
     const field = createDebouncedField({ value: 'abc', commit, delay: 500 });
 
     field.set('abcd');
-    vi.advanceTimersByTime(500);
+    field.flush();
     expect(commit).toHaveBeenCalledWith('abcd');
-
-    field.receiveExternal('abcd'); // echo caught up
-    expect(field.getDraft()).toBe('abcd');
-
-    field.receiveExternal('abcde'); // server-side change now flows through
-    expect(field.getDraft()).toBe('abcde');
+    expect(field.shouldAccept()).toBe(true);
   });
 
   it('commits through the callback set last, not the one it was built with', () => {
@@ -123,7 +115,7 @@ describe('createDebouncedField', () => {
 
     field.set('abcd');
     field.cancel('abc');
-    expect(field.getDraft()).toBe('abc');
+    expect(field.shouldAccept()).toBe(true);
 
     vi.advanceTimersByTime(1000);
     expect(commit).not.toHaveBeenCalled();

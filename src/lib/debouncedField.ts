@@ -5,7 +5,6 @@
 // bug this exists to fix: a value prop driven straight by a refetch snaps
 // back over whatever the user is still typing.
 export interface DebouncedFieldController<T> {
-  getDraft(): T;
   // The React wrapper outlives any single render, so it re-points the
   // controller at the current render's callback instead of letting it hold
   // the closure it was created with (which keeps seeing that render's
@@ -13,10 +12,9 @@ export interface DebouncedFieldController<T> {
   setCommit(next: (value: T) => void | Promise<unknown>): void;
   set(next: T): void;
   flush(): void;
-  receiveExternal(next: T): void;
-  // Pure query, no mutation — same guard receiveExternal applies, but
-  // callable from a render body (e.g. useDebouncedField) without touching
-  // the controller's own state. See useDebouncedField.ts.
+  // Pure query, no mutation — callable from a render body (e.g.
+  // useDebouncedField) without touching the controller's own state. See
+  // useDebouncedField.ts.
   shouldAccept(): boolean;
   cancel(resetTo: T): void;
 }
@@ -29,7 +27,7 @@ export function createDebouncedField<T>({
   value: T;
   // May return a promise (e.g. mutateAsync) — inFlight clears when the
   // commit actually settles, never from matching the server's echoed
-  // value (see receiveExternal below).
+  // value (see shouldAccept below).
   commit: (next: T) => void | Promise<unknown>;
   delay?: number;
 }): DebouncedFieldController<T> {
@@ -41,10 +39,17 @@ export function createDebouncedField<T>({
 
   function runCommit(next: T) {
     inFlight = true;
-    const result = commit(next);
     const settle = () => {
       inFlight = false;
     };
+    let result: void | Promise<unknown>;
+    try {
+      result = commit(next);
+    } catch (error) {
+      console.error(error);
+      settle();
+      return;
+    }
     if (result && typeof (result as Promise<unknown>).then === 'function') {
       (result as Promise<unknown>).then(settle, settle);
     } else {
@@ -78,11 +83,6 @@ export function createDebouncedField<T>({
     return !dirty && !inFlight;
   }
 
-  function receiveExternal(next: T) {
-    if (!shouldAccept()) return;
-    draft = next;
-  }
-
   function cancel(resetTo: T) {
     clearTimeout(timer);
     dirty = false;
@@ -91,13 +91,11 @@ export function createDebouncedField<T>({
   }
 
   return {
-    getDraft: () => draft,
     setCommit: (next: (value: T) => void | Promise<unknown>) => {
       commit = next;
     },
     set,
     flush,
-    receiveExternal,
     shouldAccept,
     cancel,
   };

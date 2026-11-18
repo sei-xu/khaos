@@ -63,8 +63,8 @@ export function useDebouncedField<T>(
   // all of which run inside handlers, never during render.
   const [prevValue, setPrevValue] = useState(value);
   if (value !== prevValue) {
-    setPrevValue(value);
     if (controller.shouldAccept()) {
+      setPrevValue(value);
       setDraft(value);
     }
   }
