@@ -52,7 +52,6 @@ work that grows out of them. Roadmap phases live in
 | [Quick add — dialog atualizado e tarefa aberta após criar](#quick-add--dialog-atualizado-e-tarefa-aberta-após-criar) | 2026-10-07 |
 | [Backlog ordenado de tarefas (ordem do Today)](#backlog-ordenado-de-tarefas-ordem-do-today) | 2026-10-08 |
 | [Today: reordenar pills sem posição na fila (Marked)](#today-reordenar-pills-sem-posição-na-fila-marked) | 2026-10-14 |
-| [Campo de due: digitar o ano reinterpreta a cada dígito](#campo-de-due-digitar-o-ano-reinterpreta-a-cada-dígito) | 2026-10-14 |
 | [Nine unmerged branches — triage before cleanup](#nine-unmerged-branches--triage-before-cleanup) | 2026-09-30 |
 | [Daily review — stale in-review prioritization](#daily-review--stale-in-review-prioritization) | 2026-08-06 |
 | [`npm run lint` fails on main](#npm-run-lint-fails-on-main) | 2026-09-30 |
@@ -61,6 +60,8 @@ work that grows out of them. Roadmap phases live in
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 | [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 | [Versionamento do khaos: bump no PR, não por workflow](#versionamento-do-khaos-bump-no-pr-não-por-workflow) | 2026-10-29 |
+| [Editar nome da seção: input salva a cada toque e embaralha a digitação](#editar-nome-da-seção-input-salva-a-cada-toque-e-embaralha-a-digitação) | 2026-11-17 |
+| [Campo de due: digitar o ano reinterpreta a cada dígito](#campo-de-due-digitar-o-ano-reinterpreta-a-cada-dígito) | 2026-10-14 |
 
 ---
 
@@ -1840,28 +1841,6 @@ preview passaram justamente porque usaram pills já enfileiradas.
 
 ---
 
-## Campo de due: digitar o ano reinterpreta a cada dígito
-
-Início: 2026-10-14. Aberto, bug de baixa gravidade (encontrado nos testes de
-navegador do #93, não relacionado a ele).
-
-No modal da task, o campo Due (`dd/mm/aaaa`) reinterpreta o valor a cada
-dígito digitado no ano: digitar `13102026` resultou em `13/10/1902`, e
-digitar `2026` sobre o ano gerou `1906`. As setas para cima no segmento do
-ano também partem do valor já deformado (ficou `1907` depois de 120
-incrementos de `1906`). Suspeita: o `onChange` do `<input type="date">`
-persiste cada valor parcial (`0002`, `0020`, `0202`…) e o estado reescreve o
-campo com o ano normalizado a dois dígitos (`0002` → `1902`) antes de o
-usuário terminar de digitar.
-
-**Direção.** Manter um rascunho local do campo e só persistir quando a data
-estiver completa e válida (ano com 4 dígitos), ou no `blur`; limpar um
-segmento (`Backspace`) já zera o valor corretamente e deve continuar assim.
-Convém checar se o editor de target (mesmo tipo de campo) tem o mesmo
-sintoma.
-
----
-
 ## Assistente detecta mudanças no banco e sugere próxima ação
 
 started 2026-10-24
@@ -2155,6 +2134,107 @@ fora das PRs" descrevem a regra anterior.
 Pendente: o usuário dizer **"approved"**. Não verificado: o fluxo real do
 Ḫprj bumpando um PR do khaos depois desta mudança (só confere no próximo
 PR gerenciado).
+
+---
+
+## Editar nome da seção: input salva a cada toque e embaralha a digitação
+
+started 2026-11-17
+
+Pedido do usuário: "editar nome da seção é um input que salva a cada toque e
+acaba misturando as letras durante a digitação".
+
+**Causa raiz.** O input do nome da seção (`SectionColumn.tsx`) e o do nome
+do projeto (`ProjectDetailPage.tsx`) eram totalmente controlados pelo
+servidor: `value={section.name}` / `value={project.name}`, com
+`onChange` disparando `updateSection.mutate`/`updateProject.mutate` a cada
+tecla. Cada mutation faz `invalidateQueries(['sections'])` (ou `['projects']`),
+que refaz o fetch e reescreve o `value` do input com o que o servidor
+devolveu; como o round-trip é mais lento que a digitação, o React
+re-renderiza entre duas teclas com o nome antigo/parcial e o caret salta
+para o fim — as letras saem embaralhadas/revertidas. Agravantes: cada tecla
+era um `UPDATE` no Postgres, e o trigger `moment_renamed_sections`
+(`20261024010000_moments_full_coverage.sql`) grava um moment `renamed` por
+tecla (confirmado: o trigger só tem a guarda `old.name is distinct from
+new.name`, que bloqueia updates sem mudança real, não updates parciais
+tecla-a-tecla — digitar "Planejamento" ainda geraria ~12 moments),
+poluindo o feed e o `changeWatcher` do assistente.
+
+**O que mudou.** `useDebouncedField` (antes privado dentro de
+`TaskDetailModal.tsx`, usado só no nome/estimate da task) foi promovido a
+hook compartilhado, dividido em duas camadas:
+
+- `src/lib/debouncedField.ts` — controller puro `createDebouncedField({ value, commit, delay })`,
+  sem React: `set`/`flush`/`receiveExternal`/`cancel`, com a regra de
+  reconciliação endurecida contra o "snap-back residual" — enquanto há
+  rascunho sujo **ou** um commit em voo, um valor externo (o eco do
+  refetch) é ignorado; só volta a seguir o servidor quando o valor
+  recebido bate com o último valor commitado.
+- `src/hooks/useDebouncedField.ts` — wrapper React fino em torno do
+  controller (mesma assinatura `[draft, set, flush]` de antes, agora com
+  um 4º retorno, `cancel`), com flush automático no unmount para não
+  perder o que foi digitado ao navegar/fechar.
+
+`TaskDetailModal` passou a importar o hook compartilhado (comportamento
+idêntico ali). `SectionColumn` e `ProjectDetailPage` passaram a usar
+rascunho local + `onBlur` para flush + Enter (commit imediato) + Escape
+(descarta o rascunho, volta ao nome do servidor). `useSectionMutations().update`
+e `useProjectMutations().update` (`src/hooks/useHierarchy.ts`) ganharam
+`onMutate` otimista (grava o patch no cache antes do round-trip, com
+rollback em `onError`) — além de fechar o bug, deixa status/priority/target
+da seção e status/priority do projeto instantâneos também, já que
+compartilham a mesma mutation.
+
+**Testes.** `src/lib/debouncedField.test.ts` (vitest, `vi.useFakeTimers`,
+sem jsdom) cobre: commit só após a janela de silêncio; debounce reiniciado
+a cada `set`; `flush` comitando na hora e cancelando o timer; `flush` sem
+edição suja não comitando nada; valor externo aceito quando limpo e
+ignorado enquanto sujo ou em voo; valor externo igual ao último commitado
+reassumindo o controle; `cancel` descartando sem comitar. `npm run
+typecheck`, `npm run test` (suíte completa) e `npm run lint` passam.
+
+**Não verificado nesta sessão:** checagem manual no browser (digitar
+rápido um nome de seção/projeto e confirmar visualmente ordem das letras,
+um único `UPDATE` e um único moment `renamed`) — esta sessão roda sem
+Supabase de desenvolvimento conectado; a lógica do bug e da correção foi
+confirmada por leitura de código e pelos testes automatizados do
+controller, que reproduzem exatamente a janela de corrida descrita.
+
+Ligado a [Campo de due: digitar o ano reinterpreta a cada dígito](#campo-de-due-digitar-o-ano-reinterpreta-a-cada-dígito) —
+mesma família (persistir valor parcial a cada tecla), mas em
+`<input type="date">`; aquele item segue com direção própria e fica fora
+deste escopo.
+
+---
+
+## Campo de due: digitar o ano reinterpreta a cada dígito
+
+Início: 2026-10-14. Aberto, bug de baixa gravidade (encontrado nos testes de
+navegador do #93, não relacionado a ele).
+
+No modal da task, o campo Due (`dd/mm/aaaa`) reinterpreta o valor a cada
+dígito digitado no ano: digitar `13102026` resultou em `13/10/1902`, e
+digitar `2026` sobre o ano gerou `1906`. As setas para cima no segmento do
+ano também partem do valor já deformado (ficou `1907` depois de 120
+incrementos de `1906`). Suspeita: o `onChange` do `<input type="date">`
+persiste cada valor parcial (`0002`, `0020`, `0202`…) e o estado reescreve o
+campo com o ano normalizado a dois dígitos (`0002` → `1902`) antes de o
+usuário terminar de digitar.
+
+**Direção.** Manter um rascunho local do campo e só persistir quando a data
+estiver completa e válida (ano com 4 dígitos), ou no `blur`; limpar um
+segmento (`Backspace`) já zera o valor corretamente e deve continuar assim.
+Convém checar se o editor de target (mesmo tipo de campo) tem o mesmo
+sintoma.
+
+**Nota de ligação (2026-11-17):** mesma família de bug que
+[Editar nome da seção: input salva a cada toque e embaralha a digitação](#editar-nome-da-seção-input-salva-a-cada-toque-e-embaralha-a-digitação)
+(persistir valor parcial a cada tecla) — lá eram inputs de texto
+totalmente controlados pelo servidor, aqui é um `<input type="date">`
+reinterpretando dígito a dígito. A correção lá (rascunho local +
+debounce) não se aplica direto aqui porque o problema não é round-trip
+lento, é o próprio `<input type="date">` normalizando um valor ainda
+incompleto; este item segue com direção própria.
 
 ## Resolved
 

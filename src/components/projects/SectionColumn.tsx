@@ -26,6 +26,7 @@ import {
   useTasksSequence,
   useTaskStatusMoments,
 } from '../../hooks/useHierarchy';
+import { useDebouncedTextField } from '../../hooks/useDebouncedField';
 import { buildSequenceRail, collapseHiddenEdges } from '../../lib/sequenceGraph';
 import { infiniteFadeOpacity, daysSince } from '../../lib/infiniteFade';
 import { infiniteSectionOrder } from '../../lib/taskOrder';
@@ -143,6 +144,9 @@ export default function SectionColumn({
   const [newTaskName, setNewTaskName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
+  const { bind: bindName } = useDebouncedTextField(section.name, (name) =>
+    updateSection.mutateAsync({ id: section.id, patch: { name } })
+  );
 
   const settled = section.status === 'done' || section.status === 'cancelled';
   const [collapsed, setCollapsed] = useState(() => settled);
@@ -188,13 +192,7 @@ export default function SectionColumn({
             )}
           </button>
           <input
-            value={section.name}
-            onChange={(e) =>
-              updateSection.mutate({
-                id: section.id,
-                patch: { name: e.target.value },
-              })
-            }
+            {...bindName}
             className="text-nyx-100 min-w-0 flex-1 bg-transparent text-body font-medium focus:outline-none"
           />
           {section.is_infinite && (

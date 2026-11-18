@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSyncActiveEntity } from '../../lib/activeEntityContext';
 import clsx from 'clsx';
@@ -76,6 +76,7 @@ import {
   useBacklogPosition,
 } from '../../hooks/useBacklog';
 import { useTaskSequence, useSequenceMutations } from '../../hooks/useSequence';
+import { useDebouncedField } from '../../hooks/useDebouncedField';
 import { wouldCreateCycle } from '../../lib/sequenceGraph';
 import type {
   Id,
@@ -426,48 +427,6 @@ function ItemProgressDots({ done, total }: { done: number; total: number }) {
   );
 }
 
-// Local draft + debounced commit — lets text fields feel instant while
-// typing without firing a mutation on every keystroke. Flushes immediately
-// on blur so nothing is lost when the user tabs away or closes the modal.
-function useDebouncedField<T>(
-  value: T,
-  commit: (next: T) => void,
-  delay = 500
-) {
-  const [draft, setDraft] = useState(value);
-  const draftRef = useRef(value);
-  const dirtyRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => {
-    if (!dirtyRef.current) {
-      setDraft(value);
-      draftRef.current = value;
-    }
-  }, [value]);
-
-  function set(next: T) {
-    setDraft(next);
-    draftRef.current = next;
-    dirtyRef.current = true;
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      dirtyRef.current = false;
-      commit(next);
-    }, delay);
-  }
-
-  function flush() {
-    clearTimeout(timerRef.current);
-    if (dirtyRef.current) {
-      dirtyRef.current = false;
-      commit(draftRef.current);
-    }
-  }
-
-  return [draft, set, flush] as const;
-}
-
 // Same numbers as minutesToHuman, but "1h30m" instead of "1h 30m" — used
 // only in the right-aligned time column of the log list.
 function minutesToCompactHuman(mins: number | null | undefined): string {
@@ -603,13 +562,18 @@ export default function TaskDetailModal({
     return { name: proj.name, field };
   }
 
-  const [nameDraft, setNameDraft, flushName] = useDebouncedField(
-    task.name,
-    (v) => patch({ name: v })
-  );
-  const [estimateDraft, setEstimateDraft, flushEstimate] = useDebouncedField(
+  const {
+    draft: nameDraft,
+    set: setNameDraft,
+    flush: flushName,
+  } = useDebouncedField(task.name, (v) => patchAsync({ name: v }));
+  const {
+    draft: estimateDraft,
+    set: setEstimateDraft,
+    flush: flushEstimate,
+  } = useDebouncedField(
     task.estimate != null ? String(task.estimate) : '',
-    (v) => patch({ estimate: v ? Number(v) : null })
+    (v) => patchAsync({ estimate: v ? Number(v) : null })
   );
 
   const taskTagLinks = useMemo(
@@ -713,7 +677,7 @@ export default function TaskDetailModal({
     setSeqPicker(null);
   }
 
-  function patch(fields: {
+  type PatchFields = {
     name?: string;
     section_id?: string;
     status?: Status;
@@ -721,8 +685,16 @@ export default function TaskDetailModal({
     estimate?: number | null;
     due?: string | null;
     target?: string | null;
-  }) {
+  };
+
+  function patch(fields: PatchFields) {
     update.mutate({ id: task.id, patch: fields });
+  }
+
+  // Debounced fields (name, estimate) need the commit's promise to know
+  // when it actually settles — see useDebouncedField's inFlight guard.
+  function patchAsync(fields: PatchFields) {
+    return update.mutateAsync({ id: task.id, patch: fields });
   }
 
   function createPendingItem() {

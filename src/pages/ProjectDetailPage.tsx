@@ -52,7 +52,41 @@ import { taskChronoKey } from '../lib/taskOrder';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import TargetEditor from '../components/common/TargetEditor';
 import { useSyncActiveEntity } from '../lib/activeEntityContext';
-import type { Id, Priority, Section, Status, Task } from '../lib/types';
+import { useDebouncedTextField } from '../hooks/useDebouncedField';
+import type {
+  Id,
+  Priority,
+  Project,
+  Section,
+  Status,
+  Task,
+} from '../lib/types';
+
+// Keyed by project id at the call site (see its usage below) so switching
+// the route to a different project remounts this instead of reusing the
+// debounced-field controller — ProjectDetailPage itself doesn't remount on
+// a param change, and reusing the controller across projects let a pending
+// rename for the old project land on the new one. The unmount this forces
+// still flushes the old project's edit via the controller's own cleanup.
+function ProjectNameField({
+  project,
+  onRename,
+}: {
+  project: Project;
+  onRename: (name: string) => void | Promise<unknown>;
+}) {
+  const { bind: bindName } = useDebouncedTextField(project.name, onRename);
+  return (
+    <input
+      {...bindName}
+      // font-normal, not the page-title default -- this borrows
+      // font-display/text-display-lg's size but is an editable
+      // input, not a static h1, and shouldn't inherit the display
+      // font's heavier default weight the way real page titles do.
+      className="font-display text-nyx-100 w-full bg-transparent text-display-lg font-normal focus:outline-none"
+    />
+  );
+}
 
 interface SectionBlockProps {
   sectionId: Id;
@@ -292,19 +326,12 @@ export default function ProjectDetailPage() {
   return (
     <div className="px-6 py-5">
       <div className="mb-5">
-        <input
-          value={project.name}
-          onChange={(e) =>
-            updateProject.mutate({
-              id: projectId,
-              patch: { name: e.target.value },
-            })
+        <ProjectNameField
+          key={project.id}
+          project={project}
+          onRename={(name) =>
+            updateProject.mutateAsync({ id: project.id, patch: { name } })
           }
-          // font-normal, not the page-title default -- this borrows
-          // font-display/text-display-lg's size but is an editable
-          // input, not a static h1, and shouldn't inherit the display
-          // font's heavier default weight the way real page titles do.
-          className="font-display text-nyx-100 w-full bg-transparent text-display-lg font-normal focus:outline-none"
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Select

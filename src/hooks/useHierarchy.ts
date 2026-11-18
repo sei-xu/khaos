@@ -1,4 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from '@tanstack/react-query';
 import {
   fieldsApi,
   projectsApi,
@@ -12,6 +18,7 @@ import { momentsApi } from '../lib/api/moments';
 import { orderFromEdges } from '../lib/reorder';
 import type {
   Id,
+  Project,
   Section,
   SectionsSequence,
   SectionPatch,
@@ -100,6 +107,30 @@ export function useOrderedSectionIds(
 
 // ---------- Mutations ----------
 
+// Shared by any list-backed `update` mutation that wants the edit to show
+// up immediately instead of waiting on the refetch this triggers — a slow
+// round-trip must never be the only path by which a fast edit (e.g. typing
+// in a name field) lands on screen.
+function optimisticListPatch<T extends { id: Id }>(
+  qc: QueryClient,
+  key: QueryKey
+) {
+  return {
+    onMutate: async ({ id, patch }: { id: Id; patch: Partial<T> }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<T[]>(key);
+      qc.setQueryData<T[]>(key, (old) =>
+        old?.map((item) => (item.id === id ? { ...item, ...patch } : item))
+      );
+      return { previous };
+    },
+    onError: (_err: unknown, _vars: unknown, context?: { previous?: T[] }) => {
+      if (context?.previous) qc.setQueryData(key, context.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
+  };
+}
+
 export function useFieldMutations() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['fields'] });
@@ -131,7 +162,7 @@ export function useProjectMutations() {
     update: useMutation({
       mutationFn: ({ id, patch }: { id: Id; patch: ProjectPatch }) =>
         projectsApi.update(id, patch),
-      onSuccess: invalidate,
+      ...optimisticListPatch<Project>(qc, ['projects']),
     }),
     remove: useMutation({
       mutationFn: (id: Id) => projectsApi.remove(id),
@@ -151,7 +182,7 @@ export function useSectionMutations() {
     update: useMutation({
       mutationFn: ({ id, patch }: { id: Id; patch: SectionPatch }) =>
         sectionsApi.update(id, patch),
-      onSuccess: invalidate,
+      ...optimisticListPatch<Section>(qc, ['sections']),
     }),
     remove: useMutation({
       mutationFn: (id: Id) => sectionsApi.remove(id),
