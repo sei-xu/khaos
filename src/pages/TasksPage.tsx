@@ -260,6 +260,10 @@ export default function TasksPage() {
 
       {openTask && (
         <TaskDetailModal
+          // Remount on task change — see QuickAddBar's own TaskDetailModal
+          // for why: it keeps per-task local state (debounced drafts,
+          // pickers) that an effect never resets.
+          key={openTask.id}
           taskId={openTask.id}
           task={openTask}
           onClose={closeTask}

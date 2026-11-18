@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ChangeEvent, KeyboardEvent } from 'react';
 import { createDebouncedField } from '../lib/debouncedField';
 
 // Local draft + debounced commit — lets a text field feel instant while
@@ -12,7 +13,7 @@ import { createDebouncedField } from '../lib/debouncedField';
 // just happens to never change is the cleaner fit here.
 export function useDebouncedField<T>(
   value: T,
-  commit: (next: T) => void,
+  commit: (next: T) => void | Promise<unknown>,
   delay = 500
 ) {
   const [controller] = useState(() =>
@@ -61,5 +62,24 @@ export function useDebouncedField<T>(
     setDraft(value);
   }
 
-  return [draft, set, flush, cancel] as const;
+  // Covers the keyboard contract every plain-text debounced input repeats:
+  // Enter commits + blurs, Escape discards the draft + blurs. Only valid
+  // for a text-shaped T (draft bound straight to an <input>'s value).
+  const bind = {
+    value: draft as unknown as string,
+    onChange: (e: ChangeEvent<HTMLInputElement>) =>
+      set(e.target.value as unknown as T),
+    onBlur: flush,
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        flush();
+        e.currentTarget.blur();
+      } else if (e.key === 'Escape') {
+        cancel();
+        e.currentTarget.blur();
+      }
+    },
+  };
+
+  return [draft, set, bind, flush, cancel] as const;
 }

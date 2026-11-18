@@ -562,14 +562,14 @@ export default function TaskDetailModal({
     return { name: proj.name, field };
   }
 
-  const [nameDraft, setNameDraft, flushName] = useDebouncedField(
+  const [nameDraft, setNameDraft, , flushName] = useDebouncedField(
     task.name,
     (v) => patch({ name: v })
   );
-  const [estimateDraft, setEstimateDraft, flushEstimate] = useDebouncedField(
-    task.estimate != null ? String(task.estimate) : '',
-    (v) => patch({ estimate: v ? Number(v) : null })
-  );
+  const [estimateDraft, setEstimateDraft, , flushEstimate] =
+    useDebouncedField(task.estimate != null ? String(task.estimate) : '', (v) =>
+      patch({ estimate: v ? Number(v) : null })
+    );
 
   const taskTagLinks = useMemo(
     () => tagLinks.filter((l) => l.task_id === task.id),

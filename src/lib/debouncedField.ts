@@ -10,7 +10,7 @@ export interface DebouncedFieldController<T> {
   // controller at the current render's callback instead of letting it hold
   // the closure it was created with (which keeps seeing that render's
   // props — see useDebouncedField.ts).
-  setCommit(next: (value: T) => void): void;
+  setCommit(next: (value: T) => void | Promise<unknown>): void;
   set(next: T): void;
   flush(): void;
   receiveExternal(next: T): void;
@@ -23,15 +23,30 @@ export function createDebouncedField<T>({
   delay = 500,
 }: {
   value: T;
-  commit: (next: T) => void;
+  // May return a promise (e.g. mutateAsync) — inFlight clears when the
+  // commit actually settles, never from matching the server's echoed
+  // value (see receiveExternal below).
+  commit: (next: T) => void | Promise<unknown>;
   delay?: number;
 }): DebouncedFieldController<T> {
   let commit = initialCommit;
   let draft = value;
-  let lastCommitted = value;
   let dirty = false;
   let inFlight = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  function runCommit(next: T) {
+    inFlight = true;
+    const result = commit(next);
+    const settle = () => {
+      inFlight = false;
+    };
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      (result as Promise<unknown>).then(settle, settle);
+    } else {
+      settle();
+    }
+  }
 
   function set(next: T) {
     draft = next;
@@ -39,9 +54,7 @@ export function createDebouncedField<T>({
     clearTimeout(timer);
     timer = setTimeout(() => {
       dirty = false;
-      inFlight = true;
-      lastCommitted = next;
-      commit(next);
+      runCommit(next);
     }, delay);
   }
 
@@ -49,26 +62,18 @@ export function createDebouncedField<T>({
     clearTimeout(timer);
     if (!dirty) return;
     dirty = false;
-    inFlight = true;
-    lastCommitted = draft;
-    commit(draft);
+    runCommit(draft);
   }
 
   // While a commit is in flight (or the draft is still dirty), an external
   // value is the server echoing something we already know is stale — drop
-  // it. Only once the echo catches up to what we actually committed do we
-  // hand control back to the server.
+  // it. inFlight itself is cleared by runCommit once the commit settles, so
+  // a failed mutation (rolled back cache) or a server-side rewrite of the
+  // value can no longer leave this stuck forever.
   function receiveExternal(next: T) {
     if (dirty) return; // actively editing, uncommitted — never accept an echo
-    if (inFlight) {
-      if (next === lastCommitted) {
-        inFlight = false;
-        draft = next;
-      }
-      return;
-    }
+    if (inFlight) return;
     draft = next;
-    lastCommitted = next;
   }
 
   function cancel(resetTo: T) {
@@ -76,12 +81,11 @@ export function createDebouncedField<T>({
     dirty = false;
     inFlight = false;
     draft = resetTo;
-    lastCommitted = resetTo;
   }
 
   return {
     getDraft: () => draft,
-    setCommit: (next: (value: T) => void) => {
+    setCommit: (next: (value: T) => void | Promise<unknown>) => {
       commit = next;
     },
     set,

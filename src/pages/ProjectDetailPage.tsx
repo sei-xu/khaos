@@ -53,7 +53,40 @@ import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import TargetEditor from '../components/common/TargetEditor';
 import { useSyncActiveEntity } from '../lib/activeEntityContext';
 import { useDebouncedField } from '../hooks/useDebouncedField';
-import type { Id, Priority, Section, Status, Task } from '../lib/types';
+import type {
+  Id,
+  Priority,
+  Project,
+  Section,
+  Status,
+  Task,
+} from '../lib/types';
+
+// Keyed by project id at the call site (see its usage below) so switching
+// the route to a different project remounts this instead of reusing the
+// debounced-field controller — ProjectDetailPage itself doesn't remount on
+// a param change, and reusing the controller across projects let a pending
+// rename for the old project land on the new one. The unmount this forces
+// still flushes the old project's edit via the controller's own cleanup.
+function ProjectNameField({
+  project,
+  onRename,
+}: {
+  project: Project;
+  onRename: (name: string) => void | Promise<unknown>;
+}) {
+  const [, , bindName] = useDebouncedField(project.name, onRename);
+  return (
+    <input
+      {...bindName}
+      // font-normal, not the page-title default -- this borrows
+      // font-display/text-display-lg's size but is an editable
+      // input, not a static h1, and shouldn't inherit the display
+      // font's heavier default weight the way real page titles do.
+      className="font-display text-nyx-100 w-full bg-transparent text-display-lg font-normal focus:outline-none"
+    />
+  );
+}
 
 interface SectionBlockProps {
   sectionId: Id;
@@ -170,10 +203,6 @@ export default function ProjectDetailPage() {
 
   const project = projects.find((p) => p.id === projectId);
   useSyncActiveEntity('project', project?.id, project?.name);
-  const [nameDraft, setNameDraft, flushName, cancelNameEdit] =
-    useDebouncedField(project?.name ?? '', (name) => {
-      if (project) updateProject.mutate({ id: project.id, patch: { name } });
-    });
   const orderedSectionIds = useOrderedSectionIds(
     projectId ?? '',
     sections,
@@ -215,7 +244,8 @@ export default function ProjectDetailPage() {
     const nextId = dir === 'prev' ? sourceId : targetId;
     if (
       seqEdges.some(
-        (edge) => edge.task_previous === previousId && edge.task_next === nextId
+        (edge) =>
+          edge.task_previous === previousId && edge.task_next === nextId
       )
     ) {
       setLinkNotice('Essas tarefas já estão ligadas nessa ordem.');
@@ -296,24 +326,12 @@ export default function ProjectDetailPage() {
   return (
     <div className="px-6 py-5">
       <div className="mb-5">
-        <input
-          value={nameDraft}
-          onChange={(e) => setNameDraft(e.target.value)}
-          onBlur={flushName}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              flushName();
-              e.currentTarget.blur();
-            } else if (e.key === 'Escape') {
-              cancelNameEdit();
-              e.currentTarget.blur();
-            }
-          }}
-          // font-normal, not the page-title default -- this borrows
-          // font-display/text-display-lg's size but is an editable
-          // input, not a static h1, and shouldn't inherit the display
-          // font's heavier default weight the way real page titles do.
-          className="font-display text-nyx-100 text-display-lg w-full bg-transparent font-normal focus:outline-none"
+        <ProjectNameField
+          key={project.id}
+          project={project}
+          onRename={(name) =>
+            updateProject.mutateAsync({ id: project.id, patch: { name } })
+          }
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Select
@@ -366,7 +384,7 @@ export default function ProjectDetailPage() {
               href={project.doc_reference}
               target="_blank"
               rel="noreferrer"
-              className="text-caption text-pontus-400 flex items-center gap-1 hover:underline"
+              className="flex items-center gap-1 text-caption text-pontus-400 hover:underline"
             >
               <ExternalLink size={12} /> Docs
             </a>
@@ -377,14 +395,14 @@ export default function ProjectDetailPage() {
                 onSuccess: () => navigate('/tasks'),
               })
             }
-            className="text-nyx-500 hover:text-nyx-300 text-caption ml-auto flex items-center gap-1"
+            className="text-nyx-500 hover:text-nyx-300 ml-auto flex items-center gap-1 text-caption"
           >
             <Trash2 size={13} /> Delete project
           </button>
         </div>
 
         <div className="mt-2">
-          <label className="text-nyx-500 text-caption mb-1 block font-medium">
+          <label className="text-nyx-500 mb-1 block text-caption font-medium">
             Target{' '}
             <span className="text-nyx-600 font-normal normal-case">
               (planned window — optional, must land before due)
@@ -471,7 +489,7 @@ export default function ProjectDetailPage() {
           value={newSectionName}
           onChange={(e) => setNewSectionName(e.target.value)}
           placeholder="Add a section…"
-          className="text-nyx-300 placeholder:text-nyx-600 text-body flex-1 bg-transparent focus:outline-none"
+          className="text-nyx-300 placeholder:text-nyx-600 flex-1 bg-transparent text-body focus:outline-none"
         />
       </form>
 
@@ -483,14 +501,11 @@ export default function ProjectDetailPage() {
             ) : (
               <>
                 {linking!.dir === 'prev' ? (
-                  <CornerUpLeft
-                    size={12}
-                    className="text-pontus-400 shrink-0"
-                  />
+                  <CornerUpLeft size={12} className="shrink-0 text-pontus-400" />
                 ) : (
                   <CornerDownRight
                     size={12}
-                    className="text-pontus-400 shrink-0"
+                    className="shrink-0 text-pontus-400"
                   />
                 )}
                 <span className="text-nyx-200">

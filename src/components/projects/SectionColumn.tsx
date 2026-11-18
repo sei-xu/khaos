@@ -14,7 +14,11 @@ import {
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { StatusBadge, StatusPicker, PriorityPicker } from '../common/ui';
+import {
+  StatusBadge,
+  StatusPicker,
+  PriorityPicker,
+} from '../common/ui';
 import TargetEditor, { TargetBadge } from '../common/TargetEditor';
 import {
   useTaskMutations,
@@ -23,10 +27,7 @@ import {
   useTaskStatusMoments,
 } from '../../hooks/useHierarchy';
 import { useDebouncedField } from '../../hooks/useDebouncedField';
-import {
-  buildSequenceRail,
-  collapseHiddenEdges,
-} from '../../lib/sequenceGraph';
+import { buildSequenceRail, collapseHiddenEdges } from '../../lib/sequenceGraph';
 import { infiniteFadeOpacity, daysSince } from '../../lib/infiniteFade';
 import { infiniteSectionOrder } from '../../lib/taskOrder';
 import { useTodayTaskIds } from '../../hooks/useMoments';
@@ -143,10 +144,9 @@ export default function SectionColumn({
   const [newTaskName, setNewTaskName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
-  const [nameDraft, setNameDraft, flushName, cancelNameEdit] =
-    useDebouncedField(section.name, (name) =>
-      updateSection.mutate({ id: section.id, patch: { name } })
-    );
+  const [, , bindName] = useDebouncedField(section.name, (name) =>
+    updateSection.mutateAsync({ id: section.id, patch: { name } })
+  );
 
   const settled = section.status === 'done' || section.status === 'cancelled';
   const [collapsed, setCollapsed] = useState(() => settled);
@@ -185,22 +185,15 @@ export default function SectionColumn({
             className="text-nyx-500 hover:text-nyx-200 flex shrink-0 items-center"
             title={collapsed ? 'Expand section' : 'Collapse section'}
           >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            {collapsed ? (
+              <ChevronRight size={14} />
+            ) : (
+              <ChevronDown size={14} />
+            )}
           </button>
           <input
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={flushName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                flushName();
-                e.currentTarget.blur();
-              } else if (e.key === 'Escape') {
-                cancelNameEdit();
-                e.currentTarget.blur();
-              }
-            }}
-            className="text-nyx-100 text-body min-w-0 flex-1 bg-transparent font-medium focus:outline-none"
+            {...bindName}
+            className="text-nyx-100 min-w-0 flex-1 bg-transparent text-body font-medium focus:outline-none"
           />
           {section.is_infinite && (
             <span
@@ -211,7 +204,7 @@ export default function SectionColumn({
             </span>
           )}
           {collapsed && (
-            <span className="text-nyx-600 text-caption shrink-0 font-mono">
+            <span className="text-nyx-600 shrink-0 font-mono text-caption">
               {visibleTasks.length}
             </span>
           )}
@@ -258,7 +251,7 @@ export default function SectionColumn({
                     if (nextInfinite) setTargetOpen(false);
                     setMenuOpen(false);
                   }}
-                  className="text-nyx-400 hover:bg-nyx-700 text-caption flex w-full items-center gap-1.5 px-3 py-1.5 text-left"
+                  className="text-nyx-400 hover:bg-nyx-700 flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-caption"
                 >
                   <InfinityIcon size={12} />
                   {section.is_infinite
@@ -270,7 +263,7 @@ export default function SectionColumn({
                     removeSection.mutate(section.id);
                     setMenuOpen(false);
                   }}
-                  className="text-nyx-400 hover:bg-nyx-700 text-caption flex w-full items-center gap-1.5 px-3 py-1.5 text-left"
+                  className="text-nyx-400 hover:bg-nyx-700 flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-caption"
                 >
                   <Trash2 size={12} /> Remove section
                 </button>
@@ -385,7 +378,7 @@ export default function SectionColumn({
               value={newTaskName}
               onChange={(e) => setNewTaskName(e.target.value)}
               placeholder="Add a task…"
-              className="text-nyx-300 placeholder:text-nyx-600 text-body flex-1 bg-transparent py-0.5 focus:outline-none"
+              className="text-nyx-300 placeholder:text-nyx-600 flex-1 bg-transparent py-0.5 text-body focus:outline-none"
             />
           </form>
         </div>
@@ -396,7 +389,9 @@ export default function SectionColumn({
 
 interface SortableSectionWrapperProps {
   id: Id;
-  children: (dragProps: Record<string, unknown>) => ReactNode;
+  children: (
+    dragProps: Record<string, unknown>
+  ) => ReactNode;
 }
 
 export function SortableSectionWrapper({
