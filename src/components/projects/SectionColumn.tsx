@@ -26,7 +26,7 @@ import {
   useTasksSequence,
   useTaskStatusMoments,
 } from '../../hooks/useHierarchy';
-import { useDebouncedField } from '../../hooks/useDebouncedField';
+import { useDebouncedTextField } from '../../hooks/useDebouncedField';
 import { buildSequenceRail, collapseHiddenEdges } from '../../lib/sequenceGraph';
 import { infiniteFadeOpacity, daysSince } from '../../lib/infiniteFade';
 import { infiniteSectionOrder } from '../../lib/taskOrder';
@@ -144,7 +144,7 @@ export default function SectionColumn({
   const [newTaskName, setNewTaskName] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
-  const [, , bindName] = useDebouncedField(section.name, (name) =>
+  const { bind: bindName } = useDebouncedTextField(section.name, (name) =>
     updateSection.mutateAsync({ id: section.id, patch: { name } })
   );
 

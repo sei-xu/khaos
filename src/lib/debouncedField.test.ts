@@ -70,7 +70,9 @@ describe('createDebouncedField', () => {
   });
 
   it('ignores an external value while dirty or a commit is in flight', () => {
-    const commit = vi.fn();
+    // Every real call site commits asynchronously (mutateAsync) so inFlight
+    // stays true until the promise settles — mirror that contract here.
+    const commit = vi.fn(() => new Promise<void>(() => {}));
     const field = createDebouncedField({ value: 'abc', commit, delay: 500 });
 
     field.set('abcd');

@@ -52,7 +52,7 @@ import { taskChronoKey } from '../lib/taskOrder';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
 import TargetEditor from '../components/common/TargetEditor';
 import { useSyncActiveEntity } from '../lib/activeEntityContext';
-import { useDebouncedField } from '../hooks/useDebouncedField';
+import { useDebouncedTextField } from '../hooks/useDebouncedField';
 import type {
   Id,
   Priority,
@@ -75,7 +75,7 @@ function ProjectNameField({
   project: Project;
   onRename: (name: string) => void | Promise<unknown>;
 }) {
-  const [, , bindName] = useDebouncedField(project.name, onRename);
+  const { bind: bindName } = useDebouncedTextField(project.name, onRename);
   return (
     <input
       {...bindName}

@@ -14,6 +14,10 @@ export interface DebouncedFieldController<T> {
   set(next: T): void;
   flush(): void;
   receiveExternal(next: T): void;
+  // Pure query, no mutation — same guard receiveExternal applies, but
+  // callable from a render body (e.g. useDebouncedField) without touching
+  // the controller's own state. See useDebouncedField.ts.
+  shouldAccept(): boolean;
   cancel(resetTo: T): void;
 }
 
@@ -70,9 +74,12 @@ export function createDebouncedField<T>({
   // it. inFlight itself is cleared by runCommit once the commit settles, so
   // a failed mutation (rolled back cache) or a server-side rewrite of the
   // value can no longer leave this stuck forever.
+  function shouldAccept(): boolean {
+    return !dirty && !inFlight;
+  }
+
   function receiveExternal(next: T) {
-    if (dirty) return; // actively editing, uncommitted — never accept an echo
-    if (inFlight) return;
+    if (!shouldAccept()) return;
     draft = next;
   }
 
@@ -91,6 +98,7 @@ export function createDebouncedField<T>({
     set,
     flush,
     receiveExternal,
+    shouldAccept,
     cancel,
   };
 }

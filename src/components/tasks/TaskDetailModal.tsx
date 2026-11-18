@@ -562,14 +562,19 @@ export default function TaskDetailModal({
     return { name: proj.name, field };
   }
 
-  const [nameDraft, setNameDraft, , flushName] = useDebouncedField(
-    task.name,
-    (v) => patch({ name: v })
+  const {
+    draft: nameDraft,
+    set: setNameDraft,
+    flush: flushName,
+  } = useDebouncedField(task.name, (v) => patchAsync({ name: v }));
+  const {
+    draft: estimateDraft,
+    set: setEstimateDraft,
+    flush: flushEstimate,
+  } = useDebouncedField(
+    task.estimate != null ? String(task.estimate) : '',
+    (v) => patchAsync({ estimate: v ? Number(v) : null })
   );
-  const [estimateDraft, setEstimateDraft, , flushEstimate] =
-    useDebouncedField(task.estimate != null ? String(task.estimate) : '', (v) =>
-      patch({ estimate: v ? Number(v) : null })
-    );
 
   const taskTagLinks = useMemo(
     () => tagLinks.filter((l) => l.task_id === task.id),
@@ -672,7 +677,7 @@ export default function TaskDetailModal({
     setSeqPicker(null);
   }
 
-  function patch(fields: {
+  type PatchFields = {
     name?: string;
     section_id?: string;
     status?: Status;
@@ -680,8 +685,16 @@ export default function TaskDetailModal({
     estimate?: number | null;
     due?: string | null;
     target?: string | null;
-  }) {
+  };
+
+  function patch(fields: PatchFields) {
     update.mutate({ id: task.id, patch: fields });
+  }
+
+  // Debounced fields (name, estimate) need the commit's promise to know
+  // when it actually settles — see useDebouncedField's inFlight guard.
+  function patchAsync(fields: PatchFields) {
+    return update.mutateAsync({ id: task.id, patch: fields });
   }
 
   function createPendingItem() {
