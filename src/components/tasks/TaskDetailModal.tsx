@@ -37,6 +37,7 @@ import {
   BacklogToggle,
 } from '../common/ui';
 import TargetEditor from '../common/TargetEditor';
+import TaskName from './TaskName';
 import {
   minutesToHuman,
   formatDue,
@@ -381,7 +382,7 @@ function SequenceChip({
         )}
       >
         <DirIcon size={11} className="text-nyx-500 shrink-0" />
-        <span className="truncate">{task.name}</span>
+        <TaskName name={task.name} status={task.status} />
       </button>
       <div className="flex shrink-0 items-center gap-2">
         <ProjectChip name={projectName} fieldName={projectField} />

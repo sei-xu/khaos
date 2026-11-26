@@ -32,6 +32,7 @@ import {
   IconAddButton,
 } from '../common/ui';
 import { TargetBadge } from '../common/TargetEditor';
+import TaskName from './TaskName';
 import { OPEN_STATUSES, PRIORITIES } from '../../lib/constants';
 import { useBacklogTasks, useBacklogMutations } from '../../hooks/useBacklog';
 import type { ProjectInfo } from './TaskList';
@@ -105,9 +106,7 @@ function BacklogRow({
         className="flex min-w-0 flex-1 items-center gap-1 text-left"
       >
         <StatusBadge status={task.status} />
-        <span className="text-nyx-100 text-body min-w-0 flex-1 truncate">
-          {task.name}
-        </span>
+        <TaskName name={task.name} status={task.status} className="text-nyx-100 text-body" />
         <span className="flex shrink-0 flex-wrap items-center gap-1">
           <PriorityBadge priority={task.priority} />
           <TargetBadge target={task.target as string | null} />
@@ -143,9 +142,7 @@ function AddCandidateRow({ task, projectInfo, onAdd }: AddCandidateRowProps) {
   return (
     <div className="hover:bg-nyx-900 flex items-center gap-2 rounded-md px-2 py-1.5">
       <IconAddButton label="Add to backlog" onClick={onAdd} />
-      <span className="text-nyx-300 text-body min-w-0 flex-1 truncate">
-        {task.name}
-      </span>
+      <TaskName name={task.name} status={task.status} className="text-nyx-300 text-body" />
       <span className="flex shrink-0 flex-wrap items-center gap-1">
         <PriorityBadge priority={task.priority} />
         <TargetBadge target={task.target as string | null} />

@@ -21,6 +21,9 @@ import ProjectRow from '../../components/projects/ProjectRow';
 import SectionChip from '../../components/projects/SectionChip';
 import SectionRow from '../../components/projects/SectionRow';
 import TaskRow from '../../components/tasks/TaskRow';
+import TaskCard from '../../components/tasks/TaskCard';
+import { InlineEntityPreview } from '../../components/assistant/InlineEntityPreview';
+import { TaskPillBody } from '../DashboardPage';
 import { InlineEventPreview } from '../../components/assistant/InlineEventPreview';
 import RoutineCard from '../../components/routines/RoutineCard';
 import DueEditor from '../../components/common/DueEditor';
@@ -459,9 +462,87 @@ export default function SigilsPage() {
                   <TaskRow task={SAMPLE_TASK} onOpen={() => {}} projectName="Roadmap Q3" projectField="Design" />
                 </div>
               </Swatch>
-              <Swatch label="full, mobile (390px, every field populated)">
-                <div className="border-nyx-700 w-[390px] rounded-md border p-2">
+              <Swatch label="full, every field populated">
+                <div className="border-nyx-700 w-[560px] rounded-md border p-2">
                   <TaskRow task={SAMPLE_TASK_FULL} onOpen={() => {}} projectName="Roadmap Q3" projectField="Design" />
+                </div>
+              </Swatch>
+            </Section>
+
+            <p className="text-nyx-400 mb-3 mt-2 max-w-prose text-caption leading-relaxed">
+              <b className="text-nyx-200">Width ladder</b> — the same full,
+              every-field-populated row at every container width the app
+              actually renders it in: Priority board columns (256px),
+              Kanban columns / the Backlog drawer (320px), the mobile
+              viewport (390px), the chat preview&rsquo;s old fixed width (480px,
+              now variable — see the inline chip below), the desktop Task
+              row (560px), and a wide section column (780px).{' '}
+              <code className="text-eros-400">TaskRow</code>&rsquo;s own{' '}
+              <code className="text-eros-400">@container</code> decides the
+              stack-vs-inline layout and the badge cluster&rsquo;s discard
+              order per <code className="text-eros-400">
+                src/lib/taskBadges.ts
+              </code>
+              , not a viewport breakpoint — this is the surface that
+              actually proves it degrades right, since there&rsquo;s no DOM
+              test for it (see CLAUDE.md).
+            </p>
+            <Section title="Task row — width ladder" nowrap>
+              {[256, 320, 390, 480, 560, 780].map((width) => (
+                <Swatch key={width} label={`${width}px`}>
+                  <div
+                    className="border-nyx-700 rounded-md border p-2"
+                    style={{ width }}
+                  >
+                    <TaskRow
+                      task={SAMPLE_TASK_FULL}
+                      onOpen={() => {}}
+                      projectName="Roadmap Q3"
+                      projectField="Design"
+                    />
+                  </div>
+                </Swatch>
+              ))}
+            </Section>
+
+            <p className="text-nyx-400 mb-3 mt-2 max-w-prose text-caption leading-relaxed">
+              The other task-name renderers unified on{' '}
+              <code className="text-eros-400">TaskName</code> (
+              <code className="text-eros-400">src/components/tasks/TaskName.tsx</code>
+              ) — a Kanban/Priority card (two-line clamp instead of a single
+              truncated line, since the card has vertical room to spare), a
+              Dashboard pill, and the chat/confirmation inline chip.
+            </p>
+            <Section title="Unified forms">
+              <Swatch label="Kanban/Priority card (TaskCard, 256px column)">
+                <div style={{ width: 256 }}>
+                  <TaskCard
+                    task={SAMPLE_TASK_FULL}
+                    onOpen={() => {}}
+                    projectInfo={{ name: 'Roadmap Q3', fieldName: 'Design' }}
+                    secondary="priority"
+                  />
+                </div>
+              </Swatch>
+              <Swatch label="Dashboard pill (TaskPillBody)">
+                <div
+                  className="border-nyx-700 bg-nyx-800 text-nyx-200 flex items-stretch gap-1 rounded-lg border py-1.5 pr-2 pl-1 text-left text-caption"
+                  style={{ width: 280 }}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
+                    <TaskPillBody
+                      task={SAMPLE_TASK_FULL}
+                      projectName="Roadmap Q3"
+                      projectField="Design"
+                    >
+                      <TargetBadge target={SAMPLE_TASK_FULL.target as string | null} />
+                    </TaskPillBody>
+                  </span>
+                </div>
+              </Swatch>
+              <Swatch label="Chat / confirmation chip (InlineEntityPreview, no fixed max-width)">
+                <div style={{ width: 280 }}>
+                  <InlineEntityPreview entityType="task" data={SAMPLE_TASK_FULL} />
                 </div>
               </Swatch>
             </Section>

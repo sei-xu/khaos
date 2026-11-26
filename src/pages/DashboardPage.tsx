@@ -60,6 +60,7 @@ import {
 } from '../components/common/ui';
 import { TargetBadge } from '../components/common/TargetEditor';
 import TaskDetailModal from '../components/tasks/TaskDetailModal';
+import TaskName from '../components/tasks/TaskName';
 import type { Event, Field, Id, Project, Section, Task } from '../lib/types';
 
 // Auto-refresh cadence for the dashboard's live queries. Kept well above the
@@ -132,7 +133,7 @@ function RankBadge({ position }: { position: number }) {
   );
 }
 
-function TaskPillBody({
+export function TaskPillBody({
   task,
   projectName,
   projectField,
@@ -143,7 +144,7 @@ function TaskPillBody({
     <>
       <span className="flex w-full items-center gap-1.5">
         {rankPosition != null && <RankBadge position={rankPosition} />}
-        <span className="min-w-0 flex-1 truncate">{task.name}</span>
+        <TaskName name={task.name} status={task.status} />
         <span className="flex shrink-0 items-center gap-1">
           <StatusIcon status={task.status} size={14} />
           <PriorityBadge priority={task.priority} />

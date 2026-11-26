@@ -1,15 +1,7 @@
-import { GripVertical, CornerUpLeft, CornerDownRight } from 'lucide-react';
-import {
-  StatusBadge,
-  PriorityBadge,
-  DueBadge,
-  ScheduledBadge,
-  TodayToggle,
-  BacklogToggle,
-  ProjectChip,
-} from '../common/ui';
-import { TargetBadge } from '../common/TargetEditor';
-import { minutesToHuman } from '../../lib/dateUtils';
+import { GripVertical } from 'lucide-react';
+import { StatusBadge, TodayToggle, BacklogToggle, ProjectChip } from '../common/ui';
+import TaskName from './TaskName';
+import TaskRowBadges from './TaskRowBadges';
 import { useSequenceCounts } from '../../hooks/useSequence';
 import { useScheduledTaskIds } from '../../hooks/useEvents';
 import { useTodayTaskIds, useTodayMutations } from '../../hooks/useMoments';
@@ -60,7 +52,7 @@ export default function TaskRow({
     <div
       ref={dragRef}
       style={{ ...dragStyle, opacity }}
-      className="group hover:border-nyx-700 hover:bg-nyx-900 flex items-start gap-1.5 rounded-md border border-transparent px-2 py-1.5"
+      className="group hover:border-nyx-700 hover:bg-nyx-900 @container flex items-start gap-1.5 rounded-md border border-transparent px-2 py-1.5"
     >
       {draggable && (
         <span
@@ -88,47 +80,22 @@ export default function TaskRow({
       <div className="min-w-0 flex-1">
         <button
           onClick={() => onOpen(task)}
-          className="flex w-full flex-col gap-0.5 text-left md:flex-row md:items-center md:gap-1"
+          className="flex w-full flex-col gap-0.5 text-left @md:flex-row @md:items-center @md:gap-1"
         >
-          <span className="flex min-w-0 items-center gap-1 md:flex-1">
+          <span className="flex min-w-[20ch] items-center gap-1 @md:flex-1">
             <StatusBadge status={task.status} />
-            <span
-              className={`text-nyx-100 min-w-0 flex-1 truncate text-body ${
-                task.status === 'cancelled' ? 'line-through' : ''
-              }`}
-            >
-              {task.name}
-            </span>
+            <TaskName name={task.name} status={task.status} />
           </span>
-          <span className="flex shrink-0 flex-wrap items-center gap-1">
-            <PriorityBadge priority={task.priority} />
-            {task.estimate ? (
-              <span className="text-nyx-600 shrink-0 font-mono text-caption">
-                {minutesToHuman(task.estimate)}
-              </span>
-            ) : null}
-            {Boolean(seqCounts?.before) && (
-              <span
-                title={`${seqCounts!.before} tarefa(s) antes desta`}
-                className="text-nyx-500 flex shrink-0 items-center gap-0.5 text-[11px]"
-              >
-                <CornerUpLeft size={11} />
-                {seqCounts!.before}
-              </span>
-            )}
-            {Boolean(seqCounts?.after) && (
-              <span
-                title={`${seqCounts!.after} tarefa(s) depois desta`}
-                className="text-nyx-500 flex shrink-0 items-center gap-0.5 text-[11px]"
-              >
-                <CornerDownRight size={11} />
-                {seqCounts!.after}
-              </span>
-            )}
-            <TargetBadge target={task.target as string | null} />
-            <ScheduledBadge scheduledAt={scheduledAt} />
-            <DueBadge due={task.due} status={task.status} />
-          </span>
+          <TaskRowBadges
+            priority={task.priority}
+            estimateMinutes={task.estimate}
+            seqBefore={seqCounts?.before ?? 0}
+            seqAfter={seqCounts?.after ?? 0}
+            target={task.target as string | null}
+            scheduledAt={scheduledAt ?? null}
+            due={task.due}
+            dueStatus={task.status}
+          />
         </button>
 
         {projectName && (
