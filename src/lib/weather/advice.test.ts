@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isDryHour,
+  isRainProbable,
   findDryWindows,
   suggestDeparture,
   clothingBand,
@@ -135,5 +136,17 @@ describe('clothingAdvice', () => {
   it('gives a distinct message per band', () => {
     expect(clothingAdvice(5, false)).not.toBe(clothingAdvice(30, false));
     expect(clothingAdvice(20, false)).not.toBe(clothingAdvice(30, false));
+  });
+});
+
+describe('isRainProbable', () => {
+  it('treats the dry threshold itself as rain probable, just under as not', () => {
+    expect(isRainProbable(DRY_RAIN_PROB_MAX)).toBe(true);
+    expect(isRainProbable(DRY_RAIN_PROB_MAX - 1)).toBe(false);
+  });
+
+  it('treats a missing reading as no rain', () => {
+    expect(isRainProbable(null)).toBe(false);
+    expect(isRainProbable(undefined)).toBe(false);
   });
 });

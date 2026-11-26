@@ -32,7 +32,7 @@ import {
   TIMEZONE,
 } from '../_shared/khaos.ts';
 import { fetchForecast, getDayForecast, getHoursForDate } from '../../../src/lib/weather/forecast.ts';
-import { findDryWindows, suggestDeparture, clothingAdvice } from '../../../src/lib/weather/advice.ts';
+import { findDryWindows, suggestDeparture, clothingAdvice, isRainProbable } from '../../../src/lib/weather/advice.ts';
 import { wmoLabel } from '../../../src/lib/weather/wmo.ts';
 
 const CRON_SECRET = Deno.env.get('KHAOS_CRON_SECRET') ?? '';
@@ -166,7 +166,7 @@ async function buildWeatherBlock(): Promise<string | null> {
     );
     const nowTemp = hours[nowIndex]?.temperature;
     const dryWindows = findDryWindows(hours);
-    const rainy = (day.precipitationProbabilityMax ?? 0) >= 40;
+    const rainy = isRainProbable(day.precipitationProbabilityMax);
 
     const lines: string[] = [
       `Clima em ${location.label}: agora ${nowTemp != null ? Math.round(nowTemp) + '°C' : 'sem leitura'}, hoje mín ${day.tempMin ?? '?'}°C / máx ${day.tempMax ?? '?'}°C, ${wmoLabel(day.weatherCode)}.`,

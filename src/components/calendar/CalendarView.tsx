@@ -29,6 +29,7 @@ import {
   type HourPoint,
 } from '../../lib/weather/forecast';
 import { wmoBucket, type WmoBucket } from '../../lib/weather/wmo';
+import { isRainProbable } from '../../lib/weather/advice';
 import WeatherRibbon from './WeatherRibbon';
 import type { Event, Task, Project, Field, TaskLog } from '../../lib/types';
 
@@ -641,7 +642,7 @@ export default function CalendarView({
                           return (
                             <span className="text-nyx-400 mt-0.5 shrink-0 truncate font-mono text-[10px]">
                               {Math.round(hour.temperature)}°
-                              {(hour.precipitationProbability ?? 0) >= 40 &&
+                              {isRainProbable(hour.precipitationProbability) &&
                                 ` · ${Math.round(hour.precipitationProbability ?? 0)}%`}
                             </span>
                           );

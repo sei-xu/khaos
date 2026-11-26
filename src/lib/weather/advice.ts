@@ -21,6 +21,16 @@ export function isDryHour(hour: HourPoint): boolean {
   return prob < DRY_RAIN_PROB_MAX && mm < DRY_PRECIP_MM_MAX;
 }
 
+// Mirror of the dry-hour rain gate for a single probability reading: the
+// digest, the calendar chip and the get_weather_forecast tool all call an
+// hour/day "rain probable" at exactly the threshold isDryHour() uses, so the
+// number lives here once instead of as a literal 40 at each call site.
+export function isRainProbable(
+  probabilityPercent: number | null | undefined
+): boolean {
+  return (probabilityPercent ?? 0) >= DRY_RAIN_PROB_MAX;
+}
+
 export interface DryWindow {
   startIndex: number;
   endIndex: number;

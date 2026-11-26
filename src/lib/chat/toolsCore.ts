@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   findDryWindows,
   clothingAdvice,
+  isRainProbable,
   type DryWindow,
 } from '../weather/advice.ts';
 import {
@@ -1299,7 +1300,7 @@ export async function executeTool(
         day?.tempMax != null
           ? clothingAdvice(
               day.tempMax,
-              (day.precipitationProbabilityMax ?? 0) >= 40
+              isRainProbable(day.precipitationProbabilityMax)
             )
           : null;
 
