@@ -21,6 +21,10 @@ import {
   sanitizeStoredHistory,
   toWireMessages,
 } from '../../../src/lib/chat/historyCore.ts';
+import { resolveWeatherLocation } from '../../../src/lib/weather/location.ts';
+import { geocodeCity } from '../../../src/lib/weather/geocode.ts';
+import { fetchForecast } from '../../../src/lib/weather/forecast.ts';
+import type { WeatherLocation } from '../../../src/lib/weather/location.ts';
 import { SCHEMA_SQL } from './schema.sql.ts';
 
 export const MODEL_NAME = Deno.env.get('LLM_MODEL') ?? 'claude-sonnet-5';
@@ -77,9 +81,46 @@ export const db: SupabaseClient = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
+const WEATHER_LAT = Number(Deno.env.get('WEATHER_LAT'));
+const WEATHER_LON = Number(Deno.env.get('WEATHER_LON'));
+
+// Shared by the tool deps below and telegram-notify's own digest weather
+// block, so the cascade (stored row -> env -> geocode) is computed once.
+export async function resolveLocation(): Promise<WeatherLocation | null> {
+  const { data } = await db
+    .from('weather_location')
+    .select('latitude,longitude,label')
+    .eq('id', true)
+    .maybeSingle();
+  const stored = (data as WeatherLocation | null) ?? null;
+  const resolved = await resolveWeatherLocation(
+    stored,
+    {
+      latitude: Number.isFinite(WEATHER_LAT) ? WEATHER_LAT : null,
+      longitude: Number.isFinite(WEATHER_LON) ? WEATHER_LON : null,
+    },
+    TIMEZONE,
+    geocodeCity
+  );
+  // Persist a freshly-geocoded fallback so the next call (and the browser's
+  // own picker) reads the stored row directly instead of re-geocoding.
+  if (resolved && !stored) {
+    await db
+      .from('weather_location')
+      .upsert(
+        { id: true, ...resolved, updated_at: new Date().toISOString() },
+        { onConflict: 'id' }
+      );
+  }
+  return resolved;
+}
+
 const toolDeps = {
   db,
   searchSchema: (query: string) => searchSchemaCore(SCHEMA_SQL, query),
+  resolveWeatherLocation: resolveLocation,
+  fetchForecast,
+  timezone: TIMEZONE,
 };
 
 export function temporalContext(): string {

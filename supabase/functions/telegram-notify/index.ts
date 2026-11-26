@@ -28,8 +28,12 @@ import {
   db,
   runAgent,
   temporalContext,
+  resolveLocation,
   TIMEZONE,
 } from '../_shared/khaos.ts';
+import { fetchForecast, getDayForecast, getHoursForDate } from '../../../src/lib/weather/forecast.ts';
+import { findDryWindows, suggestDeparture, clothingAdvice } from '../../../src/lib/weather/advice.ts';
+import { wmoLabel } from '../../../src/lib/weather/wmo.ts';
 
 const CRON_SECRET = Deno.env.get('KHAOS_CRON_SECRET') ?? '';
 const REMINDER_LEAD_MINUTES = Number(
@@ -93,14 +97,132 @@ function localDate(): string {
   );
 }
 
+// --- weather block -----------------------------------------------------
+//
+// Computed in plain TypeScript (same thresholds as the calendar and the
+// get_weather_forecast tool, via src/lib/weather/*) and handed to the model
+// as ready data — the digest only has to report it in tone, not fetch or do
+// the math itself. Fail-open: any error here just means no weather block,
+// never a failed/delayed digest (the task digest is the point of the
+// message).
+
+function currentLocalHour(): number {
+  return (
+    Number(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: TIMEZONE,
+        hour: '2-digit',
+        hour12: false,
+      }).format(new Date())
+    ) % 24
+  );
+}
+
+function hourKey(dateStr: string, hour: number): string {
+  return `${dateStr}T${String(hour).padStart(2, '0')}:00`;
+}
+
+interface ExternalEventRow {
+  id: string;
+  name: string;
+  location: string | null;
+  duration: string;
+}
+
+async function todaysExternalEvents(today: string): Promise<ExternalEventRow[]> {
+  const { data, error } = await db
+    .from('events')
+    .select('id,name,location,duration')
+    .is('deleted_at', null)
+    .not('location', 'is', null)
+    .limit(100);
+  if (error) {
+    console.error('todaysExternalEvents query failed', error.message);
+    return [];
+  }
+  return (data ?? []).filter((ev: ExternalEventRow) => {
+    if (!ev.location?.trim()) return false;
+    const start = parseRangeLower(ev.duration);
+    if (!start) return false;
+    const key = new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(start);
+    return key === today;
+  });
+}
+
+async function buildWeatherBlock(): Promise<string | null> {
+  try {
+    const location = await resolveLocation();
+    if (!location) return null;
+
+    const forecast = await fetchForecast(location.latitude, location.longitude, TIMEZONE);
+    const today = localDate();
+    const day = getDayForecast(forecast, today);
+    const hours = getHoursForDate(forecast, today);
+    if (!day || !hours.length) return null;
+
+    const nowIndex = Math.max(
+      0,
+      hours.findIndex((h) => h.time === hourKey(today, currentLocalHour()))
+    );
+    const nowTemp = hours[nowIndex]?.temperature;
+    const dryWindows = findDryWindows(hours);
+    const rainy = (day.precipitationProbabilityMax ?? 0) >= 40;
+
+    const lines: string[] = [
+      `Clima em ${location.label}: agora ${nowTemp != null ? Math.round(nowTemp) + '°C' : 'sem leitura'}, hoje mín ${day.tempMin ?? '?'}°C / máx ${day.tempMax ?? '?'}°C, ${wmoLabel(day.weatherCode)}.`,
+      clothingAdvice(day.tempMax ?? nowTemp ?? 20, rainy),
+    ];
+
+    if (dryWindows.length && dryWindows.length < hours.length) {
+      const windowLabel = (w: { startIndex: number; endIndex: number }) =>
+        `${hours[w.startIndex].time.slice(-5)}–${hours[w.endIndex].time.slice(-5)}`;
+      lines.push(
+        `Janelas sem chuva previstas hoje: ${dryWindows.map(windowLabel).join(', ')}.`
+      );
+    } else if (!dryWindows.length) {
+      lines.push('Previsão de chuva o dia inteiro — sem janela seca hoje.');
+    }
+
+    const events = await todaysExternalEvents(today);
+    for (const ev of events) {
+      const start = parseRangeLower(ev.duration);
+      if (!start) continue;
+      const startHour = Number(
+        new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, hour: '2-digit', hour12: false }).format(start)
+      ) % 24;
+      const idx = hours.findIndex((h) => h.time === hourKey(today, startHour));
+      if (idx < 0) continue;
+      const hour = hours[idx];
+      const departure = suggestDeparture(dryWindows, idx);
+      const departureLabel = departure
+        ? ` Janela seca para saída: ${hours[departure.startIndex].time.slice(-5)}–${hours[departure.endIndex].time.slice(-5)}.`
+        : '';
+      lines.push(
+        `"${ev.name}" (${ev.location}) às ${hour.time.slice(-5)}: ${hour.temperature != null ? Math.round(hour.temperature) + '°C' : '?'}, ${hour.precipitationProbability ?? 0}% de chuva.${departureLabel}`
+      );
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    console.error('weather block failed', err);
+    return null;
+  }
+}
+
+const WEATHER_BLOCK_PREFIX = `[Weather — precomputed, already final. Report these numbers/recommendations plainly in your own words and tone; do not recompute, second-guess, or look them up elsewhere.]\n`;
+
 async function runDigest(): Promise<void> {
   const ref = localDate();
+  const weatherBlock = await buildWeatherBlock();
   for (const chatId of CHAT_IDS) {
     if (!(await claim(chatId, 'digest', ref))) continue;
     try {
+      const weatherPrefix = weatherBlock
+        ? `${WEATHER_BLOCK_PREFIX}${weatherBlock}\n\n`
+        : '';
       const briefing = await runAgent(
         chatId,
-        `${temporalContext()}${DIGEST_INSTRUCTION}`
+        `${temporalContext()}${weatherPrefix}${DIGEST_INSTRUCTION}`
       );
       if (briefing.trim()) await sendMessage(chatId, briefing);
     } catch (err) {

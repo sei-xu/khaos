@@ -22,6 +22,7 @@ interface EventFormState {
   end: string;
   taskId: Id | '';
   projectId: Id | '';
+  location: string;
 }
 
 function parseStart(rangeStr?: string | null): Date {
@@ -64,6 +65,7 @@ export default function EventModal({
     ),
     taskId: (event?.task_id as Id) || '',
     projectId: (event?.project_id as Id) || '',
+    location: event?.location || '',
   }));
 
   // A "scheduled" (plan) event linked to a task doesn't need its own title —
@@ -88,6 +90,7 @@ export default function EventModal({
       end: form.end ? new Date(form.end) : null,
       taskId: form.taskId || null,
       projectId: form.projectId || null,
+      location: form.location.trim() || null,
     };
     if (event) {
       update.mutate({ id: event.id, patch: payload }, { onSuccess: onClose });
@@ -134,13 +137,13 @@ export default function EventModal({
     >
       <form onSubmit={handleSubmit} className="space-y-3">
         {event?.google_event_id && (
-          <p className="text-nyx-500 flex items-center gap-1.5 text-caption">
+          <p className="text-nyx-500 text-caption flex items-center gap-1.5">
             <Link2 size={12} className="shrink-0" />
             Synced with Google Calendar — editing here pushes the change back.
           </p>
         )}
         <div>
-          <label className="text-nyx-400 mb-1 block text-caption font-medium">
+          <label className="text-nyx-400 text-caption mb-1 block font-medium">
             Title
             {isTitleOptional &&
               ' (optional — defaults to the task\u2019s name)'}
@@ -152,9 +155,19 @@ export default function EventModal({
             autoFocus
           />
         </div>
+        <div>
+          <label className="text-nyx-400 text-caption mb-1 block font-medium">
+            Location (optional)
+          </label>
+          <TextInput
+            value={form.location}
+            onChange={(e) => setForm({ ...form, location: e.target.value })}
+            placeholder="Address or place — marks this event as external for weather"
+          />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+            <label className="text-nyx-400 text-caption mb-1 block font-medium">
               Starts
             </label>
             <TextInput
@@ -164,7 +177,7 @@ export default function EventModal({
             />
           </div>
           <div>
-            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+            <label className="text-nyx-400 text-caption mb-1 block font-medium">
               Ends
             </label>
             <TextInput
@@ -176,7 +189,7 @@ export default function EventModal({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+            <label className="text-nyx-400 text-caption mb-1 block font-medium">
               Type
             </label>
             <Select
@@ -194,7 +207,7 @@ export default function EventModal({
             </Select>
           </div>
           <div className="flex items-end pb-2">
-            <label className="text-nyx-300 flex items-center gap-2 text-body">
+            <label className="text-nyx-300 text-body flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={form.recurrent}
@@ -209,7 +222,7 @@ export default function EventModal({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+            <label className="text-nyx-400 text-caption mb-1 block font-medium">
               Linked project (optional)
             </label>
             <Select
@@ -228,7 +241,7 @@ export default function EventModal({
             </Select>
           </div>
           <div>
-            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+            <label className="text-nyx-400 text-caption mb-1 block font-medium">
               Linked task (optional)
             </label>
             <Select

@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Flag, Link2 } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Flag,
+  Link2,
+  Sun,
+  CloudSun,
+  Cloud,
+  CloudRain,
+  CloudLightning,
+  CloudSnow,
+  CloudFog,
+  type LucideIcon,
+} from 'lucide-react';
 import { addDays, format, isToday, startOfWeek } from 'date-fns';
 import { parseRange } from '../../lib/range';
 import { minutesToHuman, isOverdue } from '../../lib/dateUtils';
@@ -9,7 +22,45 @@ import { getEventLabel } from '../../lib/eventLabel';
 import { ProjectChip, TaskProgressBar } from '../common/ui';
 import { computeTaskProgress, type TaskProgress } from '../../lib/taskProgress';
 import { computeLogSegments } from '../../lib/logSegments';
+import {
+  getHoursForDate,
+  type Forecast,
+  type DayForecast,
+  type HourPoint,
+} from '../../lib/weather/forecast';
+import { wmoBucket, type WmoBucket } from '../../lib/weather/wmo';
+import WeatherRibbon from './WeatherRibbon';
 import type { Event, Task, Project, Field, TaskLog } from '../../lib/types';
+
+const WEATHER_ICON_BY_BUCKET: Record<WmoBucket, LucideIcon> = {
+  clear: Sun,
+  partly_cloudy: CloudSun,
+  cloud: Cloud,
+  fog: CloudFog,
+  rain: CloudRain,
+  storm: CloudLightning,
+  snow: CloudSnow,
+};
+
+// Hour nearest an event's start, for the per-event weather chip. Reads the
+// wall-clock hour in the user's configured timezone, same as the forecast's
+// own local-time hour keys.
+function nearestHour(hours: HourPoint[], date: Date): HourPoint | null {
+  if (!hours.length) return null;
+  const tz = getTimezone();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  const hour = (Number(get('hour')) % 24).toString().padStart(2, '0');
+  const key = `${get('year')}-${get('month')}-${get('day')}T${hour}:00`;
+  return hours.find((h) => h.time === key) ?? hours[0];
+}
 
 const HOUR_HEIGHT = 48; // px
 const DAY_HEIGHT = HOUR_HEIGHT * 24;
@@ -84,6 +135,7 @@ interface CalendarViewProps {
   projects?: Project[];
   fields?: Field[];
   taskLogs?: TaskLog[];
+  forecast?: Forecast | null;
   onSlotClick: (date: Date) => void;
   onEventClick: (event: Event) => void;
   onMilestoneClick?: (item: DueItem) => void;
@@ -95,6 +147,7 @@ export default function CalendarView({
   projects = [],
   fields = [],
   taskLogs = [],
+  forecast = null,
   onSlotClick,
   onEventClick,
   onMilestoneClick,
@@ -110,7 +163,9 @@ export default function CalendarView({
     () => Array.from({ length: daysToShow }, (_, i) => addDays(anchor, i)),
     [anchor, daysToShow]
   );
-  const gridColsStyle = { gridTemplateColumns: `48px repeat(${daysToShow}, 1fr)` };
+  const gridColsStyle = {
+    gridTemplateColumns: `48px repeat(${daysToShow}, 1fr)`,
+  };
 
   const tasksById = useMemo(
     () => new Map(tasks.map((t) => [t.id, t])),
@@ -174,6 +229,24 @@ export default function CalendarView({
     return map;
   }, [events, days, tasksById, projectsById, fieldsById, logsByTask]);
 
+  const weatherByDay = useMemo(() => {
+    const map = new Map<string, DayForecast>();
+    for (const d of forecast?.days ?? []) map.set(d.date, d);
+    return map;
+  }, [forecast]);
+
+  const todayKeyStr = useMemo(
+    () =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: getTimezone() }).format(
+        new Date()
+      ),
+    []
+  );
+  const todayHours = useMemo(
+    () => (forecast ? getHoursForDate(forecast, todayKeyStr) : []),
+    [forecast, todayKeyStr]
+  );
+
   const dueItemsByDay = useMemo(() => {
     const map = new Map<string, DueItem[]>(
       days.map((d) => [format(d, 'yyyy-MM-dd'), []])
@@ -187,7 +260,8 @@ export default function CalendarView({
     for (const t of tasks) {
       if (!t.due || !OPEN_STATUSES.includes(t.status)) continue;
       const key = dayKey(t.due);
-      if (key && map.has(key)) map.get(key)!.push({ type: 'task', id: t.id, name: t.name });
+      if (key && map.has(key))
+        map.get(key)!.push({ type: 'task', id: t.id, name: t.name });
     }
     for (const p of projects) {
       if (!p.due || !OPEN_STATUSES.includes(p.status)) continue;
@@ -253,8 +327,7 @@ export default function CalendarView({
         top: (minutesFromMidnight(seg.start) / 60) * HOUR_HEIGHT,
         height: Math.max(
           2,
-          ((seg.end.getTime() - seg.start.getTime()) / 60000 / 60) *
-            HOUR_HEIGHT
+          ((seg.end.getTime() - seg.start.getTime()) / 60000 / 60) * HOUR_HEIGHT
         ),
         matched: seg.matched,
       }));
@@ -293,7 +366,10 @@ export default function CalendarView({
     let earliestMinutes = Infinity;
     for (const evs of eventsByDay.values()) {
       for (const ev of evs) {
-        earliestMinutes = Math.min(earliestMinutes, minutesFromMidnight(ev.start));
+        earliestMinutes = Math.min(
+          earliestMinutes,
+          minutesFromMidnight(ev.start)
+        );
       }
     }
     const targetMinutes = Number.isFinite(earliestMinutes)
@@ -337,18 +413,18 @@ export default function CalendarView({
           </button>
           <button
             onClick={() => setAnchor(defaultAnchorFor(daysToShow))}
-            className="border-nyx-700 text-nyx-300 hover:bg-nyx-800 rounded border px-2 py-1 text-caption sm:py-0.5"
+            className="border-nyx-700 text-nyx-300 hover:bg-nyx-800 text-caption rounded border px-2 py-1 sm:py-0.5"
           >
             Today
           </button>
-          <span className="text-nyx-300 ml-1 text-body sm:ml-2">
+          <span className="text-nyx-300 text-body ml-1 sm:ml-2">
             {format(days[0], 'MMM d')} –{' '}
             {format(days[days.length - 1], 'MMM d, yyyy')}
           </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-          <div className="border-nyx-700 flex overflow-hidden rounded border text-caption">
+          <div className="border-nyx-700 text-caption flex overflow-hidden rounded border">
             {DAY_COUNT_OPTIONS.map((n) => (
               <button
                 key={n}
@@ -368,7 +444,7 @@ export default function CalendarView({
           </div>
           <button
             onClick={() => setShowLoggedTime((v) => !v)}
-            className="text-nyx-300 flex items-center gap-2 text-caption"
+            className="text-nyx-300 text-caption flex items-center gap-2"
           >
             <span
               className={`relative inline-block h-[17px] w-[30px] shrink-0 rounded-full transition-colors ${showLoggedTime ? 'bg-eros-500' : 'bg-nyx-700'}`}
@@ -393,6 +469,10 @@ export default function CalendarView({
           <div />
           {days.map((d) => {
             const dueItems = dueItemsByDay.get(format(d, 'yyyy-MM-dd')) || [];
+            const dayWeather = weatherByDay.get(format(d, 'yyyy-MM-dd'));
+            const WeatherIcon = dayWeather
+              ? WEATHER_ICON_BY_BUCKET[wmoBucket(dayWeather.weatherCode)]
+              : null;
             return (
               <div
                 key={d.toISOString()}
@@ -406,6 +486,29 @@ export default function CalendarView({
                 >
                   {format(d, 'd')}
                 </p>
+                {WeatherIcon && dayWeather && (
+                  <p className="text-nyx-500 text-label mt-0.5 flex items-center justify-center gap-0.5">
+                    <WeatherIcon size={10} />
+                    <span>
+                      {dayWeather.tempMin != null
+                        ? Math.round(dayWeather.tempMin)
+                        : '–'}
+                      °/
+                      {dayWeather.tempMax != null
+                        ? Math.round(dayWeather.tempMax)
+                        : '–'}
+                      °
+                    </span>
+                    {(dayWeather.precipitationProbabilityMax ?? 0) > 0 && (
+                      <span className="text-pontus-400">
+                        {Math.round(
+                          dayWeather.precipitationProbabilityMax ?? 0
+                        )}
+                        %
+                      </span>
+                    )}
+                  </p>
+                )}
                 {dueItems.length > 0 && (
                   <div className="mt-0.5 flex items-center justify-center gap-1">
                     {dueItems.map((item) => (
@@ -434,7 +537,7 @@ export default function CalendarView({
               <div
                 key={h}
                 style={{ top: h * HOUR_HEIGHT }}
-                className="text-nyx-600 absolute right-1.5 -translate-y-2 text-label"
+                className="text-nyx-600 text-label absolute right-1.5 -translate-y-2"
               >
                 {h === 0
                   ? ''
@@ -446,6 +549,9 @@ export default function CalendarView({
             const dayKeyStr = format(day, 'yyyy-MM-dd');
             const dayEvents = eventsByDay.get(dayKeyStr) || [];
             const dayLogs = logsByDay.get(dayKeyStr) || [];
+            const dayHours = forecast
+              ? getHoursForDate(forecast, dayKeyStr)
+              : [];
             const todayColumn = isToday(day);
             return (
               <div
@@ -454,6 +560,13 @@ export default function CalendarView({
                 style={{ height: DAY_HEIGHT }}
                 className={`border-nyx-700 relative cursor-pointer border-l ${todayColumn ? 'bg-eros-500/5' : ''}`}
               >
+                {todayColumn && todayHours.length > 0 && (
+                  <WeatherRibbon
+                    hours={todayHours}
+                    hourHeight={HOUR_HEIGHT}
+                    dayHeight={DAY_HEIGHT}
+                  />
+                )}
                 {Array.from({ length: 24 }).map((_, h) => (
                   <div
                     key={h}
@@ -463,8 +576,10 @@ export default function CalendarView({
                 ))}
                 {todayColumn && (
                   <div
-                    style={{ top: (minutesFromMidnight(now) / 60) * HOUR_HEIGHT }}
-                    className="pointer-events-none absolute z-20 h-0.5 w-full bg-eros-400"
+                    style={{
+                      top: (minutesFromMidnight(now) / 60) * HOUR_HEIGHT,
+                    }}
+                    className="bg-eros-400 pointer-events-none absolute z-20 h-0.5 w-full"
                   >
                     <span className="bg-eros-400 absolute top-1/2 -left-1 h-2 w-2 -translate-y-1/2 rounded-full" />
                   </div>
@@ -489,7 +604,7 @@ export default function CalendarView({
                       style={{ top, height, opacity: ev.isDone ? 0.38 : 1 }}
                       className={`absolute left-1 flex flex-col overflow-hidden rounded border-l-2 px-1.5 py-0.5 text-left text-[11px] leading-tight ${showLoggedTime ? 'right-2.5' : 'right-1'} ${meta.bg} ${meta.text} ${meta.border} ${meta.borderStyle} ${
                         ev.isLate && !ev.isDone
-                          ? 'border-tartarus-500! border-solid! animate-pulse'
+                          ? 'border-tartarus-500! animate-pulse border-solid!'
                           : ''
                       }`}
                     >
@@ -518,6 +633,19 @@ export default function CalendarView({
                           className="mt-0.5 shrink-0"
                         />
                       )}
+                      {ev.location &&
+                        dayHours.length > 0 &&
+                        (() => {
+                          const hour = nearestHour(dayHours, ev.start);
+                          if (!hour || hour.temperature == null) return null;
+                          return (
+                            <span className="text-nyx-400 mt-0.5 shrink-0 truncate font-mono text-[10px]">
+                              {Math.round(hour.temperature)}°
+                              {(hour.precipitationProbability ?? 0) >= 40 &&
+                                ` · ${Math.round(hour.precipitationProbability ?? 0)}%`}
+                            </span>
+                          );
+                        })()}
                     </button>
                   );
                 })}
@@ -565,7 +693,7 @@ export default function CalendarView({
             return (
               <div
                 key={day.toISOString()}
-                className="border-nyx-700 flex items-center justify-between gap-1 border-l px-2 py-1.5 font-mono text-label"
+                className="border-nyx-700 text-label flex items-center justify-between gap-1 border-l px-2 py-1.5 font-mono"
               >
                 <span className={summary.scheduledColorClass}>
                   {minutesToHuman(summary.scheduledMinutes)}

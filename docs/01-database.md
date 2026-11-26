@@ -175,13 +175,14 @@ Compromissos e blocos de tempo na agenda.
 | google_etag | text | Último etag devolvido pelo Google; compara para detectar edição concorrente |
 | google_synced_at | timestamptz | Timestamp do último push/pull bem-sucedido |
 | sync_dirty | boolean | default `false` — marcado pelo trigger `trg_google_sync_dirty` quando a linha precisa ser empurrada ao Google |
+| location | text | Opcional. Não-vazio marca o evento "externo" para o recurso de clima (ver [Adicionando clima](03-ai.md#clima-digest-get_weather_forecast-e-calendário)) — digest e calendário passam a mostrar temperatura/chuva daquela janela específica, não só a do dia. Sincronizado com o campo `location` do Google, só em linhas `fixed` |
 
 **Sincronização com o Google Calendar** (só `event_type = 'fixed'` —
 `scheduled`/`routine` nunca saem do Khaos, e nada vindo do Google pode se
 materializar como `scheduled`/`routine`). `trg_google_sync_dirty`
 (`BEFORE INSERT OR UPDATE`) marca `sync_dirty` quando a linha é (ou acabou
 de deixar de ser) `fixed` e uma coluna observável mudou
-(`name`/`duration`/`deleted_at`/`event_type`) — as colunas que a própria
+(`name`/`duration`/`deleted_at`/`event_type`/`location`) — as colunas que a própria
 sincronização escreve (`google_*`, `sync_dirty`) ficam de fora do que o
 trigger observa. Um índice único parcial em
 `(google_calendar_id, google_event_id)` (onde `google_event_id` não é nulo)
@@ -213,6 +214,28 @@ ler esta tabela, só o service role usado pelas Edge Functions
 `google-calendar-oauth`/`google-calendar-sync`. A RPC `google_calendar_status()`
 (`SECURITY DEFINER`) expõe só `{ connected, calendar_id, last_sync_at,
 last_error }` para a UI — nunca os tokens.
+
+### `weather_location`
+
+Singleton (mesmo padrão `id boolean` fixo em `true` de
+`google_calendar_account`) com a única localização (latitude/longitude)
+usada pelo recurso de clima — digest, `get_weather_forecast` e calendário.
+RLS habilitada com policy "allow all" (ao contrário de
+`google_calendar_account`: não guarda token, e o browser precisa ler/
+escrever para o city picker ao lado do `TimezonePicker`).
+
+| Coluna | Tipo | Descrição |
+| --- | --- | --- |
+| id | boolean PK | Sempre `true` |
+| latitude, longitude | double precision | |
+| label | text | Nome legível mostrado no picker, ex. "São Paulo, BR" |
+| updated_at | timestamptz | |
+
+Resolvida em cascata quando vazia — linha desta tabela → env vars
+(`VITE_WEATHER_LAT`/`LON` no browser, `WEATHER_LAT`/`LON` na edge function)
+→ geocodifica a cidade do timezone configurado (`src/lib/weather/
+location.ts`), persistindo o resultado aqui. Ver
+[Clima](03-ai.md#clima-digest-get_weather_forecast-e-calendário).
 
 ### `google_calendar_sync_log`
 

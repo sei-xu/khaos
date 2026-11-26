@@ -83,6 +83,7 @@ export type Database = {
           google_event_id: string | null
           google_synced_at: string | null
           id: string
+          location: string | null
           name: string
           project_id: string | null
           recurrent: boolean
@@ -100,6 +101,7 @@ export type Database = {
           google_event_id?: string | null
           google_synced_at?: string | null
           id?: string
+          location?: string | null
           name: string
           project_id?: string | null
           recurrent?: boolean
@@ -117,6 +119,7 @@ export type Database = {
           google_event_id?: string | null
           google_synced_at?: string | null
           id?: string
+          location?: string | null
           name?: string
           project_id?: string | null
           recurrent?: boolean
@@ -794,6 +797,30 @@ export type Database = {
           kind?: string
           ref?: string
           sent_at?: string
+        }
+        Relationships: []
+      }
+      weather_location: {
+        Row: {
+          id: boolean
+          label: string
+          latitude: number
+          longitude: number
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          label: string
+          latitude: number
+          longitude: number
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          label?: string
+          latitude?: number
+          longitude?: number
+          updated_at?: string
         }
         Relationships: []
       }

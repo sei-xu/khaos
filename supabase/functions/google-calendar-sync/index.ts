@@ -21,8 +21,9 @@
 // Echo avoidance: trg_google_sync_dirty excludes the google_* / sync_dirty
 // columns from its watched set, so a push that only writes those back never
 // re-marks a row dirty. A pull, though, writes name/duration/event_type/
-// deleted_at — columns the trigger DOES watch — so every pull mutation here
-// goes through applySyncedUpdate(), which does the data write and then a
+// deleted_at/location — columns the trigger DOES watch — so every pull
+// mutation here goes through applySyncedUpdate(), which does the data write
+// and then a
 // second write touching only sync_dirty. The trigger can only force
 // sync_dirty back to true, never force it false, so that second write always
 // sticks. Skipping this would start a push/pull ping-pong that re-sends
@@ -66,6 +67,7 @@ interface EventRow {
   google_event_id: string | null;
   google_calendar_id: string | null;
   google_etag: string | null;
+  location: string | null;
 }
 
 interface GoogleEventItem {
@@ -73,6 +75,7 @@ interface GoogleEventItem {
   etag?: string;
   status?: string;
   summary?: string;
+  location?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   attendees?: { self?: boolean; responseStatus?: string }[];
@@ -199,6 +202,7 @@ function toGoogleEventBody(row: EventRow): Record<string, unknown> {
   if (!range) throw new Error(`event ${row.id} has no bounded duration`);
   return {
     summary: row.name,
+    location: row.location ?? '',
     start: { dateTime: range.start.toISOString() },
     end: { dateTime: range.end.toISOString() },
     extendedProperties: { private: { khaos_event_id: row.id } },
@@ -319,7 +323,7 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
 async function runPush(account: Account, accessToken: string): Promise<void> {
   const { data, error } = await db
     .from('events')
-    .select('id,name,event_type,duration,deleted_at,google_event_id,google_calendar_id,google_etag')
+    .select('id,name,event_type,duration,deleted_at,google_event_id,google_calendar_id,google_etag,location')
     .eq('sync_dirty', true)
     .limit(200);
   if (error) {
@@ -333,7 +337,9 @@ async function runPush(account: Account, accessToken: string): Promise<void> {
 
 // --- pull (Google -> Khaos) ----------------------------------------------
 
-function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: string; start: Date } | null {
+function fromGoogleEvent(
+  item: GoogleEventItem
+): { name: string; duration: string; start: Date; location: string | null } | null {
   let start: Date;
   let end: Date;
   if (item.start?.dateTime && item.end?.dateTime) {
@@ -349,7 +355,12 @@ function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: strin
     return null;
   }
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return { name: item.summary || '(sem título)', duration: rangeLiteral(start, end), start };
+  return {
+    name: item.summary || '(sem título)',
+    duration: rangeLiteral(start, end),
+    start,
+    location: item.location || null,
+  };
 }
 
 function isDeclinedBySelf(item: GoogleEventItem): boolean {
@@ -403,6 +414,7 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       duration: parsed.duration,
       event_type: 'fixed',
       deleted_at: null,
+      location: parsed.location,
       google_etag: item.etag ?? null,
       google_synced_at: new Date().toISOString(),
     });
@@ -422,6 +434,7 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       name: parsed.name,
       event_type: 'fixed',
       duration: parsed.duration,
+      location: parsed.location,
       google_event_id: googleId,
       google_calendar_id: calendarId,
       google_etag: item.etag ?? null,

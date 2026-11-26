@@ -27,6 +27,7 @@ import ActiveTimerWidget from '../timeTracking/ActiveTimerWidget';
 import QuickAddBar from '../tasks/QuickAddBar';
 import CommandPalette from './CommandPalette';
 import TimezonePicker from '../common/TimezonePicker';
+import WeatherLocationPicker from '../common/WeatherLocationPicker';
 import ChatPanel from '../assistant/ChatPanel';
 import KhaosIcon from '../common/KhaosIcon'; // Certifique-se de que o caminho relativo está correto
 import { StatusBadge, ProjectChip, FieldBadge } from '../common/ui';
@@ -120,8 +121,12 @@ function Sidebar({
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const fieldOrder = new Map(fields.map((f, i) => [f.id, i]));
   const sortedProjects = [...projects].sort((a, b) => {
-    const orderA = a.field_id ? (fieldOrder.get(a.field_id) ?? fields.length) : fields.length;
-    const orderB = b.field_id ? (fieldOrder.get(b.field_id) ?? fields.length) : fields.length;
+    const orderA = a.field_id
+      ? (fieldOrder.get(a.field_id) ?? fields.length)
+      : fields.length;
+    const orderB = b.field_id
+      ? (fieldOrder.get(b.field_id) ?? fields.length)
+      : fields.length;
     return orderA - orderB;
   });
 
@@ -154,7 +159,11 @@ function Sidebar({
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            {collapsed ? (
+              <PanelLeftOpen size={16} />
+            ) : (
+              <PanelLeftClose size={16} />
+            )}
           </button>
         )}
       </div>
@@ -216,7 +225,9 @@ function Sidebar({
         )}
       >
         {sortedProjects.map((p) => {
-          const fieldName = p.field_id ? fieldsById.get(p.field_id)?.name : null;
+          const fieldName = p.field_id
+            ? fieldsById.get(p.field_id)?.name
+            : null;
           return collapsed ? (
             <NavLink
               key={p.id}
@@ -241,14 +252,14 @@ function Sidebar({
               <ProjectChip
                 name={p.name}
                 fieldName={fieldName}
-                className="min-w-0 flex-1 text-body text-inherit"
+                className="text-body min-w-0 flex-1 text-inherit"
               />
               <StatusBadge status={p.status} />
             </NavLink>
           );
         })}
         {!collapsed && !projects.length && (
-          <p className="text-nyx-600 px-2 text-caption">
+          <p className="text-nyx-600 text-caption px-2">
             Create a project to get started.
           </p>
         )}
@@ -258,7 +269,7 @@ function Sidebar({
         onClick={() => setPaletteOpen(true)}
         title={collapsed ? 'Quick navigate (⌘K)' : undefined}
         className={clsx(
-          'border-nyx-700 text-nyx-500 hover:border-nyx-600 hover:text-nyx-300 mb-3 flex items-center rounded-md border text-caption',
+          'border-nyx-700 text-nyx-500 hover:border-nyx-600 hover:text-nyx-300 text-caption mb-3 flex items-center rounded-md border',
           collapsed
             ? 'mx-2 justify-center px-2 py-1.5'
             : 'mx-3 justify-between px-2 py-1.5'
@@ -404,6 +415,7 @@ function AppShellLayout() {
               <ActiveTimerWidget />
             </div>
             <TimezonePicker />
+            <WeatherLocationPicker />
           </header>
 
           <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
@@ -441,7 +453,9 @@ function AppShellLayout() {
           }}
           className="shadow-panel fixed right-4 bottom-20 z-30 flex items-center justify-center rounded-full lg:hidden"
           aria-label={
-            hasChatActivity ? 'Open assistant (waiting for you)' : 'Open assistant'
+            hasChatActivity
+              ? 'Open assistant (waiting for you)'
+              : 'Open assistant'
           }
         >
           <KhaosIcon

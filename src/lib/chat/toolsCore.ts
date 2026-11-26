@@ -5,14 +5,38 @@
 // bot Edge Function.
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  findDryWindows,
+  clothingAdvice,
+  type DryWindow,
+} from '../weather/advice.ts';
+import {
+  getDayForecast,
+  getHoursForDate,
+  type Forecast,
+} from '../weather/forecast.ts';
+import { wmoLabel } from '../weather/wmo.ts';
+import type { WeatherLocation } from '../weather/location.ts';
 
 // Everything the tool executor needs from its host, injected rather than
 // imported: the browser app supplies its anon-key client (src/lib/chat/tools.ts)
 // and the Telegram Edge Function supplies its service-role client. Keeping this
-// module import-free at runtime is what lets Deno bundle it unchanged.
+// module import-free at runtime is what lets Deno bundle it unchanged — the
+// weather/* modules above are an exception by design: pure TS, zero browser/
+// Deno globals, same "shared core" pattern as this file itself.
 export interface ToolDeps {
   db: SupabaseClient;
   searchSchema: (query: string) => unknown;
+  // Only get_weather_forecast needs these — both hosts resolve their own
+  // location (stored row -> env vars -> geocode the timezone's city; see
+  // src/lib/weather/location.ts) and know their own timezone.
+  resolveWeatherLocation?: () => Promise<WeatherLocation | null>;
+  fetchForecast?: (
+    latitude: number,
+    longitude: number,
+    timezone: string
+  ) => Promise<Forecast>;
+  timezone?: string;
 }
 
 export const ALLOWED_TABLES = [
@@ -286,6 +310,26 @@ export const READ_TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
       },
       required: ['table'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_weather_forecast',
+    description:
+      'Gets the weather forecast for the configured location (see the weather location picker next to the timezone picker, or env fallback) — up to 7 days ahead and back, from Open-Meteo. ' +
+      'Without "date", returns one summary row per day in the forecast horizon (min/max temperature, max rain probability, a short condition label). ' +
+      'With "date", also returns that day\'s hourly series and its dry windows (contiguous hours with low rain probability/amount) — use this to answer things like "vai chover na hora do evento X?" or to suggest a dry time to leave/return. ' +
+      'A date outside the horizon (past, or more than ~7 days ahead) returns null for that day rather than invented data — say so plainly instead of guessing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description:
+            "A specific day as 'YYYY-MM-DD', in the user's own timezone — compute it from the Temporal Context prefix rather than guessing. Omit to get the whole available horizon as daily summaries only.",
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },
@@ -1012,11 +1056,11 @@ export async function executeTool(
         .limit(1);
       if (taskErr) throw new Error(taskErr.message);
       const task = (taskRows ?? [])[0] as
-        | { id: string; section_id: string | null }
-        | undefined;
+        { id: string; section_id: string | null } | undefined;
       if (!task) throw new Error(`suggest_next_task: task ${taskId} not found`);
 
-      const TASK_COLUMNS = 'id, name, status, priority, due, estimate, section_id';
+      const TASK_COLUMNS =
+        'id, name, status, priority, due, estimate, section_id';
       let basis: 'sequence' | 'section' | 'work_tag' | 'backlog' | 'none' =
         'none';
       let candidates: unknown[] = [];
@@ -1210,6 +1254,65 @@ export async function executeTool(
         .limit(lim);
       if (error) throw new Error(error.message);
       return { notes: cleanPayload(data ?? []) };
+    }
+    case 'get_weather_forecast': {
+      const a = args as { date?: unknown };
+      const date = typeof a.date === 'string' ? a.date : undefined;
+
+      if (!deps.resolveWeatherLocation || !deps.fetchForecast) {
+        return { error: 'weather is not configured on this host' };
+      }
+      const location = await deps.resolveWeatherLocation();
+      if (!location) {
+        return { error: 'no weather location configured yet' };
+      }
+      const timezone = deps.timezone ?? 'UTC';
+      const forecast = await deps.fetchForecast(
+        location.latitude,
+        location.longitude,
+        timezone
+      );
+
+      const days = forecast.days.map((d) => ({
+        date: d.date,
+        condition: wmoLabel(d.weatherCode),
+        tempMin: d.tempMin,
+        tempMax: d.tempMax,
+        precipitationProbabilityMax: d.precipitationProbabilityMax,
+      }));
+
+      if (!date) {
+        return { location, timezone, days };
+      }
+
+      const day = getDayForecast(forecast, date);
+      const hours = getHoursForDate(forecast, date);
+      const dryWindows: (DryWindow & { startTime: string; endTime: string })[] =
+        hours.length
+          ? findDryWindows(hours).map((w) => ({
+              ...w,
+              startTime: hours[w.startIndex].time,
+              endTime: hours[w.endIndex].time,
+            }))
+          : [];
+      const clothing =
+        day?.tempMax != null
+          ? clothingAdvice(
+              day.tempMax,
+              (day.precipitationProbabilityMax ?? 0) >= 40
+            )
+          : null;
+
+      return {
+        location,
+        timezone,
+        days,
+        requestedDate: date,
+        day,
+        hours,
+        dryWindows,
+        clothingAdvice: clothing,
+      };
     }
     default:
       throw new Error(`Unknown tool "${name}"`);

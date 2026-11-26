@@ -667,6 +667,7 @@ begin
       or old.duration is distinct from new.duration
       or old.deleted_at is distinct from new.deleted_at
       or old.event_type is distinct from new.event_type
+      or old.location is distinct from new.location
     then
       new.sync_dirty := true;
     end if;
@@ -680,7 +681,7 @@ $$;
 ALTER FUNCTION "public"."trg_google_sync_dirty"() OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type=''fixed'' and a user-visible column changed (name, duration, deleted_at, event_type). A ''fixed''->other transition is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled'' or ''routine''.';
+COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type=''fixed'' and a user-visible column changed (name, duration, deleted_at, event_type, location). A ''fixed''->other transition is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled'' or ''routine''.';
 
 
 
@@ -1245,6 +1246,7 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
     "google_etag" "text",
     "google_synced_at" timestamp with time zone,
     "sync_dirty" boolean DEFAULT false NOT NULL,
+    "location" "text",
     CONSTRAINT "duration_must_be_bounded" CHECK (((NOT "lower_inf"("duration")) AND (NOT "upper_inf"("duration")) AND (NOT "isempty"("duration"))))
 );
 
@@ -1293,6 +1295,10 @@ COMMENT ON COLUMN "public"."events"."duration" IS 'The exact date and time range
 
 
 COMMENT ON COLUMN "public"."events"."id" IS 'Primary key (UUID) of the event.';
+
+
+
+COMMENT ON COLUMN "public"."events"."location" IS 'Free-text location/address. A non-empty value marks the event "external" for weather purposes (per-event temperature/rain in the digest and calendar, instead of just the day''s). Synced bidirectionally with Google Calendar''s own location field, restricted to event_type = ''fixed''.';
 
 
 
@@ -1933,6 +1939,27 @@ ALTER TABLE "public"."telegram_notifications" OWNER TO "postgres";
 
 
 COMMENT ON TABLE "public"."telegram_notifications" IS 'Idempotency ledger for the Telegram scheduled notifier (digest + reminders). Written only by that function via the service-role key.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."weather_location" (
+    "id" boolean DEFAULT true NOT NULL,
+    "latitude" double precision NOT NULL,
+    "longitude" double precision NOT NULL,
+    "label" "text" NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "weather_location_singleton" CHECK ("id")
+);
+
+
+ALTER TABLE "public"."weather_location" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."weather_location" IS 'Singleton row holding the one location the weather feature forecasts for (Open-Meteo latitude/longitude). Resolved client- and server-side in cascade: this table, then env vars, then geocoding the configured timezone''s city — see src/lib/api/weather.ts and supabase/functions/_shared/khaos.ts.';
+
+
+
+COMMENT ON COLUMN "public"."weather_location"."label" IS 'Human-readable place name shown in the city picker, e.g. "São Paulo, BR".';
 
 
 
@@ -2691,6 +2718,10 @@ CREATE POLICY "allow all" ON "public"."tasks_sequence" USING (true) WITH CHECK (
 
 
 
+CREATE POLICY "allow all" ON "public"."weather_location" USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "allow all" ON "public"."work_tag_entities" USING (true) WITH CHECK (true);
 
 
@@ -2757,6 +2788,9 @@ ALTER TABLE "public"."telegram_chats" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."telegram_notifications" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."weather_location" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."work_tag_entities" ENABLE ROW LEVEL SECURITY;
@@ -3140,6 +3174,12 @@ GRANT ALL ON TABLE "public"."telegram_chats" TO "service_role";
 GRANT ALL ON TABLE "public"."telegram_notifications" TO "anon";
 GRANT ALL ON TABLE "public"."telegram_notifications" TO "authenticated";
 GRANT ALL ON TABLE "public"."telegram_notifications" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."weather_location" TO "anon";
+GRANT ALL ON TABLE "public"."weather_location" TO "authenticated";
+GRANT ALL ON TABLE "public"."weather_location" TO "service_role";
 
 
 
