@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, MapPin } from 'lucide-react';
 import { usePlaces, usePlaceMutations } from '../hooks/usePlaces';
 import {
@@ -14,6 +14,32 @@ import {
 } from '../lib/constants';
 import type { PlaceKind, TransportMode } from '../lib/types';
 
+// Local draft for a numeric settings field: typing only updates state, the
+// mutation fires on blur. Keeps the field in sync with the server value
+// while untouched, but stops following it once the user starts editing, so
+// a mid-edit refetch can't clobber what they're typing (TaskDetailModal's
+// draft pattern, src/components/tasks/TaskDetailModal.tsx:433).
+function useNumericSettingDraft(value: number) {
+  const [draft, setDraft] = useState(String(value));
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (!dirtyRef.current) setDraft(String(value));
+  }, [value]);
+
+  function onChange(next: string) {
+    dirtyRef.current = true;
+    setDraft(next);
+  }
+
+  function flush(commit: (n: number) => void) {
+    dirtyRef.current = false;
+    commit(Number(draft) || 0);
+  }
+
+  return { draft, onChange, flush };
+}
+
 export default function PlacesPage() {
   const { data: places = [] } = usePlaces();
   const { create, remove } = usePlaceMutations();
@@ -23,6 +49,13 @@ export default function PlacesPage() {
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [kind, setKind] = useState<PlaceKind>('other');
+
+  const arriveEarlyDraft = useNumericSettingDraft(
+    settings?.default_arrive_early_minutes ?? 0
+  );
+  const rainThresholdDraft = useNumericSettingDraft(
+    settings?.rain_probability_threshold ?? 0
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -170,11 +203,14 @@ export default function PlacesPage() {
             <TextInput
               type="number"
               min={0}
-              value={settings.default_arrive_early_minutes}
-              onChange={(e) =>
-                updateSettings.mutate({
-                  defaultArriveEarlyMinutes: Number(e.target.value) || 0,
-                })
+              value={arriveEarlyDraft.draft}
+              onChange={(e) => arriveEarlyDraft.onChange(e.target.value)}
+              onBlur={() =>
+                arriveEarlyDraft.flush((n) =>
+                  updateSettings.mutate({
+                    defaultArriveEarlyMinutes: Math.max(0, n),
+                  })
+                )
               }
             />
           </div>
@@ -186,11 +222,14 @@ export default function PlacesPage() {
               type="number"
               min={0}
               max={100}
-              value={settings.rain_probability_threshold}
-              onChange={(e) =>
-                updateSettings.mutate({
-                  rainProbabilityThreshold: Number(e.target.value) || 0,
-                })
+              value={rainThresholdDraft.draft}
+              onChange={(e) => rainThresholdDraft.onChange(e.target.value)}
+              onBlur={() =>
+                rainThresholdDraft.flush((n) =>
+                  updateSettings.mutate({
+                    rainProbabilityThreshold: Math.min(100, Math.max(0, n)),
+                  })
+                )
               }
             />
           </div>
