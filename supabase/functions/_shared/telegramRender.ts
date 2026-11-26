@@ -9,9 +9,10 @@
 // telegram-notify/index.ts wire resolveEntity to a service-role lookup.
 //
 // Pure: no Deno.env access here. The caller reads KHAOS_APP_URL and passes
-// it in as `appUrl`; when it's not configured this degrades to stripping
-// tokens (same as the pre-existing stripTokens fallback in telegram.ts) —
-// never emits a link that can't possibly resolve.
+// it in as `appUrl`; when it's not configured (or an entity has nowhere to
+// link, e.g. a parent-less section) this still resolves the entity and
+// degrades to its plain, escaped name — never emits a link that can't
+// possibly resolve, but never drops the entity either.
 
 import {
   parseMessageSegments,
@@ -75,12 +76,16 @@ export async function renderTelegramMessage(
       continue;
     }
     // entity
-    const resolved = opts.appUrl
-      ? await opts.resolveEntity(segment.entityType, segment.id)
-      : null;
-    if (!resolved) continue; // strip: unresolved id, or no app URL configured
+    const resolved = await opts.resolveEntity(segment.entityType, segment.id);
+    if (!resolved) continue; // strip: unresolved id
     const path = entityPath(segment.entityType, segment.id, resolved);
-    if (!path) continue; // strip: resolved, but with nowhere to link to
+    if (!opts.appUrl || !path) {
+      // Degrade to plain text: the entity resolved but there's nowhere to
+      // link to (no app URL configured, or a parent-less section) — keep
+      // the name instead of emitting a link that can't possibly resolve.
+      out += escapeHtml(resolved.name);
+      continue;
+    }
     const href = `${opts.appUrl}${path}`;
     out += `<a href="${escapeHtml(href)}">${escapeHtml(resolved.name)}</a>`;
   }

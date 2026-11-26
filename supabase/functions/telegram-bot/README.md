@@ -198,4 +198,4 @@ regardless of what changed.)
 | `TELEGRAM_TIMEZONE` | no | `America/Sao_Paulo` | IANA tz for times & digest date |
 | `REMINDER_LEAD_MINUTES` | no | `10` | How early to send task reminders |
 | `STALE_REVIEW_DAYS` | no | `3` | Days in `in_review` before a task is surfaced as stale in the digest |
-| `KHAOS_APP_URL` | no | — (unset) | Base URL of the deployed app. When set, `[[task:uuid]]`/`[[project:uuid]]`/`[[section:uuid]]`/`[[event:uuid]]` tokens the model emits are resolved (service-role SELECT) into a tappable `<a href>` link instead of being stripped. Unset, or an id that doesn't resolve, degrades to the old strip-the-token behaviour — never a broken link. |
+| `KHAOS_APP_URL` | no | — (unset) | Base URL of the deployed app. When set, `[[task:uuid]]`/`[[project:uuid]]`/`[[section:uuid]]`/`[[event:uuid]]` tokens the model emits are resolved (service-role SELECT) into a tappable `<a href>` link. An id that doesn't resolve is stripped entirely; unset, or an entity with nowhere to link (e.g. a section with no parent project), degrades to the entity's plain name instead — never a broken link, and never a vanished one. |

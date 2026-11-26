@@ -59,13 +59,14 @@ describe('renderTelegramMessage', () => {
     );
   });
 
-  it('strips a section token whose resolved entity has no project_id instead of linking to /projects/', async () => {
+  it('degrades a section token whose resolved entity has no project_id to plain text instead of linking to /projects/', async () => {
     const resolveEntity = async () => ({ name: 'Orphan section' });
     const { text } = await renderTelegramMessage(
       'See [[section:cccccccc]] now',
       { appUrl: 'https://khaos.example', resolveEntity }
     );
-    expect(text).toBe('See  now');
+    expect(text).toBe('See Orphan section now');
+    expect(text).not.toContain('<a href');
   });
 
   it('strips a token whose id does not resolve, same as the pre-existing stripTokens fallback', async () => {
@@ -77,14 +78,23 @@ describe('renderTelegramMessage', () => {
     expect(text).toBe('See  now');
   });
 
-  it('never emits a link when no KHAOS_APP_URL is configured', async () => {
+  it('degrades to the entity name as plain text when no KHAOS_APP_URL is configured, rather than dropping it', async () => {
     const resolveEntity = async () => ({ name: 'Write report' });
     const { text } = await renderTelegramMessage(
       'See [[task:aaaaaaaa]] now',
       { appUrl: null, resolveEntity }
     );
-    expect(text).toBe('See  now');
+    expect(text).toBe('See Write report now');
     expect(text).not.toContain('<a href');
+  });
+
+  it('escapes the entity name when degrading to plain text with no app URL', async () => {
+    const resolveEntity = async () => ({ name: 'A & B' });
+    const { text } = await renderTelegramMessage('[[task:aaaaaaaa]]', {
+      appUrl: null,
+      resolveEntity,
+    });
+    expect(text).toBe('A &amp; B');
   });
 
   it('pulls a confirm token out of the text and returns its options separately', async () => {
