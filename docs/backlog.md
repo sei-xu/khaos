@@ -61,6 +61,7 @@ work that grows out of them. Roadmap phases live in
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 | [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 | [Versionamento do khaos: bump no PR, não por workflow](#versionamento-do-khaos-bump-no-pr-não-por-workflow) | 2026-10-29 |
+| [Task module — título truncado e unificação do componente](#task-module--título-truncado-e-unificação-do-componente) | 2026-11-26 |
 
 ---
 
@@ -2155,6 +2156,98 @@ fora das PRs" descrevem a regra anterior.
 Pendente: o usuário dizer **"approved"**. Não verificado: o fluxo real do
 Ḫprj bumpando um PR do khaos depois desta mudança (só confere no próximo
 PR gerenciado).
+
+## Task module — título truncado e unificação do componente
+
+started 2026-11-26
+
+Item de trabalho do usuário: revisar o módulo de task para otimizar a
+leitura do título das tarefas, quase sempre truncado, e unificar a aplicação
+do componente pelo app inteiro (`user_request`).
+
+**Causa-raiz do truncamento** — cinco fatores no mesmo lugar
+(`TaskRow.tsx`): o cluster de badges era `shrink-0` com `flex-wrap`, o que
+nunca quebra linha de verdade (a largura usada do container é sempre
+`>= max-content`), então o cluster inteiro saía da linha antes do nome
+receber qualquer espaço; a troca empilhar/inline usava um breakpoint de
+**viewport** (`md:`) enquanto cada instância vive em containers de larguras
+completamente diferentes (TaskList largo, SectionColumn estreito, preview do
+chat em `max-w-xs`/320px, colunas de Kanban/Priority em `w-64`/256px — o
+mesmo descasamento já registrado no item resolvido "375px
+name-truncation bug"); nenhum tooltip existia nos lugares que truncavam
+(TaskRow, BacklogRow, AddCandidateRow, cards do Kanban/Priority,
+InlineEntityPreview, SequenceChip); o nome ficava sempre em uma linha mesmo
+onde havia espaço vertical de sobra (cards, pills); e o `StatusBadge`
+gastava ~48–55px na frente do nome.
+
+**Fragmentação** — sete renderizadores de nome de tarefa escritos
+independentemente (TaskRow, BacklogRow, AddCandidateRow, os cards de
+Kanban e Priority — praticamente duplicados —, `TaskPillBody` do Dashboard,
+`InlineEntityPreview`/`SequenceChip`), cada um reescolhendo seus próprios
+badges, suas próprias classes de truncamento e sem tooltip. Por isso uma
+correção feita num lugar não se propagava.
+
+**O que foi feito nesta PR** (refatoração de UI, sem mudança de schema):
+
+- `src/lib/taskBadges.ts` — lógica pura (testada, sem jsdom) que decide
+  quais badges um render de tarefa mostra por densidade (`row`/`card`/
+  `pill`/`inline`) e em que ordem eles cedem espaço ao nome sob pressão de
+  largura: estimate e os dois contadores de sequência saem primeiro, depois
+  scheduled, depois target; status/priority/due ficam até o fim. Também
+  carrega `isCancelledName` (decisão de line-through).
+- `src/components/tasks/TaskName.tsx` — único renderizador de nome de
+  tarefa do app: sempre `title={name}` (tooltip), `lines={1|2}`
+  (truncate vs. line-clamp-2), line-through para `cancelled`.
+- `src/components/tasks/TaskRowBadges.tsx` + `TaskRow.tsx` — mapeia
+  `taskBadges.ts` para os badges reais; `TaskRow` passa a ser
+  `@container` com `@md:flex-row` (Tailwind v4 container queries nativas,
+  nenhuma dependência nova) em vez do breakpoint de viewport antigo, e o
+  cluster de badges vira `min-w-0 shrink` com um piso `min-w-[20ch]` no
+  bloco do nome — o déficit de largura agora sai dos badges, não do nome.
+  A ordem de descarte real é feita via classes de container-query literais
+  (Tailwind precisa ver a classe como texto no código-fonte para incluir no
+  build; não dá pra gerar o breakpoint a partir de um número calculado em
+  JS).
+- `src/components/tasks/TaskCard.tsx` — unifica os cards de `KanbanBoard`
+  e `PriorityBoard` (`secondary: 'status' | 'priority'` cobre a única
+  diferença real), usando `TaskName lines={2}`.
+- `EntityChip.tsx`/`InlineEntityPreview.tsx` (chat) — removido o
+  `max-w-xs` do botão (devolve ~90px ao nome, o lugar onde o truncamento
+  era pior) e troca o rótulo textual "task"/"project" pelos mesmos ícones
+  do nav (`ListTodo`/`FolderKanban`).
+- `BacklogRow`, `AddCandidateRow`, `TaskPillBody` (Dashboard) e
+  `SequenceChip` (TaskDetailModal) passaram a usar `TaskName` — ganham
+  tooltip de graça e perdem a regra de truncamento divergente própria. O
+  input de nome editável no header do modal **não** foi trocado — é um
+  campo de edição, não um render truncado, e já está em largura total.
+- `SigilsPage.tsx` — escada de larguras do `TaskRow` (256/320/390/480/
+  560/780px, as larguras reais dos containers do app) sobre o task "full"
+  de stress, mais swatches das formas unificadas (`TaskCard`, a pill do
+  Dashboard via `TaskPillBody`/`pillClassName` agora exportados, o chip
+  inline do chat).
+
+**Testes**: `src/lib/taskBadges.test.ts` (TDD — escrito antes da
+implementação), cobrindo: nenhum badge para campos nulos/zero; ordem
+canônica de badges presentes; contagem nos badges de sequência; conjunto
+restrito por densidade; ordem exata de descarte sob largura decrescente;
+piso do nome nunca violado antes de um badge ser descartado; `cancelled`
+produz line-through. Sem teste de DOM (o repo não tem jsdom/
+@testing-library, e CLAUDE.md pede para não inventar onde não havia).
+`npm run typecheck`, `npm run lint` (zero warnings) e `npm run test`
+(suíte completa, 32 testes) e `npm run build` passam. **Não verificado
+interativamente num browser** — esta sessão correu em background sem
+acesso de clique; a verificação manual nos 390/768/1440px e na escada do
+Sigils listada no plano original fica pendente para quem revisar o PR (o
+app roda limpo no `vite dev`, sem erro de console na carga inicial do
+HTML).
+
+**Decisões deliberadamente não resolvidas aqui** (do item
+[Components — entity chips](#components--entity-chips)): normalização de
+altura dos chips, e o primitivo `Chip` compartilhado. Também não criada
+uma variante icon-only do `StatusBadge` (ponto 9 do plano original — é
+mudança de design system própria, encosta na decisão de altura acima).
+
+Pendente: o usuário dizer **"approved"**.
 
 ## Resolved
 

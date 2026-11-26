@@ -52,7 +52,7 @@ export function EntityChip({ entityType, id }: EntityChipProps) {
     return (
       <button
         onClick={() => navigate(`/calendar?eventId=${id}`)}
-        className="my-1 block w-full max-w-xs text-left"
+        className="my-1 block w-full text-left"
       >
         <InlineEventPreview
           event={event}
@@ -85,7 +85,7 @@ export function EntityChip({ entityType, id }: EntityChipProps) {
           entityType === 'task' ? `/tasks?taskId=${id}` : `/projects/${id}`
         )
       }
-      className="my-1 block w-full max-w-xs text-left"
+      className="my-1 block w-full text-left"
     >
       <InlineEntityPreview entityType={entityType} data={data} />
     </button>

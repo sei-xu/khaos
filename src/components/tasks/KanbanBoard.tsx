@@ -1,6 +1,5 @@
 import {
   DndContext,
-  useDraggable,
   useDroppable,
   PointerSensor,
   TouchSensor,
@@ -9,49 +8,10 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { STATUSES, STATUS_META } from '../../lib/constants';
-import { PriorityBadge, ProjectChip } from '../common/ui';
+import TaskCard from './TaskCard';
 import { useTaskMutations } from '../../hooks/useHierarchy';
 import type { ProjectInfo } from './TaskList';
 import type { Id, Status, Task } from '../../lib/types';
-
-interface CardProps {
-  task: Task;
-  projectInfo?: ProjectInfo;
-  onOpen: (task: Task) => void;
-}
-
-function Card({ task, projectInfo, onOpen }: CardProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({ id: task.id });
-  const style = {
-    touchAction: 'none' as const,
-    ...(transform
-      ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 10 }
-      : undefined),
-  };
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      onClick={() => !isDragging && onOpen(task)}
-      className="border-nyx-700 bg-nyx-800 text-nyx-100 shadow-card cursor-grab rounded-md border p-2 text-body active:cursor-grabbing"
-    >
-      <p className="mb-1.5 leading-snug">{task.name}</p>
-      <div className="flex items-center justify-between gap-2">
-        <PriorityBadge priority={task.priority} />
-        {projectInfo?.name && (
-          <ProjectChip
-            name={projectInfo.name}
-            fieldName={projectInfo.fieldName}
-            className="min-w-0"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
 
 interface ColumnProps {
   priority: Status;
@@ -79,11 +39,12 @@ function Column({ priority, tasks, projectInfoById, onOpen }: ColumnProps) {
       </div>
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
         {tasks.map((task) => (
-          <Card
+          <TaskCard
             key={task.id}
             task={task}
             projectInfo={projectInfoById.get(task.id)}
             onOpen={onOpen}
+            secondary="priority"
           />
         ))}
       </div>
