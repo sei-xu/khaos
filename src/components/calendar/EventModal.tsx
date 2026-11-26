@@ -2,11 +2,24 @@ import { useSyncActiveEntity } from '../../lib/activeEntityContext';
 import { useState, type FormEvent } from 'react';
 import { Link2 } from 'lucide-react';
 import { Modal, TextInput, Select, Button } from '../common/ui';
-import { EVENT_TYPES } from '../../lib/constants';
+import {
+  EVENT_TYPES,
+  TRANSPORT_MODES,
+  TRANSPORT_MODE_LABELS,
+} from '../../lib/constants';
 import { toDatetimeLocalValue } from '../../lib/dateUtils';
 import { useEventMutations } from '../../hooks/useEvents';
 import { useProjects, useTasks } from '../../hooks/useHierarchy';
-import type { Event, EventType, Id, Project, Task } from '../../lib/types';
+import { usePlaces } from '../../hooks/usePlaces';
+import type {
+  Event,
+  EventType,
+  Id,
+  Place,
+  Project,
+  Task,
+  TransportMode,
+} from '../../lib/types';
 
 interface EventModalProps {
   event?: Event | null;
@@ -22,6 +35,10 @@ interface EventFormState {
   end: string;
   taskId: Id | '';
   projectId: Id | '';
+  placeId: Id | '';
+  locationText: string;
+  transportMode: TransportMode | '';
+  arriveEarlyMinutes: string;
 }
 
 function parseStart(rangeStr?: string | null): Date {
@@ -48,6 +65,7 @@ export default function EventModal({
   const { create, update, remove } = useEventMutations();
   const { data: projects = [] } = useProjects() as { data: Project[] };
   const { data: tasks = [] } = useTasks() as { data: Task[] };
+  const { data: places = [] } = usePlaces() as { data: Place[] };
   useSyncActiveEntity('event', event?.id, event?.name);
 
   const [form, setForm] = useState<EventFormState>(() => ({
@@ -64,6 +82,13 @@ export default function EventModal({
     ),
     taskId: (event?.task_id as Id) || '',
     projectId: (event?.project_id as Id) || '',
+    placeId: (event?.place_id as Id) || '',
+    locationText: event?.location_text || '',
+    transportMode: (event?.transport_mode as TransportMode) || '',
+    arriveEarlyMinutes:
+      event?.arrive_early_minutes != null
+        ? String(event.arrive_early_minutes)
+        : '',
   }));
 
   // A "scheduled" (plan) event linked to a task doesn't need its own title —
@@ -88,6 +113,12 @@ export default function EventModal({
       end: form.end ? new Date(form.end) : null,
       taskId: form.taskId || null,
       projectId: form.projectId || null,
+      placeId: form.placeId || null,
+      locationText: form.locationText.trim() || null,
+      transportMode: form.transportMode || null,
+      arriveEarlyMinutes: form.arriveEarlyMinutes
+        ? Number(form.arriveEarlyMinutes)
+        : null,
     };
     if (event) {
       update.mutate({ id: event.id, patch: payload }, { onSuccess: onClose });
@@ -245,6 +276,75 @@ export default function EventModal({
                 </option>
               ))}
             </Select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+              Place (optional)
+            </label>
+            <Select
+              value={form.placeId}
+              onChange={(e) =>
+                setForm({ ...form, placeId: e.target.value as Id })
+              }
+              className="w-full"
+            >
+              <option value="">None</option>
+              {places.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+              Address (free text, used if no place)
+            </label>
+            <TextInput
+              value={form.locationText}
+              onChange={(e) =>
+                setForm({ ...form, locationText: e.target.value })
+              }
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+              Transport (optional — the assistant will suggest one if unset)
+            </label>
+            <Select
+              value={form.transportMode}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  transportMode: e.target.value as TransportMode | '',
+                })
+              }
+              className="w-full"
+            >
+              <option value="">Unset</option>
+              {TRANSPORT_MODES.map((m) => (
+                <option key={m} value={m}>
+                  {TRANSPORT_MODE_LABELS[m]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="text-nyx-400 mb-1 block text-caption font-medium">
+              Arrive early (minutes, optional)
+            </label>
+            <TextInput
+              type="number"
+              min={0}
+              value={form.arriveEarlyMinutes}
+              onChange={(e) =>
+                setForm({ ...form, arriveEarlyMinutes: e.target.value })
+              }
+            />
           </div>
         </div>
       </form>

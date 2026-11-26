@@ -42,6 +42,16 @@ para discussão, não um compromisso:
 - Visualização de sequences como grafo de dependências
 - Inbox de ideias soltas, promovidas a projeto/tarefa pela IA
 - App mobile nativo (hoje só PWA)
+- Locomoção — local em eventos/tarefas, deslocamento calculado no calendário
+  e check-in (ver `docs/backlog.md`). ~~Fase A: tabela `places`, singleton
+  `travel_settings`, local (`place_id`/`location_text`/`transport_mode`/
+  `arrive_early_minutes`) em `events`, `place_id` em `tasks`, e o campo
+  `location` do Google Calendar sincronizado nos dois sentidos para eventos
+  `fixed` (2026-11-26)~~ — faltam fase B (pernas de deslocamento calculadas,
+  faixas no calendário), fase C (risco de chuva, intervalo impossível,
+  `suggest_transport_mode`/`suggest_tasks_on_the_way`) e fase D (check-in,
+  lembrete de "hora de sair"). Depende do app mobile nativo acima só para o
+  check-in passivo em segundo plano — o resto funciona em PWA.
 
 ## Notas históricas
 

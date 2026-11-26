@@ -58,6 +58,7 @@ import {
   useTasks,
   useTasksSequence,
 } from '../../hooks/useHierarchy';
+import { usePlaces } from '../../hooks/usePlaces';
 import {
   useTaskLogs,
   useForegroundTimer,
@@ -557,6 +558,7 @@ export default function TaskDetailModal({
   const inBacklog = task.backlog_rank !== null;
   const backlogPosition = useBacklogPosition(task.id);
 
+  const { data: places = [] } = usePlaces();
   const { data: allTasks = [] } = useTasks();
   const { data: seqEdges = [] } = useTasksSequence();
   const tasksById = useMemo(
@@ -721,6 +723,7 @@ export default function TaskDetailModal({
     estimate?: number | null;
     due?: string | null;
     target?: string | null;
+    place_id?: string | null;
   }) {
     update.mutate({ id: task.id, patch: fields });
   }
@@ -946,6 +949,24 @@ export default function TaskDetailModal({
               m
             </div>
           </div>
+        </div>
+
+        <div className="min-w-0">
+          <label className="text-nyx-500 text-caption mb-1 block font-semibold tracking-wide uppercase">
+            Place
+          </label>
+          <select
+            value={task.place_id ?? ''}
+            onChange={(e) => patch({ place_id: e.target.value || null })}
+            className="focus-visible:ring-eros-400 border-nyx-600 bg-nyx-800 text-nyx-100 text-caption w-fit cursor-pointer rounded-md border px-2 py-1.5 focus:outline-none focus-visible:ring-1"
+          >
+            <option value="">None</option>
+            {places.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>

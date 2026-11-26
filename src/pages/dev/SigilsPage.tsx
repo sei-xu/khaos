@@ -73,6 +73,7 @@ const SAMPLE_TASK: Task = {
   section_id: null,
   deleted_at: null,
   backlog_rank: null,
+  place_id: null,
 };
 
 // Every field populated at once -- not a realistic task, a stress test for
@@ -111,6 +112,10 @@ const SAMPLE_EVENT_FIXED: Event = {
   google_etag: null,
   google_synced_at: null,
   sync_dirty: false,
+  place_id: null,
+  location_text: null,
+  transport_mode: null,
+  arrive_early_minutes: null,
 };
 const SAMPLE_EVENT_SCHEDULED: Event = {
   ...SAMPLE_EVENT_FIXED,

@@ -6,6 +6,7 @@ import {
   useTasks,
   useTaskMutations,
 } from '../../hooks/useHierarchy';
+import { usePlaces } from '../../hooks/usePlaces';
 import { parseQuickAdd } from '../../lib/quickAdd';
 import {
   Modal,
@@ -26,12 +27,14 @@ interface Draft {
   due: string | null;
   projectId: Id | null;
   sectionId: Id | null;
+  placeId: Id | null;
 }
 
 export default function QuickAddBar() {
   const { data: projects = [] } = useProjects();
   const { data: sections = [] } = useSections();
   const { data: tasks = [] } = useTasks();
+  const { data: places = [] } = usePlaces();
   const { create } = useTaskMutations();
 
   const [raw, setRaw] = useState('');
@@ -63,6 +66,7 @@ export default function QuickAddBar() {
       due: parsed.dueDate ? parsed.dueDate.toISOString() : null,
       projectId: parsed.projectId,
       sectionId: firstSectionId(parsed.projectId),
+      placeId: null,
     });
   }
 
@@ -76,6 +80,7 @@ export default function QuickAddBar() {
         priority: draft.priority,
         status: draft.status,
         due: draft.due,
+        place_id: draft.placeId,
       },
       {
         onSuccess: (task) => {
@@ -220,6 +225,25 @@ export default function QuickAddBar() {
                 value={draft.status}
                 onChange={(status) => setDraft({ ...draft, status })}
               />
+            </div>
+            <div>
+              <label className="text-nyx-400 text-caption mb-1 block font-medium">
+                Place (optional)
+              </label>
+              <Select
+                value={draft.placeId ?? ''}
+                className="w-full"
+                onChange={(e) =>
+                  setDraft({ ...draft, placeId: e.target.value || null })
+                }
+              >
+                <option value="">None</option>
+                {places.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
             </div>
             {!sectionsForProject.length && draft.projectId && (
               <p className="text-tartarus-500 text-caption">

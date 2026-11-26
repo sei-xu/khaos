@@ -22,6 +22,8 @@ export type MomentTag = Tables['moment_tags']['Row'];
 export type MomentTagEntity = Tables['moment_tag_entities']['Row'];
 export type SectionsSequence = Tables['sections_sequence']['Row'];
 export type TasksSequence = Tables['tasks_sequence']['Row'];
+export type Place = Tables['places']['Row'];
+export type TravelSettings = Tables['travel_settings']['Row'];
 
 export type ActiveTaskLog = Views['active_task_log']['Row'];
 
@@ -38,6 +40,7 @@ export type NewWorkTag = Tables['work_tags']['Insert'];
 export type NewWorkTagEntity = Tables['work_tag_entities']['Insert'];
 export type NewMomentTag = Tables['moment_tags']['Insert'];
 export type NewMomentTagEntity = Tables['moment_tag_entities']['Insert'];
+export type NewPlace = Tables['places']['Insert'];
 
 export type FieldPatch = Tables['fields']['Update'];
 export type ProjectPatch = Tables['projects']['Update'];
@@ -47,12 +50,16 @@ export type TaskItemPatch = Tables['task_items']['Update'];
 export type TaskLogPatch = Tables['task_logs']['Update'];
 export type EventPatch = Tables['events']['Update'];
 export type RoutinePatch = Tables['routines']['Update'];
+export type PlacePatch = Tables['places']['Update'];
+export type TravelSettingsPatch = Tables['travel_settings']['Update'];
 
 // ---------- Enums ----------
 export type Status = Enums['status'];
 export type Priority = Enums['priority'];
 export type EventType = Enums['event_types'];
 export type MomentType = Enums['moment_types'];
+export type TransportMode = Enums['transport_modes'];
+export type PlaceKind = 'home' | 'work' | 'client' | 'other';
 export type MomentAuthor = 'user' | 'system' | 'assistant';
 
 // entity_types no longer exists as a DB enum — moments/work_tag_entities use

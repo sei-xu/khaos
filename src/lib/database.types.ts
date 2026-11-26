@@ -74,6 +74,7 @@ export type Database = {
       }
       events: {
         Row: {
+          arrive_early_minutes: number | null
           deleted_at: string | null
           duration: unknown
           event_type: Database["public"]["Enums"]["event_types"]
@@ -83,14 +84,18 @@ export type Database = {
           google_event_id: string | null
           google_synced_at: string | null
           id: string
+          location_text: string | null
           name: string
+          place_id: string | null
           project_id: string | null
           recurrent: boolean
           routine_id: string | null
           sync_dirty: boolean
           task_id: string | null
+          transport_mode: Database["public"]["Enums"]["transport_modes"] | null
         }
         Insert: {
+          arrive_early_minutes?: number | null
           deleted_at?: string | null
           duration?: unknown
           event_type: Database["public"]["Enums"]["event_types"]
@@ -100,14 +105,18 @@ export type Database = {
           google_event_id?: string | null
           google_synced_at?: string | null
           id?: string
+          location_text?: string | null
           name: string
+          place_id?: string | null
           project_id?: string | null
           recurrent?: boolean
           routine_id?: string | null
           sync_dirty?: boolean
           task_id?: string | null
+          transport_mode?: Database["public"]["Enums"]["transport_modes"] | null
         }
         Update: {
+          arrive_early_minutes?: number | null
           deleted_at?: string | null
           duration?: unknown
           event_type?: Database["public"]["Enums"]["event_types"]
@@ -117,12 +126,15 @@ export type Database = {
           google_event_id?: string | null
           google_synced_at?: string | null
           id?: string
+          location_text?: string | null
           name?: string
+          place_id?: string | null
           project_id?: string | null
           recurrent?: boolean
           routine_id?: string | null
           sync_dirty?: boolean
           task_id?: string | null
+          transport_mode?: Database["public"]["Enums"]["transport_modes"] | null
         }
         Relationships: [
           {
@@ -130,6 +142,13 @@ export type Database = {
             columns: ["field_id"]
             isOneToOne: false
             referencedRelation: "fields"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_place_id_fkey"
+            columns: ["place_id"]
+            isOneToOne: false
+            referencedRelation: "places"
             referencedColumns: ["id"]
           },
           {
@@ -435,6 +454,63 @@ export type Database = {
         }
         Relationships: []
       }
+      places: {
+        Row: {
+          address: string | null
+          deleted_at: string | null
+          field_id: string | null
+          google_place_id: string | null
+          id: string
+          kind: string
+          lat: number | null
+          lng: number | null
+          name: string
+          project_id: string | null
+          radius_m: number
+        }
+        Insert: {
+          address?: string | null
+          deleted_at?: string | null
+          field_id?: string | null
+          google_place_id?: string | null
+          id?: string
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          name: string
+          project_id?: string | null
+          radius_m?: number
+        }
+        Update: {
+          address?: string | null
+          deleted_at?: string | null
+          field_id?: string | null
+          google_place_id?: string | null
+          id?: string
+          kind?: string
+          lat?: number | null
+          lng?: number | null
+          name?: string
+          project_id?: string | null
+          radius_m?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "places_field_id_fkey"
+            columns: ["field_id"]
+            isOneToOne: false
+            referencedRelation: "fields"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "places_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           deleted_at: string | null
@@ -689,6 +765,7 @@ export type Database = {
           estimate: number | null
           id: string
           name: string
+          place_id: string | null
           priority: Database["public"]["Enums"]["priority"] | null
           section_id: string | null
           status: Database["public"]["Enums"]["status"]
@@ -701,6 +778,7 @@ export type Database = {
           estimate?: number | null
           id?: string
           name: string
+          place_id?: string | null
           priority?: Database["public"]["Enums"]["priority"] | null
           section_id?: string | null
           status?: Database["public"]["Enums"]["status"]
@@ -713,12 +791,20 @@ export type Database = {
           estimate?: number | null
           id?: string
           name?: string
+          place_id?: string | null
           priority?: Database["public"]["Enums"]["priority"] | null
           section_id?: string | null
           status?: Database["public"]["Enums"]["status"]
           target?: unknown
         }
         Relationships: [
+          {
+            foreignKeyName: "tasks_place_id_fkey"
+            columns: ["place_id"]
+            isOneToOne: false
+            referencedRelation: "places"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tasks_section_id_fkey"
             columns: ["section_id"]
@@ -796,6 +882,41 @@ export type Database = {
           sent_at?: string
         }
         Relationships: []
+      }
+      travel_settings: {
+        Row: {
+          default_arrive_early_minutes: number
+          default_transport_mode: Database["public"]["Enums"]["transport_modes"]
+          geolocation_checkin_opt_in: boolean
+          home_place_id: string | null
+          id: boolean
+          rain_probability_threshold: number
+        }
+        Insert: {
+          default_arrive_early_minutes?: number
+          default_transport_mode?: Database["public"]["Enums"]["transport_modes"]
+          geolocation_checkin_opt_in?: boolean
+          home_place_id?: string | null
+          id?: boolean
+          rain_probability_threshold?: number
+        }
+        Update: {
+          default_arrive_early_minutes?: number
+          default_transport_mode?: Database["public"]["Enums"]["transport_modes"]
+          geolocation_checkin_opt_in?: boolean
+          home_place_id?: string | null
+          id?: boolean
+          rain_probability_threshold?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "travel_settings_home_place_id_fkey"
+            columns: ["home_place_id"]
+            isOneToOne: false
+            referencedRelation: "places"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       work_tag_entities: {
         Row: {
@@ -1036,6 +1157,7 @@ export type Database = {
         | "paused"
         | "cancelled"
         | "waiting"
+      transport_modes: "walk" | "bike" | "transit" | "drive" | "rideshare" | "remote"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1198,6 +1320,7 @@ export const Constants = {
         "cancelled",
         "waiting",
       ],
+      transport_modes: ["walk", "bike", "transit", "drive", "rideshare", "remote"],
     },
   },
 } as const

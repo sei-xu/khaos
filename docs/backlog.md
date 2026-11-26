@@ -61,6 +61,7 @@ work that grows out of them. Roadmap phases live in
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 | [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 | [Versionamento do khaos: bump no PR, não por workflow](#versionamento-do-khaos-bump-no-pr-não-por-workflow) | 2026-10-29 |
+| [Locomoção: local em eventos e tarefas, deslocamento no calendário e check-in](#locomoção-local-em-eventos-e-tarefas-deslocamento-no-calendário-e-check-in) | 2026-11-18 |
 
 ---
 
@@ -2155,6 +2156,113 @@ fora das PRs" descrevem a regra anterior.
 Pendente: o usuário dizer **"approved"**. Não verificado: o fluxo real do
 Ḫprj bumpando um PR do khaos depois desta mudança (só confere no próximo
 PR gerenciado).
+
+## Locomoção: local em eventos e tarefas, deslocamento no calendário e check-in
+
+started 2026-11-18
+
+Pedido do usuário (`user_request`): inserir integração com locomoção
+(Google Maps?). Eventos externos devem passar a incluir local, e a previsão
+de chegada e retorno deve ser calculada e indicada no calendário por uma
+linha antes e depois do evento; o evento pode registrar a forma de
+transporte ou, se não, o modelo sugere. Considerar também locais de
+trabalho. Inserir check-in em locais (inclusive por geolocalização
+automática). A partir da localização e deslocamento, sugerir tarefas
+externas no caminho. Pensar coisas que outros apps não têm: tempo de folga
+antes de chegar, evitar a chuva. Incluir local em tarefas para permitir a
+sugestão.
+
+**Investigação.** O app não tinha nenhuma noção de lugar — nenhuma coluna,
+campo de formulário ou tool de IA ligada a espaço em todo o repo. "Evento
+externo" foi lido como `event_type = 'fixed'` (o único tipo que já sincroniza
+com o Google Calendar); o Google Calendar já tem um campo `location` que o
+sync atual simplesmente descartava, tanto no push quanto no pull. A faixa de
+deslocamento antes/depois do evento reusa o padrão visual já provado pelos
+"logged time" rails do `CalendarView` (`computeLogSegments`). A sugestão de
+modal de transporte segue o padrão das tools `suggest_*` já existentes
+(read-only, ranqueadas, `{basis:'none', n:0}` sem histórico). Check-in
+"automático" só pode ser oportunista com o app em primeiro plano — PWA não
+tem geolocalização em background confiável (isso pertence à fase "App mobile
+nativo" do roadmap, não a este item). Provedor de rota: Google Routes API v2
+(`computeRoutes`), com franquia gratuita mensal (10k Essentials / 5k Pro) —
+exige conta de billing no Google Cloud mas cabe no gratuito para o volume
+esperado; chuva via Open-Meteo (sem chave, fair use não-comercial). Nenhuma
+fase do `docs/05-roadmap.md` é contradita — o trabalho se apoia em duas
+entradas já previstas lá ("Comparação planejado × realizado" e
+"Planejamento assistido").
+
+**Plano aprovado, em 4 fases** (cada uma verificável sozinha):
+
+- Fase A — `places`, `travel_settings`, local (`place_id`/`location_text`/
+  `transport_mode`/`arrive_early_minutes`) em `events`, `place_id` em
+  `tasks`, e o `location` do Google sincronizado nos dois sentidos para
+  eventos `fixed`.
+- Fase B — `travel_legs` persistidas, outbox `travel_dirty`, Edge Function
+  `travel-estimate` (Google Routes API v2, traffic-aware), fallback
+  heurístico (haversine × velocidade média por modal), resolução de
+  origem/destino por cadeia, e as faixas de ida/volta no `CalendarView`.
+- Fase C — risco de chuva (Open-Meteo) gravado na perna, detecção de
+  intervalo impossível entre eventos consecutivos, e as tools
+  `suggest_transport_mode`/`suggest_tasks_on_the_way`.
+- Fase D — `check_ins` (manual e geolocalização oportunista opt-in), nudge
+  de tarefas no caminho ao chegar, e o lembrete "hora de sair" no
+  `telegram-notify` substituindo o lead fixo de 10 min para eventos com
+  local.
+
+Premissas explícitas (para o dono refutar se discordar): `scheduled`/
+`routine` não ganham pernas de deslocamento por padrão, embora a coluna de
+local exista nos três tipos; o provedor de rota é o Google Routes API v2 com
+a chave numa Edge Function (nunca no navegador, mesmo precedente da
+`ANTHROPIC_API_KEY`), com fallback heurístico; e o check-in "automático" é
+oportunista, não passivo em background.
+
+### Fase A — places, travel_settings, local em events/tasks, location do Google
+
+Implementada em 2026-11-26. Migração
+`20261126000000_travel_places.sql`: enum `transport_modes`
+(`walk`/`bike`/`transit`/`drive`/`rideshare`/`remote`); tabela `places`
+(`name`, `address`, `lat`/`lng`, `kind` em `home`/`work`/`client`/`other`,
+`radius_m` default 150, `google_place_id`, `field_id`/`project_id`
+opcionais, `deleted_at`); singleton `travel_settings` (`home_place_id`,
+`default_transport_mode`, `default_arrive_early_minutes`,
+`rain_probability_threshold`, `geolocation_checkin_opt_in`); colunas
+`place_id`/`location_text`/`transport_mode`/`arrive_early_minutes` em
+`events`; `place_id` em `tasks`. `trg_google_sync_dirty` passou a observar
+`place_id`/`location_text` também, senão uma edição que muda só o local de
+um evento `fixed` nunca chegaria a marcar `sync_dirty` e nunca subiria ao
+Google.
+
+`google-calendar-sync` (push e pull) parou de descartar o `location`: o push
+manda o endereço do `place_id` (ou, na falta, `location_text`); o pull tenta
+casar o `location` recebido com o endereço de um `place` cadastrado (match
+exato, trim, case-insensitive) — achando, grava `place_id` e zera
+`location_text`; não achando, grava só `location_text`.
+
+API/hooks novos: `src/lib/api/places.ts` + `usePlaces.ts`,
+`src/lib/api/travel.ts` (singleton `travel_settings`) + `useTravelSettings.ts`.
+`EventModal` ganhou place/endereço/transporte/folga de chegada;
+`TaskDetailModal` e `QuickAddBar` ganharam o seletor de place. Página nova
+`/places` (`PlacesPage.tsx`, no nav lateral) para cadastrar lugares e ajustar
+os defaults de `travel_settings`. `places`/`travel_settings` entraram em
+`ALLOWED_TABLES` (`toolsCore.ts`) para o chat poder ler/escrever via as tools
+genéricas.
+
+Verificação: `schema.sql` foi editado à mão (sem acesso de rede a
+`db:push`/`db:dump` nesta sessão) e validado aplicando o arquivo inteiro do
+zero contra um Postgres 17 descartável via Docker — aplicou sem erro, com
+`places`/`travel_settings`/as colunas novas confirmadas por `\d`.
+`npm run gen:edge-schema` regenerado a partir do `schema.sql` editado.
+`npm run typecheck`, `npm run lint` (zero warnings), `npm run test` (suíte
+completa, 22 testes pré-existentes) e `npm run build` — todos limpos. Nenhum
+teste novo: fase A é só schema/CRUD/UI, sem lógica pura com ramos/limiares
+(a regra do `CLAUDE.md` sobre testes vale a partir da fase B — posicionamento
+de faixas, heurística de rota, resolução de origem/destino, etc. — que já
+veio com `*.test.ts` planejados no plano aprovado). Não verificado por não
+ter sido possível nesta sessão: `npm run db:push` contra o projeto real
+(falta link ao projeto Supabase/credenciais de rede aqui) — a migração e o
+`schema.sql` ficam prontos para o dono rodar `db:push`/`db:dump` e confirmar
+que batem; e o fluxo real de push/pull do `location` contra um evento do
+Google de verdade.
 
 ## Resolved
 

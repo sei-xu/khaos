@@ -66,6 +66,7 @@ interface EventRow {
   google_event_id: string | null;
   google_calendar_id: string | null;
   google_etag: string | null;
+  location_text: string | null;
 }
 
 interface GoogleEventItem {
@@ -73,6 +74,7 @@ interface GoogleEventItem {
   etag?: string;
   status?: string;
   summary?: string;
+  location?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   attendees?: { self?: boolean; responseStatus?: string }[];
@@ -199,6 +201,7 @@ function toGoogleEventBody(row: EventRow): Record<string, unknown> {
   if (!range) throw new Error(`event ${row.id} has no bounded duration`);
   return {
     summary: row.name,
+    location: row.location_text ?? '',
     start: { dateTime: range.start.toISOString() },
     end: { dateTime: range.end.toISOString() },
     extendedProperties: { private: { khaos_event_id: row.id } },
@@ -225,6 +228,7 @@ async function handlePushConflict(row: EventRow, calendarId: string, accessToken
   if (parsed) {
     patch.name = parsed.name;
     patch.duration = parsed.duration;
+    patch.location_text = parsed.locationText;
   }
   const detail = conflictDetail(row.name);
   await applySyncedUpdate(row.id, patch);
@@ -319,7 +323,7 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
 async function runPush(account: Account, accessToken: string): Promise<void> {
   const { data, error } = await db
     .from('events')
-    .select('id,name,event_type,duration,deleted_at,google_event_id,google_calendar_id,google_etag')
+    .select('id,name,event_type,duration,deleted_at,google_event_id,google_calendar_id,google_etag,location_text')
     .eq('sync_dirty', true)
     .limit(200);
   if (error) {
@@ -333,7 +337,7 @@ async function runPush(account: Account, accessToken: string): Promise<void> {
 
 // --- pull (Google -> Khaos) ----------------------------------------------
 
-function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: string; start: Date } | null {
+function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: string; start: Date; locationText: string | null } | null {
   let start: Date;
   let end: Date;
   if (item.start?.dateTime && item.end?.dateTime) {
@@ -349,12 +353,35 @@ function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: strin
     return null;
   }
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return { name: item.summary || '(sem título)', duration: rangeLiteral(start, end), start };
+  return {
+    name: item.summary || '(sem título)',
+    duration: rangeLiteral(start, end),
+    start,
+    locationText: item.location || null,
+  };
 }
 
 function isDeclinedBySelf(item: GoogleEventItem): boolean {
   const self = (item.attendees ?? []).find((a) => a.self);
   return self?.responseStatus === 'declined';
+}
+
+// A location pulled from Google is matched against a cataloged place by
+// exact (trimmed, case-insensitive) address, so a Google event whose
+// location happens to be one of the user's places gets linked instead of
+// just carrying the address as free text. No fuzzy matching — a near-miss
+// stays location_text, which is still useful on its own.
+async function matchPlaceByAddress(locationText: string | null): Promise<string | null> {
+  if (!locationText?.trim()) return null;
+  const { data, error } = await db
+    .from('places')
+    .select('id')
+    .ilike('address', locationText.trim())
+    .is('deleted_at', null)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.id;
 }
 
 async function applyPulledItem(item: GoogleEventItem, calendarId: string, windowStart: Date): Promise<void> {
@@ -395,6 +422,8 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
     return;
   }
 
+  const matchedPlaceId = await matchPlaceByAddress(parsed.locationText);
+
   if (existing) {
     const conflict = Boolean(existing.sync_dirty && existing.google_etag && existing.google_etag !== (item.etag ?? null));
     const detail = conflict ? conflictDetail(existing.name) : null;
@@ -403,6 +432,8 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       duration: parsed.duration,
       event_type: 'fixed',
       deleted_at: null,
+      location_text: matchedPlaceId ? null : parsed.locationText,
+      place_id: matchedPlaceId,
       google_etag: item.etag ?? null,
       google_synced_at: new Date().toISOString(),
     });
@@ -422,6 +453,8 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       name: parsed.name,
       event_type: 'fixed',
       duration: parsed.duration,
+      location_text: matchedPlaceId ? null : parsed.locationText,
+      place_id: matchedPlaceId,
       google_event_id: googleId,
       google_calendar_id: calendarId,
       google_etag: item.etag ?? null,

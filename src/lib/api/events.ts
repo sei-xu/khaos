@@ -1,6 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { formatRange } from '../range';
-import type { Event, EventPatch, EventType, Id } from '../types';
+import type { Event, EventPatch, EventType, Id, TransportMode } from '../types';
 
 function unwrap<T>({
   data,
@@ -22,6 +22,10 @@ export interface EventInput {
   taskId?: Id | null;
   projectId?: Id | null;
   fieldId?: Id | null;
+  placeId?: Id | null;
+  locationText?: string | null;
+  transportMode?: TransportMode | null;
+  arriveEarlyMinutes?: number | null;
 }
 
 export type EventPatchInput = Partial<EventInput>;
@@ -42,6 +46,10 @@ export const eventsApi = {
     taskId,
     projectId,
     fieldId,
+    placeId,
+    locationText,
+    transportMode,
+    arriveEarlyMinutes,
   }: EventInput): Promise<Event> {
     return unwrap(
       await supabase
@@ -54,6 +62,10 @@ export const eventsApi = {
           task_id: taskId || null,
           project_id: projectId || null,
           field_id: fieldId || null,
+          place_id: placeId || null,
+          location_text: locationText || null,
+          transport_mode: transportMode || null,
+          arrive_early_minutes: arriveEarlyMinutes ?? null,
         })
         .select()
         .single()
@@ -70,6 +82,10 @@ export const eventsApi = {
       taskId,
       projectId,
       fieldId,
+      placeId,
+      locationText,
+      transportMode,
+      arriveEarlyMinutes,
     } = patch;
     const dbPatch: EventPatch = {};
     if (name !== undefined) dbPatch.name = name;
@@ -80,6 +96,11 @@ export const eventsApi = {
     if (taskId !== undefined) dbPatch.task_id = taskId;
     if (projectId !== undefined) dbPatch.project_id = projectId;
     if (fieldId !== undefined) dbPatch.field_id = fieldId;
+    if (placeId !== undefined) dbPatch.place_id = placeId;
+    if (locationText !== undefined) dbPatch.location_text = locationText;
+    if (transportMode !== undefined) dbPatch.transport_mode = transportMode;
+    if (arriveEarlyMinutes !== undefined)
+      dbPatch.arrive_early_minutes = arriveEarlyMinutes;
     return unwrap(
       await supabase
         .from('events')

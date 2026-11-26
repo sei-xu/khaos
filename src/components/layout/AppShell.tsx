@@ -7,6 +7,7 @@ import {
   ListTodo,
   CalendarDays,
   Tags,
+  MapPin,
   Command,
   Plus,
   Menu,
@@ -57,6 +58,7 @@ const SIDEBAR_NAV: NavItem[] = [
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/routines', label: 'Routines', icon: RefreshCw },
   { to: '/tags', label: 'Tags', icon: Tags },
+  { to: '/places', label: 'Places', icon: MapPin },
 ];
 
 function sidebarLinkClass({ isActive }: NavLinkRenderProps): string {
