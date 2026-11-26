@@ -2146,6 +2146,11 @@ ALTER TABLE ONLY "public"."telegram_notifications"
 
 
 
+ALTER TABLE ONLY "public"."weather_location"
+    ADD CONSTRAINT "weather_location_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."work_tag_entities"
     ADD CONSTRAINT "work_tag_entities_pkey" PRIMARY KEY ("id");
 
