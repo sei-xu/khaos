@@ -21,7 +21,10 @@ import {
   sanitizeStoredHistory,
   toWireMessages,
 } from '../../../src/lib/chat/historyCore.ts';
-import { resolveWeatherLocation } from '../../../src/lib/weather/location.ts';
+import {
+  parseEnvCoord,
+  resolveWeatherLocation,
+} from '../../../src/lib/weather/location.ts';
 import { geocodeCity } from '../../../src/lib/weather/geocode.ts';
 import { fetchForecast } from '../../../src/lib/weather/forecast.ts';
 import type { WeatherLocation } from '../../../src/lib/weather/location.ts';
@@ -81,8 +84,8 @@ export const db: SupabaseClient = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
-const WEATHER_LAT = Number(Deno.env.get('WEATHER_LAT'));
-const WEATHER_LON = Number(Deno.env.get('WEATHER_LON'));
+const WEATHER_LAT = parseEnvCoord(Deno.env.get('WEATHER_LAT'));
+const WEATHER_LON = parseEnvCoord(Deno.env.get('WEATHER_LON'));
 
 // Shared by the tool deps below and telegram-notify's own digest weather
 // block, so the cascade (stored row -> env -> geocode) is computed once.
@@ -95,10 +98,7 @@ export async function resolveLocation(): Promise<WeatherLocation | null> {
   const stored = (data as WeatherLocation | null) ?? null;
   const resolved = await resolveWeatherLocation(
     stored,
-    {
-      latitude: Number.isFinite(WEATHER_LAT) ? WEATHER_LAT : null,
-      longitude: Number.isFinite(WEATHER_LON) ? WEATHER_LON : null,
-    },
+    { latitude: WEATHER_LAT, longitude: WEATHER_LON },
     TIMEZONE,
     geocodeCity
   );

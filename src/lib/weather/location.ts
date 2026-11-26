@@ -49,3 +49,13 @@ export async function resolveWeatherLocation(
   }
   return geocode(cityNameFromTimezone(timezone));
 }
+
+// Coordinate from an env var. `Number('')` is 0 and `Number.isFinite(0)` is
+// true, so a var that exists but is empty (as .env.example ships it) would
+// otherwise resolve to a perfectly valid-looking lat/lon 0,0 — and the
+// callers persist what they resolve, so that wrong location sticks.
+export function parseEnvCoord(raw: string | undefined | null): number | null {
+  if (raw == null || raw.trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}

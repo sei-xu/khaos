@@ -130,11 +130,20 @@ interface ExternalEventRow {
 }
 
 async function todaysExternalEvents(today: string): Promise<ExternalEventRow[]> {
+  // Narrow to the window that can possibly hold today's local day before
+  // the limit applies — without it the limit truncates an arbitrary 100 of
+  // every external event ever created, and today's may not be among them.
+  // ±24h around now always contains the current local day; the exact
+  // local-day check stays in the filter below (same overlap pattern as
+  // runReminders).
+  const now = Date.now();
+  const window = `[${new Date(now - 86_400_000).toISOString()},${new Date(now + 86_400_000).toISOString()})`;
   const { data, error } = await db
     .from('events')
     .select('id,name,location,duration')
     .is('deleted_at', null)
     .not('location', 'is', null)
+    .filter('duration', 'ov', window)
     .limit(100);
   if (error) {
     console.error('todaysExternalEvents query failed', error.message);

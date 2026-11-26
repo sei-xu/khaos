@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { getTimezone } from '../timezone';
 import {
+  parseEnvCoord,
   resolveWeatherLocation,
   type WeatherLocation,
 } from '../weather/location';
@@ -16,8 +17,8 @@ function unwrap<T>({ data, error }: { data: T | null; error: unknown }): T {
   return data as T;
 }
 
-const ENV_LAT = Number(import.meta.env.VITE_WEATHER_LAT);
-const ENV_LON = Number(import.meta.env.VITE_WEATHER_LON);
+const ENV_LAT = parseEnvCoord(import.meta.env.VITE_WEATHER_LAT);
+const ENV_LON = parseEnvCoord(import.meta.env.VITE_WEATHER_LON);
 
 export const weatherLocationApi = {
   async get(): Promise<WeatherLocation | null> {
@@ -49,10 +50,7 @@ export const weatherLocationApi = {
     if (stored) return stored;
     const resolved = await resolveWeatherLocation(
       null,
-      {
-        latitude: Number.isFinite(ENV_LAT) ? ENV_LAT : null,
-        longitude: Number.isFinite(ENV_LON) ? ENV_LON : null,
-      },
+      { latitude: ENV_LAT, longitude: ENV_LON },
       getTimezone(),
       geocodeCity
     );

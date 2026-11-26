@@ -1,5 +1,25 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveWeatherLocation, cityNameFromTimezone } from './location';
+import {
+  resolveWeatherLocation,
+  cityNameFromTimezone,
+  parseEnvCoord,
+} from './location';
+
+describe('parseEnvCoord', () => {
+  it('reads a numeric coordinate, including 0 and negatives', () => {
+    expect(parseEnvCoord('-23.55')).toBe(-23.55);
+    expect(parseEnvCoord('0')).toBe(0);
+  });
+
+  it('rejects an unset, empty or non-numeric var', () => {
+    // .env.example ships VITE_WEATHER_LAT= empty: Number('') would be 0, a
+    // valid-looking lat/lon that the callers then persist.
+    expect(parseEnvCoord(undefined)).toBeNull();
+    expect(parseEnvCoord('')).toBeNull();
+    expect(parseEnvCoord('   ')).toBeNull();
+    expect(parseEnvCoord('abc')).toBeNull();
+  });
+});
 
 describe('cityNameFromTimezone', () => {
   it('takes the city segment and replaces underscores with spaces', () => {
