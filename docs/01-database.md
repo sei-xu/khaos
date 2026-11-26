@@ -64,6 +64,11 @@ Máquina de estado compartilhada por `projects`, `sections` e `tasks`.
 `deleted`, `renamed`, `moved`, `item`. Ver [Concepts](06-concepts.md) para o
 que cada um significa e quando é disparado.
 
+### `transport_modes`
+
+`walk`, `bike`, `transit`, `drive`, `rideshare`, `remote`. Ver `places` e
+`travel_settings` abaixo.
+
 ## Tabelas
 
 ### `fields`
@@ -122,6 +127,7 @@ Uma ação executável pertencente a uma seção.
 | due, priority, target, deleted_at | — | mesmo formato acima |
 | estimate | integer | Minutos estimados |
 | backlog_rank | double precision, NULL | Posição na fila global do backlog (menor primeiro); `NULL` = fora da fila. Rank numérico esparso (não linked-list — ver nota em [Data Layer](02-data-layer.md)), mandando a ordem de exibição dentro dos grupos Marked/Target/Due no Today. Trigger `moment_backlog_tasks` registra um moment `backlog` só na transição NULL ↔ não-NULL, nunca num reorder. |
+| place_id | FK → places, NULL | Onde a tarefa precisa acontecer, se em algum lugar. Entrada usada por `suggest_tasks_on_the_way` (fase C da locomoção) — uma tarefa sem lugar nunca é candidata. |
 
 ### `task_items`
 
@@ -175,21 +181,70 @@ Compromissos e blocos de tempo na agenda.
 | google_etag | text | Último etag devolvido pelo Google; compara para detectar edição concorrente |
 | google_synced_at | timestamptz | Timestamp do último push/pull bem-sucedido |
 | sync_dirty | boolean | default `false` — marcado pelo trigger `trg_google_sync_dirty` quando a linha precisa ser empurrada ao Google |
+| place_id | FK → places, NULL | Onde o evento acontece, se for um lugar catalogado. Independe de `event_type`, embora só eventos `fixed` ganhem pernas de deslocamento calculadas (fase B da locomoção). |
+| location_text | text, NULL | Endereço livre, usado quando um evento do Google carrega um `location` que não casa com nenhum place cadastrado ainda. Sincronizado nos dois sentidos com o campo `location` do Google (só em linhas `fixed`) — ver abaixo. |
+| transport_mode | transport_modes, NULL | Como o usuário planeja ir/voltar deste evento. `NULL` = não definido — o assistente sugere um (`suggest_transport_mode`, fase C) em vez de o app escolher calado. |
+| arrive_early_minutes | integer, NULL | Override por evento de `travel_settings.default_arrive_early_minutes` — quanta folga antes do início o usuário quer já ter chegado. |
 
 **Sincronização com o Google Calendar** (só `event_type = 'fixed'` —
 `scheduled`/`routine` nunca saem do Khaos, e nada vindo do Google pode se
 materializar como `scheduled`/`routine`). `trg_google_sync_dirty`
 (`BEFORE INSERT OR UPDATE`) marca `sync_dirty` quando a linha é (ou acabou
 de deixar de ser) `fixed` e uma coluna observável mudou
-(`name`/`duration`/`deleted_at`/`event_type`) — as colunas que a própria
-sincronização escreve (`google_*`, `sync_dirty`) ficam de fora do que o
-trigger observa. Um índice único parcial em
+(`name`/`duration`/`deleted_at`/`event_type`/`place_id`/`location_text`) — as
+colunas que a própria sincronização escreve (`google_*`, `sync_dirty`) ficam
+de fora do que o trigger observa. Um índice único parcial em
 `(google_calendar_id, google_event_id)` (onde `google_event_id` não é nulo)
 impede importar o mesmo evento do Google duas vezes; um índice parcial em
 `(id)` onde `sync_dirty` é a fila de saída que `google-calendar-sync` lê. Ver
 `supabase/functions/google-calendar-sync/README.md` para o motor completo
 (push/pull, resolução de conflito — Google sempre vence — e os casos de
 borda de evento de dia inteiro/recorrente).
+
+O campo `location` do Google é incluído no push (endereço do `place_id` ou,
+na falta, `location_text`) e lido no pull: tenta casar o `location` pulado
+com o endereço de um `place` cadastrado (match exato, sem espaços nas
+pontas, case-insensitive); se achar, grava `place_id` e zera
+`location_text`; senão, grava só `location_text`.
+
+### `places`
+
+Um lugar físico nomeado — casa, escritório de um cliente, um espaço de
+trabalho. De primeira classe para que `events` e `tasks` apontem para um
+lugar em vez de carregar endereços em texto livre.
+
+| Coluna | Tipo | Descrição |
+| --- | --- | --- |
+| id | uuid PK | |
+| name | text | |
+| address | text, NULL | |
+| lat, lng | double precision, NULL | |
+| kind | text | `home` \| `work` \| `client` \| `other`, default `other`. `work` pode apontar `field_id`/`project_id` para amarrar um espaço de trabalho à hierarquia que ele serve — é o que cobre "locais de trabalho" além de casa/clientes. |
+| radius_m | integer | default `150` — raio do geofence usado pelo check-in por geolocalização oportunista (fase D) para decidir "chegou". |
+| google_place_id | text, NULL | Id opcional do Google Places, para uma busca mais rica no futuro; não é exigido — `address`/`lat`/`lng` bastam para `travel-estimate`. |
+| field_id, project_id | FK opcionais | Hierarquia que este lugar de trabalho serve |
+| deleted_at | timestamptz | Soft delete |
+
+### `travel_settings`
+
+Singleton (uma linha só, `id` é `boolean` fixo em `true`, mesmo truque de
+`google_calendar_account`) com os padrões de locomoção do usuário.
+
+| Coluna | Tipo | Descrição |
+| --- | --- | --- |
+| id | boolean PK | fixo em `true` |
+| home_place_id | FK → places, NULL | Lugar "casa" default, usado na resolução de origem/destino (fase B) |
+| default_transport_mode | transport_modes | default `drive` |
+| default_arrive_early_minutes | integer | default `10` — usado quando nem o evento nem o lugar sobrescrevem |
+| rain_probability_threshold | integer (0–100) | default `50` — acima disso, `suggest_transport_mode` (fase C) enviesa a sugestão para longe de walk/bike |
+| geolocation_checkin_opt_in | boolean | default `false` — opt-in explícito do check-in por geolocalização oportunista (fase D); PWA não tem geolocalização em background confiável |
+
+### `transport_modes` (enum)
+
+`walk` \| `bike` \| `transit` \| `drive` \| `rideshare` \| `remote` — como uma
+perna entre dois lugares é (ou seria) percorrida. `remote` significa que o
+evento tem lugar mas nenhum deslocamento é calculado para ele (ex.: uma
+videochamada com endereço físico de fallback).
 
 ### `google_calendar_account`
 

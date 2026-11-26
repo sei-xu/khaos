@@ -66,6 +66,8 @@ interface EventRow {
   google_event_id: string | null;
   google_calendar_id: string | null;
   google_etag: string | null;
+  location_text: string | null;
+  place: { address: string | null; name: string } | null;
 }
 
 interface GoogleEventItem {
@@ -73,6 +75,7 @@ interface GoogleEventItem {
   etag?: string;
   status?: string;
   summary?: string;
+  location?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   attendees?: { self?: boolean; responseStatus?: string }[];
@@ -192,6 +195,45 @@ async function googleFetch(path: string, init: RequestInit, accessToken: string)
   });
 }
 
+// --- place matching (shared by push conflicts and pull) ------------------
+
+// Loaded once per sync run (not once per pulled/conflicted item — see ACHADO
+// "efficiency" on matchPlaceByAddress): places is small, so this is a single
+// round-trip, matched in memory by address.trim().toLowerCase(). Exact match
+// only — no fuzzy/pattern matching, so a Google location with '%' or '_' in
+// it can't accidentally match an unrelated place.
+async function loadPlacesByAddress(): Promise<Map<string, string>> {
+  const { data, error } = await db
+    .from('places')
+    .select('id,address')
+    .is('deleted_at', null);
+  if (error) {
+    console.error('loadPlacesByAddress failed', error.message);
+    return new Map();
+  }
+  const map = new Map<string, string>();
+  for (const place of (data ?? []) as { id: string; address: string | null }[]) {
+    if (!place.address?.trim()) continue;
+    map.set(place.address.trim().toLowerCase(), place.id);
+  }
+  return map;
+}
+
+// Google's location and Khaos's place_id are mutually exclusive on an
+// events row (applyPulledItem's insert/update). This is the one place that
+// decides between them from a piece of location text, so push conflicts and
+// pull both produce the same shape instead of push conflicts leaving a
+// place_id that disagrees with a freshly-written location_text.
+function locationPatch(
+  locationText: string | null,
+  placesByAddress: Map<string, string>
+): { place_id: string | null; location_text: string | null } {
+  const placeId = locationText?.trim()
+    ? placesByAddress.get(locationText.trim().toLowerCase()) ?? null
+    : null;
+  return { place_id: placeId, location_text: placeId ? null : locationText };
+}
+
 // --- push (Khaos -> Google) ---------------------------------------------
 
 function toGoogleEventBody(row: EventRow): Record<string, unknown> {
@@ -199,13 +241,19 @@ function toGoogleEventBody(row: EventRow): Record<string, unknown> {
   if (!range) throw new Error(`event ${row.id} has no bounded duration`);
   return {
     summary: row.name,
+    location: row.location_text ?? row.place?.address ?? row.place?.name ?? '',
     start: { dateTime: range.start.toISOString() },
     end: { dateTime: range.end.toISOString() },
     extendedProperties: { private: { khaos_event_id: row.id } },
   };
 }
 
-async function handlePushConflict(row: EventRow, calendarId: string, accessToken: string): Promise<void> {
+async function handlePushConflict(
+  row: EventRow,
+  calendarId: string,
+  accessToken: string,
+  placesByAddress: Map<string, string>
+): Promise<void> {
   if (!row.google_event_id) return;
   const res = await googleFetch(
     eventPath(calendarId, row.google_event_id),
@@ -225,13 +273,24 @@ async function handlePushConflict(row: EventRow, calendarId: string, accessToken
   if (parsed) {
     patch.name = parsed.name;
     patch.duration = parsed.duration;
+    // Google gave no location on this refetch — leave the local place_id /
+    // location_text alone rather than wiping a user-linked place (same rule
+    // applyPulledItem's existing-row branch follows, below).
+    if (parsed.locationText !== null) {
+      Object.assign(patch, locationPatch(parsed.locationText, placesByAddress));
+    }
   }
   const detail = conflictDetail(row.name);
   await applySyncedUpdate(row.id, patch);
   await logSync('push', 'conflict', row.id, row.google_event_id, detail);
 }
 
-async function pushOne(row: EventRow, account: Account, accessToken: string): Promise<void> {
+async function pushOne(
+  row: EventRow,
+  account: Account,
+  accessToken: string,
+  placesByAddress: Map<string, string>
+): Promise<void> {
   const calendarId = row.google_calendar_id ?? account.calendar_id;
   const needsDelete = row.deleted_at !== null || row.event_type !== 'fixed';
 
@@ -280,7 +339,7 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
       accessToken
     );
     if (res.status === 412) {
-      await handlePushConflict(row, calendarId, accessToken);
+      await handlePushConflict(row, calendarId, accessToken, placesByAddress);
       return;
     }
     if (!res.ok) {
@@ -316,24 +375,30 @@ async function pushOne(row: EventRow, account: Account, accessToken: string): Pr
   }
 }
 
-async function runPush(account: Account, accessToken: string): Promise<void> {
+async function runPush(
+  account: Account,
+  accessToken: string,
+  placesByAddress: Map<string, string>
+): Promise<void> {
   const { data, error } = await db
     .from('events')
-    .select('id,name,event_type,duration,deleted_at,google_event_id,google_calendar_id,google_etag')
+    .select(
+      'id,name,event_type,duration,deleted_at,google_event_id,google_calendar_id,google_etag,location_text,place:places(address,name)'
+    )
     .eq('sync_dirty', true)
     .limit(200);
   if (error) {
     console.error('push query failed', error.message);
     return;
   }
-  for (const row of (data ?? []) as EventRow[]) {
-    await pushOne(row, account, accessToken);
+  for (const row of (data ?? []) as unknown as EventRow[]) {
+    await pushOne(row, account, accessToken, placesByAddress);
   }
 }
 
 // --- pull (Google -> Khaos) ----------------------------------------------
 
-function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: string; start: Date } | null {
+function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: string; start: Date; locationText: string | null } | null {
   let start: Date;
   let end: Date;
   if (item.start?.dateTime && item.end?.dateTime) {
@@ -349,7 +414,12 @@ function fromGoogleEvent(item: GoogleEventItem): { name: string; duration: strin
     return null;
   }
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return { name: item.summary || '(sem título)', duration: rangeLiteral(start, end), start };
+  return {
+    name: item.summary || '(sem título)',
+    duration: rangeLiteral(start, end),
+    start,
+    locationText: item.location || null,
+  };
 }
 
 function isDeclinedBySelf(item: GoogleEventItem): boolean {
@@ -357,7 +427,12 @@ function isDeclinedBySelf(item: GoogleEventItem): boolean {
   return self?.responseStatus === 'declined';
 }
 
-async function applyPulledItem(item: GoogleEventItem, calendarId: string, windowStart: Date): Promise<void> {
+async function applyPulledItem(
+  item: GoogleEventItem,
+  calendarId: string,
+  windowStart: Date,
+  placesByAddress: Map<string, string>
+): Promise<void> {
   const googleId = item.id;
   const { data: existing, error } = await db
     .from('events')
@@ -398,14 +473,21 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
   if (existing) {
     const conflict = Boolean(existing.sync_dirty && existing.google_etag && existing.google_etag !== (item.etag ?? null));
     const detail = conflict ? conflictDetail(existing.name) : null;
-    await applySyncedUpdate(existing.id, {
+    const patch: Record<string, unknown> = {
       name: parsed.name,
       duration: parsed.duration,
       event_type: 'fixed',
       deleted_at: null,
       google_etag: item.etag ?? null,
       google_synced_at: new Date().toISOString(),
-    });
+    };
+    // Google gave no location on this pull — leave the local place_id /
+    // location_text alone instead of wiping a place the user linked by hand
+    // (or a locally-edited location_text) on every sync.
+    if (parsed.locationText !== null) {
+      Object.assign(patch, locationPatch(parsed.locationText, placesByAddress));
+    }
+    await applySyncedUpdate(existing.id, patch);
     await logSync('pull', conflict ? 'conflict' : 'updated', existing.id, googleId, detail);
     return;
   }
@@ -422,6 +504,7 @@ async function applyPulledItem(item: GoogleEventItem, calendarId: string, window
       name: parsed.name,
       event_type: 'fixed',
       duration: parsed.duration,
+      ...locationPatch(parsed.locationText, placesByAddress),
       google_event_id: googleId,
       google_calendar_id: calendarId,
       google_etag: item.etag ?? null,
@@ -451,7 +534,8 @@ interface ListEventsPage {
 async function runPullOnce(
   account: Account,
   accessToken: string,
-  syncToken: string | undefined
+  syncToken: string | undefined,
+  placesByAddress: Map<string, string>
 ): Promise<'ok' | 'fullSyncRequired'> {
   const isFull = !syncToken;
   const windowStart = new Date(Date.now() - WINDOW_DAYS * 24 * 3600_000);
@@ -487,7 +571,7 @@ async function runPullOnce(
 
     const page = (await res.json()) as ListEventsPage;
     for (const item of page.items ?? []) {
-      await applyPulledItem(item, account.calendar_id, windowStart);
+      await applyPulledItem(item, account.calendar_id, windowStart, placesByAddress);
     }
     pageToken = page.nextPageToken;
     if (page.nextSyncToken) nextSyncToken = page.nextSyncToken;
@@ -506,11 +590,15 @@ async function runPullOnce(
   return 'ok';
 }
 
-async function runPull(account: Account, accessToken: string): Promise<void> {
+async function runPull(
+  account: Account,
+  accessToken: string,
+  placesByAddress: Map<string, string>
+): Promise<void> {
   let syncToken = account.sync_token ?? undefined;
   // At most one retry: a full sync (no syncToken) can't itself 410.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await runPullOnce(account, accessToken, syncToken);
+    const result = await runPullOnce(account, accessToken, syncToken, placesByAddress);
     if (result === 'fullSyncRequired') {
       // Do NOT wipe local events (unlike Google's own sample code) — events
       // not sourced from Google live here too. Reconciliation on the retry
@@ -538,8 +626,9 @@ async function runSync(): Promise<void> {
     return;
   }
 
-  await runPush(account, accessToken);
-  await runPull(account, accessToken);
+  const placesByAddress = await loadPlacesByAddress();
+  await runPush(account, accessToken, placesByAddress);
+  await runPull(account, accessToken, placesByAddress);
 }
 
 Deno.serve(async (req) => {

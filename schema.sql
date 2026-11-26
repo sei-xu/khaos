@@ -132,6 +132,23 @@ COMMENT ON TYPE "public"."status" IS 'Global lifecycle state machine. Values:
 
 
 
+CREATE TYPE "public"."transport_modes" AS ENUM (
+    'walk',
+    'bike',
+    'transit',
+    'drive',
+    'rideshare',
+    'remote'
+);
+
+
+ALTER TYPE "public"."transport_modes" OWNER TO "postgres";
+
+
+COMMENT ON TYPE "public"."transport_modes" IS 'How a leg between two places is (or would be) travelled. ''remote'' means the event has a place but no travel is computed for it (e.g. a videocall with a physical fallback address).';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."check_and_unlock_next_sections"("p_previous_section_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql"
     AS $$
@@ -667,6 +684,8 @@ begin
       or old.duration is distinct from new.duration
       or old.deleted_at is distinct from new.deleted_at
       or old.event_type is distinct from new.event_type
+      or old.place_id is distinct from new.place_id
+      or old.location_text is distinct from new.location_text
     then
       new.sync_dirty := true;
     end if;
@@ -680,7 +699,7 @@ $$;
 ALTER FUNCTION "public"."trg_google_sync_dirty"() OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type=''fixed'' and a user-visible column changed (name, duration, deleted_at, event_type). A ''fixed''->other transition is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled'' or ''routine''.';
+COMMENT ON FUNCTION "public"."trg_google_sync_dirty"() IS 'Marks a row sync_dirty when it is (or just stopped being) event_type=''fixed'' and a user-visible column changed (name, duration, deleted_at, event_type, place_id, location_text). A ''fixed''->other transition is flagged so google-calendar-sync deletes the Google-side event; the reverse transition is flagged so it creates one. Never fires for rows that are, and remain, ''scheduled'' or ''routine''.';
 
 
 
@@ -1245,6 +1264,10 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
     "google_etag" "text",
     "google_synced_at" timestamp with time zone,
     "sync_dirty" boolean DEFAULT false NOT NULL,
+    "place_id" "uuid",
+    "location_text" "text",
+    "transport_mode" "public"."transport_modes",
+    "arrive_early_minutes" integer,
     CONSTRAINT "duration_must_be_bounded" CHECK (((NOT "lower_inf"("duration")) AND (NOT "upper_inf"("duration")) AND (NOT "isempty"("duration"))))
 );
 
@@ -1313,6 +1336,22 @@ COMMENT ON COLUMN "public"."events"."routine_id" IS 'Optional foreign key linkin
 
 
 COMMENT ON COLUMN "public"."events"."deleted_at" IS 'Soft delete timestamptz. If not null, the event is archived/deleted.';
+
+
+
+COMMENT ON COLUMN "public"."events"."place_id" IS 'Where this event happens, if it is a cataloged place. Independent of event_type, though only ''fixed'' events (external commitments) get travel legs computed in fase B.';
+
+
+
+COMMENT ON COLUMN "public"."events"."location_text" IS 'Free-text address, used when a Google Calendar event carries a location that doesn''t match any cataloged place yet. Pushed/pulled with Google''s own ''location'' field (see google-calendar-sync).';
+
+
+
+COMMENT ON COLUMN "public"."events"."transport_mode" IS 'How the user plans to get to/from this event. Null means unset — the assistant suggests one (suggest_transport_mode, fase C) instead of the app silently picking.';
+
+
+
+COMMENT ON COLUMN "public"."events"."arrive_early_minutes" IS 'Per-event override of travel_settings.default_arrive_early_minutes — how much slack before the start the user wants to have already arrived.';
 
 
 
@@ -1575,6 +1614,46 @@ COMMENT ON COLUMN "public"."oversight_notes"."severity" IS 'How much this is wor
 
 
 
+CREATE TABLE IF NOT EXISTS "public"."places" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "name" "text" NOT NULL,
+    "address" "text",
+    "lat" double precision,
+    "lng" double precision,
+    "kind" "text" DEFAULT 'other'::"text" NOT NULL,
+    "radius_m" integer DEFAULT 150 NOT NULL,
+    "google_place_id" "text",
+    "field_id" "uuid",
+    "project_id" "uuid",
+    "deleted_at" timestamp with time zone,
+    CONSTRAINT "places_kind_check" CHECK (("kind" = ANY (ARRAY['home'::"text", 'work'::"text", 'client'::"text", 'other'::"text"]))),
+    CONSTRAINT "places_radius_m_positive" CHECK (("radius_m" > 0))
+);
+
+
+ALTER TABLE "public"."places" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."places" IS 'A named physical place the user goes to — home, a client''s office, a workspace. First-class so events and tasks can point at one instead of carrying free-text addresses.';
+
+
+
+COMMENT ON COLUMN "public"."places"."kind" IS 'home | work | client | other. ''work'' can point at field_id/project_id to tie a workspace to the hierarchy it serves (covers "locais de trabalho").';
+
+
+
+COMMENT ON COLUMN "public"."places"."radius_m" IS 'Geofence radius in meters used by the opportunistic geolocation check-in (fase D) to decide "arrived".';
+
+
+
+COMMENT ON COLUMN "public"."places"."google_place_id" IS 'Optional Google Places id, for a future richer lookup. Not required — address/lat/lng are enough for travel-estimate.';
+
+
+
+COMMENT ON COLUMN "public"."places"."deleted_at" IS 'Soft delete timestamptz, same convention as events/tasks.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."projects" (
     "name" "text" NOT NULL,
     "status" "public"."status" DEFAULT 'planning'::"public"."status" NOT NULL,
@@ -1834,6 +1913,7 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "deleted_at" timestamp with time zone,
     "target" "tstzrange",
     "backlog_rank" double precision,
+    "place_id" "uuid",
     CONSTRAINT "tasks_schedule_valid" CHECK ((("target" IS NULL) OR ((NOT "isempty"("target")) AND (NOT "lower_inf"("target")) AND (("due" IS NULL) OR (("lower"("target") < "due") AND ("upper_inf"("target") OR ("upper"("target") <= "due")))))))
 );
 
@@ -1886,6 +1966,10 @@ COMMENT ON COLUMN "public"."tasks"."target" IS 'The planned timeline window or d
 
 
 
+COMMENT ON COLUMN "public"."tasks"."place_id" IS 'Where this task needs to happen, if anywhere — the entry point for "tarefas no caminho" (suggest_tasks_on_the_way, fase C): a task without a place is never a candidate.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."tasks_sequence" (
     "task_previous" "uuid" NOT NULL,
     "task_next" "uuid" NOT NULL
@@ -1933,6 +2017,37 @@ ALTER TABLE "public"."telegram_notifications" OWNER TO "postgres";
 
 
 COMMENT ON TABLE "public"."telegram_notifications" IS 'Idempotency ledger for the Telegram scheduled notifier (digest + reminders). Written only by that function via the service-role key.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."travel_settings" (
+    "id" boolean DEFAULT true NOT NULL,
+    "home_place_id" "uuid",
+    "default_transport_mode" "public"."transport_modes" DEFAULT 'drive'::"public"."transport_modes" NOT NULL,
+    "default_arrive_early_minutes" integer DEFAULT 10 NOT NULL,
+    "rain_probability_threshold" integer DEFAULT 50 NOT NULL,
+    "geolocation_checkin_opt_in" boolean DEFAULT false NOT NULL,
+    CONSTRAINT "travel_settings_rain_probability_threshold_range" CHECK (("rain_probability_threshold" BETWEEN 0 AND 100)),
+    CONSTRAINT "travel_settings_singleton" CHECK ("id")
+);
+
+
+ALTER TABLE "public"."travel_settings" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."travel_settings" IS 'Singleton row (id is a boolean fixed to true, same trick as google_calendar_account) holding the user''s travel defaults: home place, default transport mode, how early they want to arrive by default, the rain-probability threshold that biases transport suggestions, and the geolocation check-in opt-in.';
+
+
+
+COMMENT ON COLUMN "public"."travel_settings"."default_arrive_early_minutes" IS 'Default slack before an event''s start the user wants to have already arrived by, used when neither the event nor its place overrides it.';
+
+
+
+COMMENT ON COLUMN "public"."travel_settings"."rain_probability_threshold" IS 'Precipitation probability (0-100) above which suggest_transport_mode (fase C) leans the recommendation away from walk/bike.';
+
+
+
+COMMENT ON COLUMN "public"."travel_settings"."geolocation_checkin_opt_in" IS 'Explicit opt-in for the opportunistic (app-foreground-only) geolocation check-in built in fase D. Off by default — PWA has no reliable background geolocation.';
 
 
 
@@ -2064,6 +2179,11 @@ ALTER TABLE ONLY "public"."oversight_notes"
 
 
 
+ALTER TABLE ONLY "public"."places"
+    ADD CONSTRAINT "places_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."projects"
     ADD CONSTRAINT "projects_pkey" PRIMARY KEY ("id");
 
@@ -2116,6 +2236,11 @@ ALTER TABLE ONLY "public"."telegram_chats"
 
 ALTER TABLE ONLY "public"."telegram_notifications"
     ADD CONSTRAINT "telegram_notifications_pkey" PRIMARY KEY ("chat_id", "kind", "ref");
+
+
+
+ALTER TABLE ONLY "public"."travel_settings"
+    ADD CONSTRAINT "travel_settings_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2506,6 +2631,26 @@ ALTER TABLE ONLY "public"."events"
 
 
 
+ALTER TABLE ONLY "public"."events"
+    ADD CONSTRAINT "events_place_id_fkey" FOREIGN KEY ("place_id") REFERENCES "public"."places"("id");
+
+
+
+ALTER TABLE ONLY "public"."places"
+    ADD CONSTRAINT "places_field_id_fkey" FOREIGN KEY ("field_id") REFERENCES "public"."fields"("id");
+
+
+
+ALTER TABLE ONLY "public"."places"
+    ADD CONSTRAINT "places_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id");
+
+
+
+ALTER TABLE ONLY "public"."travel_settings"
+    ADD CONSTRAINT "travel_settings_home_place_id_fkey" FOREIGN KEY ("home_place_id") REFERENCES "public"."places"("id");
+
+
+
 ALTER TABLE ONLY "public"."moment_tag_entities"
     ADD CONSTRAINT "moment_tag_entities_new_event_id_fkey" FOREIGN KEY ("event_id") REFERENCES "public"."events"("id") ON DELETE CASCADE;
 
@@ -2586,6 +2731,11 @@ ALTER TABLE ONLY "public"."tasks"
 
 
 
+ALTER TABLE ONLY "public"."tasks"
+    ADD CONSTRAINT "tasks_place_id_fkey" FOREIGN KEY ("place_id") REFERENCES "public"."places"("id");
+
+
+
 ALTER TABLE ONLY "public"."tasks_sequence"
     ADD CONSTRAINT "tasks_sequence_task_next_fkey" FOREIGN KEY ("task_next") REFERENCES "public"."tasks"("id");
 
@@ -2659,6 +2809,10 @@ CREATE POLICY "allow all" ON "public"."oversight_notes" USING (true) WITH CHECK 
 
 
 
+CREATE POLICY "allow all" ON "public"."places" USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "allow all" ON "public"."projects" USING (true) WITH CHECK (true);
 
 
@@ -2688,6 +2842,10 @@ CREATE POLICY "allow all" ON "public"."tasks" USING (true) WITH CHECK (true);
 
 
 CREATE POLICY "allow all" ON "public"."tasks_sequence" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "allow all" ON "public"."travel_settings" USING (true) WITH CHECK (true);
 
 
 
@@ -2729,6 +2887,9 @@ ALTER TABLE "public"."oversight_cursor" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."oversight_notes" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."places" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."projects" ENABLE ROW LEVEL SECURITY;
 
 
@@ -2757,6 +2918,9 @@ ALTER TABLE "public"."telegram_chats" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."telegram_notifications" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."travel_settings" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."work_tag_entities" ENABLE ROW LEVEL SECURITY;
@@ -3084,6 +3248,12 @@ GRANT ALL ON TABLE "public"."oversight_notes" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."places" TO "anon";
+GRANT ALL ON TABLE "public"."places" TO "authenticated";
+GRANT ALL ON TABLE "public"."places" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."projects" TO "anon";
 GRANT ALL ON TABLE "public"."projects" TO "authenticated";
 GRANT ALL ON TABLE "public"."projects" TO "service_role";
@@ -3140,6 +3310,12 @@ GRANT ALL ON TABLE "public"."telegram_chats" TO "service_role";
 GRANT ALL ON TABLE "public"."telegram_notifications" TO "anon";
 GRANT ALL ON TABLE "public"."telegram_notifications" TO "authenticated";
 GRANT ALL ON TABLE "public"."telegram_notifications" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."travel_settings" TO "anon";
+GRANT ALL ON TABLE "public"."travel_settings" TO "authenticated";
+GRANT ALL ON TABLE "public"."travel_settings" TO "service_role";
 
 
 

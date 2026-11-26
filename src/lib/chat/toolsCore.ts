@@ -31,6 +31,8 @@ export const ALLOWED_TABLES = [
   'work_tag_entities',
   'sections_sequence',
   'tasks_sequence',
+  'places',
+  'travel_settings',
 ] as const;
 
 export type AllowedTable = (typeof ALLOWED_TABLES)[number];

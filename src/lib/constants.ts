@@ -1,6 +1,13 @@
 // src/lib/constants.ts
 // Mirrors the Postgres enums in the database exactly.
-import type { EventType, MomentType, Priority, Status } from './types';
+import type {
+  EventType,
+  MomentType,
+  PlaceKind,
+  Priority,
+  Status,
+  TransportMode,
+} from './types';
 
 // public.status
 export const STATUSES: Status[] = [
@@ -19,6 +26,35 @@ export const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent'];
 
 // public.event_types
 export const EVENT_TYPES: EventType[] = ['scheduled', 'fixed', 'routine'];
+
+// public.transport_modes
+export const TRANSPORT_MODES: TransportMode[] = [
+  'walk',
+  'bike',
+  'transit',
+  'drive',
+  'rideshare',
+  'remote',
+];
+
+export const TRANSPORT_MODE_LABELS: Record<TransportMode, string> = {
+  walk: 'Walk',
+  bike: 'Bike',
+  transit: 'Transit',
+  drive: 'Drive',
+  rideshare: 'Rideshare',
+  remote: 'Remote (no travel)',
+};
+
+// places.kind
+export const PLACE_KINDS: PlaceKind[] = ['home', 'work', 'client', 'other'];
+
+export const PLACE_KIND_LABELS: Record<PlaceKind, string> = {
+  home: 'Home',
+  work: 'Work',
+  client: 'Client',
+  other: 'Other',
+};
 
 // public.entity_types (used by work_tag_entities / moment_tag_entities)
 export const ENTITY_TYPES = ['project', 'section', 'task'] as const;
