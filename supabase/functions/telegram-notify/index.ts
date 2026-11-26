@@ -27,6 +27,7 @@ import { parseRangeLower } from '../_shared/range.ts';
 import {
   db,
   runAgent,
+  sendRenderedMessage,
   temporalContext,
   TIMEZONE,
 } from '../_shared/khaos.ts';
@@ -60,7 +61,7 @@ Query the database for the current state and report only what matters. Cover, wh
   stale first — that's the point of this section, they've been left behind
   and need to surface before anything else.
 
-For the elapsed targets and the unscheduled tasks: list them and OFFER to roll the target forward or to create a schedule — but DO NOT modify anything in this turn. Make no write tool calls now; wait for me to reply confirming. If I later reply approving, act then.
+For the elapsed targets and the unscheduled tasks: list them and OFFER to roll the target forward or to create a schedule, ending that offer with a [[confirm: ...]] token (see your main instructions) so it can be answered with a tap — but DO NOT modify anything in this turn. Make no write tool calls now; wait for my reply. If I later reply approving (by tapping a button or typing), act then.
 
 Follow your OPENING TURN tone: brief, plain, no filler, no generic offers of help. If nothing meaningful stands out, say the shortest true thing. Plain Telegram text.]`;
 
@@ -102,7 +103,7 @@ async function runDigest(): Promise<void> {
         chatId,
         `${temporalContext()}${DIGEST_INSTRUCTION}`
       );
-      if (briefing.trim()) await sendMessage(chatId, briefing);
+      if (briefing.trim()) await sendRenderedMessage(chatId, briefing);
     } catch (err) {
       console.error('digest failed for chat', chatId, err);
     }

@@ -21,10 +21,24 @@ import {
   sanitizeStoredHistory,
   toWireMessages,
 } from '../../../src/lib/chat/historyCore.ts';
+import type { ChatEntityType } from '../../../src/lib/chat/entityRefs.ts';
+import {
+  renderTelegramMessage,
+  buildInlineKeyboard,
+  escapeHtml,
+  type ResolvedEntity,
+  type InlineKeyboardButton,
+} from './telegramRender.ts';
+import { sendMessage } from './telegram.ts';
 import { SCHEMA_SQL } from './schema.sql.ts';
 
 export const MODEL_NAME = Deno.env.get('LLM_MODEL') ?? 'claude-sonnet-5';
 export const TIMEZONE = Deno.env.get('TELEGRAM_TIMEZONE') ?? 'America/Sao_Paulo';
+// Base URL of the deployed app, used to turn [[task:uuid]] etc. tokens into
+// real Telegram links (see renderForTelegram below). Unset means the bot
+// can't know a valid app URL — renderTelegramMessage degrades to stripping
+// tokens rather than emit a broken link.
+const KHAOS_APP_URL = (Deno.env.get('KHAOS_APP_URL') ?? '').replace(/\/$/, '') || null;
 
 const MAX_TOOL_ROUNDS = 6;
 const MAX_HISTORY_MESSAGES = 14; // window sent to the model per turn
@@ -36,13 +50,15 @@ const MAX_TOKENS = 4096;
 export const BOOTSTRAP_INSTRUCTION =
   '[Session Bootstrap: This is the first turn of a new session — nobody has typed anything yet. Follow your OPENING TURN rules: a brief greeting is fine, but do not offer to help or ask an open-ended question — check current state for something worth surfacing before saying anything else, including anything recall_oversight_notes turns up.]';
 
-// Telegram is plain text with no card renderer.
+// Telegram has no card renderer, but [[task:uuid]] etc. tokens and
+// [[confirm: ...]] tokens are still resolved server-side (renderForTelegram
+// below, via telegramRender.ts) into an <a href> link / inline_keyboard —
+// so the model should keep emitting them here exactly as it does in the
+// app, not describe entities in prose.
 const CHANNEL_INSTRUCTION = `
 TELEGRAM CHANNEL
 
-You are responding over Telegram as plain text. There is no card renderer here.
-
-Do NOT emit [[task:uuid]], [[project:uuid]] or [[event:uuid]] tokens. When you reference a task, project or event, state its relevant details (name, status, due date, time range) in plain words.
+You are responding over Telegram. There is no card renderer, but [[task:uuid]], [[project:uuid]], [[section:uuid]], [[event:uuid]] and [[confirm: ...]] tokens are still resolved into a tappable link or buttons — keep emitting them exactly as described in the main instructions, rather than describing the entity in prose.
 
 Keep formatting simple. Avoid Markdown tables and headings. Short paragraphs and plain hyphen bullets only.
 `.trim();
@@ -77,8 +93,20 @@ export const db: SupabaseClient = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
+// Separate client, same credentials, tagged with `x-khaos-author: assistant`
+// on every request — insert_moment() (see the matching migration) reads
+// that header to stamp authored_by on the INSERT itself, so the DB-change
+// watcher's authored_by filter doesn't race a later UPDATE. Only the tool
+// executor's writes are the assistant acting on its own tool calls; `db`
+// above (chat_history, etc.) stays untagged.
+const toolDb: SupabaseClient = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  { global: { headers: { 'x-khaos-author': 'assistant' } } }
+);
+
 const toolDeps = {
-  db,
+  db: toolDb,
   searchSchema: (query: string) => searchSchemaCore(SCHEMA_SQL, query),
 };
 
@@ -228,4 +256,78 @@ export async function runAgent(
   await saveHistory(updated);
   const last = updated[updated.length - 1];
   return last?.role === 'assistant' ? extractText(last.content) : '';
+}
+
+// --- Telegram rendering ------------------------------------------------
+//
+// Resolves a [[type:uuid]] token against the real table with a service-
+// role SELECT. One query per token — these messages mention at most a
+// handful of entities, so this isn't worth batching.
+async function resolveEntityForTelegram(
+  entityType: ChatEntityType,
+  id: string
+): Promise<ResolvedEntity | null> {
+  const table =
+    entityType === 'task'
+      ? 'tasks'
+      : entityType === 'project'
+        ? 'projects'
+        : entityType === 'section'
+          ? 'sections'
+          : 'events';
+  // select('*') rather than a dynamic column list: supabase-js can only
+  // infer a typed result from a literal select string, and which columns
+  // exist varies by table (tasks have no project_id of their own, for
+  // instance) — sections are the only type that needs project_id, to link
+  // to their parent project since they have no standalone route.
+  const { data, error } = await db
+    .from(table)
+    .select('*')
+    .eq('id', id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as { name: string; project_id?: string };
+  return { name: row.name, projectId: row.project_id };
+}
+
+// Resolves every [[type:uuid]] token into an <a href> link (or strips it if
+// KHAOS_APP_URL isn't configured / the id doesn't resolve) and pulls a
+// trailing [[confirm: ...]] token out into an inline_keyboard — see
+// telegramRender.ts. Exported so telegram-bot and telegram-notify don't each
+// re-wire resolveEntityForTelegram + KHAOS_APP_URL themselves.
+export async function renderForTelegram(text: string): Promise<{
+  text: string;
+  inlineKeyboard?: InlineKeyboardButton[][];
+}> {
+  const { text: rendered, options } = await renderTelegramMessage(text, {
+    appUrl: KHAOS_APP_URL,
+    resolveEntity: resolveEntityForTelegram,
+  });
+  if (!options.length) return { text: rendered };
+
+  const { inline_keyboard, textFallbackOptions } = buildInlineKeyboard(options);
+  // Escaped like every other part of `rendered`: these labels come from the
+  // model and go out with parse_mode HTML, so a "<" or "&" in one would make
+  // Telegram reject the whole sendMessage ("can't parse entities") and the
+  // reply would never arrive.
+  const fallbackNote = textFallbackOptions.length
+    ? `\n\n(reply by typing: ${textFallbackOptions.map(escapeHtml).join(' / ')})`
+    : '';
+  return { text: `${rendered}${fallbackNote}`, inlineKeyboard: inline_keyboard };
+}
+
+// The one way to send agent output to Telegram: resolve its tokens, then
+// send with parse_mode HTML and whatever keyboard came out of a confirm
+// token. Callers used to repeat this trio inline, which left `html: true`
+// (and the keyboard) as something each new call site had to remember.
+export async function sendRenderedMessage(
+  chatId: number,
+  text: string
+): Promise<void> {
+  const rendered = await renderForTelegram(text);
+  await sendMessage(chatId, rendered.text, {
+    html: true,
+    inlineKeyboard: rendered.inlineKeyboard,
+  });
 }

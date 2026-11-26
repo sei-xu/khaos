@@ -1,12 +1,24 @@
 import { useNavigate } from 'react-router-dom';
-import { useTasks, useProjects, useFields } from '../../hooks/useHierarchy';
+import {
+  useTasks,
+  useProjects,
+  useFields,
+  useSections,
+} from '../../hooks/useHierarchy';
 import { useEvents } from '../../hooks/useEvents';
 import { useAllTaskLogs } from '../../hooks/useTimeTracking';
 import { InlineEntityPreview } from './InlineEntityPreview';
 import { InlineEventPreview } from './InlineEventPreview';
 import { computeTaskProgress } from '../../lib/taskProgress';
 import type { ChatEntityType } from '../../lib/chat/entityRefs';
-import type { Task, Project, Field, Event, TaskLog } from '../../lib/types';
+import type {
+  Task,
+  Project,
+  Field,
+  Event,
+  TaskLog,
+  Section,
+} from '../../lib/types';
 
 interface EntityChipProps {
   entityType: ChatEntityType;
@@ -23,6 +35,7 @@ export function EntityChip({ entityType, id }: EntityChipProps) {
   const { data: fields = [] } = useFields() as { data: Field[] };
   const { data: events = [] } = useEvents() as { data: Event[] };
   const { data: taskLogs = [] } = useAllTaskLogs() as { data: TaskLog[] };
+  const { data: sections = [] } = useSections() as { data: Section[] };
 
   if (entityType === 'event') {
     const event = events.find((e) => e.id === id);
@@ -61,6 +74,27 @@ export function EntityChip({ entityType, id }: EntityChipProps) {
           projectField={projectField}
           progress={progress}
         />
+      </button>
+    );
+  }
+
+  if (entityType === 'section') {
+    const section = sections.find((s) => s.id === id);
+    if (!section) {
+      return (
+        <span className="text-nyx-600 my-1 block text-caption italic">
+          (section unavailable)
+        </span>
+      );
+    }
+    return (
+      <button
+        // Sections have no standalone route — they live inside their
+        // project's page.
+        onClick={() => navigate(`/projects/${section.project_id}`)}
+        className="my-1 block w-full max-w-xs text-left"
+      >
+        <InlineEntityPreview entityType="section" data={section} />
       </button>
     );
   }

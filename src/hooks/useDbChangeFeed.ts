@@ -8,7 +8,6 @@ import {
   DEFAULT_SILENCE_MS,
   DEFAULT_COOLDOWN_MINUTES,
   DEFAULT_MAX_PER_HOUR,
-  DEFAULT_TURN_GRACE_MS,
   type MomentRow,
 } from '../lib/chat/changeWatcher';
 
@@ -31,28 +30,27 @@ function getCooldownMs(): number {
 // user-caused moments settles and clears the nudge-worthy gate — see
 // changeWatcher.ts for the actual buffering/gating logic, kept pure and
 // unit-tested there. This hook only wires that logic to Supabase and to the
-// chat turn in flight.
+// chat turn queue.
+//
+// Previously this suppressed buffering outright while a turn was in flight
+// (plus a grace period after) to avoid racing onNudge against the turn
+// already running — but ChangeBuffer.push already drops assistant-authored
+// rows on its own, and onNudge now hands off to useChatAgent's turn queue
+// instead of calling the agent directly, so that race can't happen any
+// more. Suppressing on top of that meant a batch that settled *during* a
+// turn was silently lost instead of just waiting its turn — see
+// changeWatcher.test.ts and the "message queue" item in docs/backlog.md.
 export function useDbChangeFeed(params: {
   enabled: boolean;
-  isTurnInFlight: boolean;
   onNudge: (prefixedContent: string) => void;
 }): void {
-  const { enabled, isTurnInFlight, onNudge } = params;
+  const { enabled, onNudge } = params;
 
-  const isTurnInFlightRef = useRef(isTurnInFlight);
-  const turnEndedAtRef = useRef<number | null>(null);
   const onNudgeRef = useRef(onNudge);
 
   useEffect(() => {
     onNudgeRef.current = onNudge;
   }, [onNudge]);
-
-  useEffect(() => {
-    if (isTurnInFlightRef.current && !isTurnInFlight) {
-      turnEndedAtRef.current = Date.now();
-    }
-    isTurnInFlightRef.current = isTurnInFlight;
-  }, [isTurnInFlight]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -62,14 +60,8 @@ export function useDbChangeFeed(params: {
     const nudgeTimestampsRef = { current: [] as number[] };
     let cancelled = false;
 
-    function isSuppressed(): boolean {
-      if (isTurnInFlightRef.current) return true;
-      const endedAt = turnEndedAtRef.current;
-      return endedAt !== null && Date.now() - endedAt < DEFAULT_TURN_GRACE_MS;
-    }
-
     function handleRows(rows: MomentRow[]) {
-      if (cancelled || isSuppressed()) return;
+      if (cancelled) return;
       buffer.push(rows, Date.now());
     }
 

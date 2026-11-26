@@ -544,18 +544,19 @@ const MOMENT_ENTITY_ID_FIELD: Partial<Record<AllowedTable, string>> = {
   task_items: 'task_id',
 };
 
-// The insert/update trigger already logged a moment with moment_note null
-// and authored_by='user' by the time this runs (Postgres AFTER triggers fire
-// synchronously, before the client sees the response). This stamps
-// authored_by='assistant' on whichever of those moments resulted from *this*
-// call — unconditionally, so the DB-change watcher (changeWatcher.ts) can
-// tell the assistant's own writes apart from the user's and not loop back on
-// itself — and additionally attaches the model's reason as moment_note when
-// one was given. Scoped by affected row id, a `since` timestamp captured
-// just before the write, and moment_note still being null, so it can't reach
-// a moment from an unrelated request or overwrite a note someone already
-// gave. Best-effort: a failed stamp shouldn't undo a write that already
-// succeeded, so errors are swallowed here rather than thrown.
+// The insert/update trigger already logged a moment with the right
+// authored_by by the time this runs (Postgres AFTER triggers fire
+// synchronously, before the client sees the response, and insert_moment()
+// now reads authored_by straight off the request's `x-khaos-author` header
+// — see the migration that added that read): the DB-change watcher
+// (changeWatcher.ts) already sees 'assistant' on these without help from
+// here. The one thing left for this function to do is attach the model's
+// reason as moment_note, when one was given. Scoped by affected row id, a
+// `since` timestamp captured just before the write, and moment_note still
+// being null, so it can't reach a moment from an unrelated request or
+// overwrite a note someone already gave. Best-effort: a failed stamp
+// shouldn't undo a write that already succeeded, so errors are swallowed
+// here rather than thrown.
 async function stampAssistantMoments(
   db: SupabaseClient,
   table: AllowedTable,
@@ -563,6 +564,7 @@ async function stampAssistantMoments(
   reason: unknown,
   since: string
 ): Promise<void> {
+  if (typeof reason !== 'string' || !reason.trim()) return;
   const entityColumn = MOMENT_ENTITY_COLUMN[table];
   if (!entityColumn) return;
   const idField = MOMENT_ENTITY_ID_FIELD[table] ?? 'id';
@@ -576,12 +578,9 @@ async function stampAssistantMoments(
   );
   if (!ids.length) return;
 
-  const patch: Record<string, unknown> = { authored_by: 'assistant' };
-  if (typeof reason === 'string' && reason.trim()) patch.moment_note = reason;
-
   const { error } = await db
     .from('moments')
-    .update(patch)
+    .update({ moment_note: reason })
     .in(entityColumn, ids)
     .gte('created_at', since)
     .is('moment_note', null);
