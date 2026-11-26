@@ -6,8 +6,11 @@ import { useEvents } from '../hooks/useEvents';
 import { useTasks, useProjects, useFields } from '../hooks/useHierarchy';
 import { useAllTaskLogs } from '../hooks/useTimeTracking';
 import { useGoogleCalendarStatus } from '../hooks/useGoogleCalendarStatus';
+import { useWeatherForecast } from '../hooks/useWeatherLocation';
 import { Button } from '../components/common/ui';
-import CalendarView, { type DueItem } from '../components/calendar/CalendarView';
+import CalendarView, {
+  type DueItem,
+} from '../components/calendar/CalendarView';
 import EventModal from '../components/calendar/EventModal';
 import type { Event, Task, Project, Field, TaskLog } from '../lib/types';
 
@@ -17,7 +20,7 @@ function GoogleCalendarStatusStrip() {
 
   if (!status.connected) {
     return (
-      <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-caption">
+      <p className="text-nyx-500 text-caption mb-3 flex items-center gap-1.5">
         <CalendarX2 size={13} />
         Google Calendar not connected — see
         supabase/functions/google-calendar-sync/README.md to set it up.
@@ -29,7 +32,7 @@ function GoogleCalendarStatusStrip() {
     ? new Date(status.last_sync_at).toLocaleString()
     : 'never';
   return (
-    <p className="text-nyx-500 mb-3 flex items-center gap-1.5 text-caption">
+    <p className="text-nyx-500 text-caption mb-3 flex items-center gap-1.5">
       <CalendarCheck2 size={13} />
       Google Calendar connected (fixed events only) — last sync: {lastSync}
       {status.last_error && (
@@ -46,6 +49,7 @@ export default function CalendarPage() {
   const { data: projects = [] } = useProjects() as { data: Project[] };
   const { data: fields = [] } = useFields() as { data: Field[] };
   const { data: taskLogs = [] } = useAllTaskLogs() as { data: TaskLog[] };
+  const { data: forecast } = useWeatherForecast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [creatingAt, setCreatingAt] = useState<Date | null>(null);
@@ -107,6 +111,7 @@ export default function CalendarPage() {
         projects={projects}
         fields={fields}
         taskLogs={taskLogs}
+        forecast={forecast}
         onSlotClick={setCreatingAt}
         onEventClick={setEditingEvent}
         onMilestoneClick={handleMilestoneClick}

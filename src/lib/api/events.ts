@@ -22,6 +22,7 @@ export interface EventInput {
   taskId?: Id | null;
   projectId?: Id | null;
   fieldId?: Id | null;
+  location?: string | null;
 }
 
 export type EventPatchInput = Partial<EventInput>;
@@ -42,6 +43,7 @@ export const eventsApi = {
     taskId,
     projectId,
     fieldId,
+    location,
   }: EventInput): Promise<Event> {
     return unwrap(
       await supabase
@@ -54,6 +56,7 @@ export const eventsApi = {
           task_id: taskId || null,
           project_id: projectId || null,
           field_id: fieldId || null,
+          location: location || null,
         })
         .select()
         .single()
@@ -70,6 +73,7 @@ export const eventsApi = {
       taskId,
       projectId,
       fieldId,
+      location,
     } = patch;
     const dbPatch: EventPatch = {};
     if (name !== undefined) dbPatch.name = name;
@@ -80,6 +84,7 @@ export const eventsApi = {
     if (taskId !== undefined) dbPatch.task_id = taskId;
     if (projectId !== undefined) dbPatch.project_id = projectId;
     if (fieldId !== undefined) dbPatch.field_id = fieldId;
+    if (location !== undefined) dbPatch.location = location;
     return unwrap(
       await supabase
         .from('events')

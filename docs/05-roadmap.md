@@ -18,6 +18,7 @@
 - [x] Backlog — fila global e persistida (`tasks.backlog_rank`) da ordem em que as tarefas pendentes serão feitas, mandando a ordem de exibição dentro do Today; pré-requisito de "Planejamento assistido" abaixo
 - [x] Integração bidirecional com o Google Calendar, restrita a `events.event_type = 'fixed'` — `scheduled`/`routine` nunca saem do Khaos e nada vindo do Google se materializa como `scheduled`/`routine` (ver `docs/backlog.md`)
 - [x] Reação a mudanças de banco feitas fora do chat (checklist/status marcado direto na UI) — cobertura total do feed de moments (routines, soft-delete, rename, reparenting, `task_items`), watcher Realtime com fallback de poll, e um turno silencioso que propõe a próxima ação via `suggest_next_task` (ver `docs/03-ai.md#reagindo-a-mudanças-de-banco-fora-do-chat`); é a metade **reativa** — perceber o que acabou de acontecer — e não substitui "Planejamento assistido" abaixo, que é a metade proativa de sugerir a ordem do dia
+- [x] Clima (Open-Meteo, sem API key) no digest matinal, numa tool `get_weather_forecast` e no calendário (ícone por dia, ribbon de temperatura/chuva no dia vigente, chip por evento externo) — localização resolvida em cascata (`weather_location` → env vars → geocodificar o timezone), evento "externo" marcado por `events.location` (ver `docs/03-ai.md#clima-digest-get_weather_forecast-e-calendário`)
 
 > Nota: "Notificação automática de deploy (Vercel + GitHub Actions →
 > Telegram)" foi removida em 2026-10-07 por decisão do usuário (histórico

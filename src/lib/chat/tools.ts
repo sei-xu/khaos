@@ -8,12 +8,25 @@
 import { supabase } from '../supabaseClient';
 import { searchSchema } from './schemaSearch';
 import { executeTool as coreExecuteTool } from './toolsCore';
+import { weatherLocationApi } from '../api/weather';
+import { fetchForecast } from '../weather/forecast';
+import { getTimezone } from '../timezone';
 
 export function executeTool(
   rawName: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  return coreExecuteTool({ db: supabase, searchSchema }, rawName, args);
+  return coreExecuteTool(
+    {
+      db: supabase,
+      searchSchema,
+      resolveWeatherLocation: () => weatherLocationApi.resolve(),
+      fetchForecast,
+      timezone: getTimezone(),
+    },
+    rawName,
+    args
+  );
 }
 
 export {

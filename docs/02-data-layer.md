@@ -66,9 +66,32 @@ só vê uma vizinhança parcial, como o grupo Marked do Today).
 
 `eventsApi.list/create/update/remove`. `create`/`update` recebem um shape de
 alto nível (`EventInput`: `name`, `eventType`, `recurrent`, `start`, `end`,
-`taskId`, `projectId`, `fieldId`) e traduzem para o formato de coluna do
-banco, incluindo montar o `tstzrange` de `duration` via `formatRange()`.
-`remove` é soft delete (`deleted_at`).
+`taskId`, `projectId`, `fieldId`, `location`) e traduzem para o formato de
+coluna do banco, incluindo montar o `tstzrange` de `duration` via
+`formatRange()`. `remove` é soft delete (`deleted_at`). `location` não-vazio
+marca o evento "externo" para o recurso de clima (ver
+[Integração com IA](03-ai.md#clima-digest-get_weather_forecast-e-calendário)).
+
+## `weather/` (`src/lib/weather/`) — camada de clima compartilhada
+
+Não é um módulo de `src/lib/api/` — é lógica pura, framework-agnostic, no
+mesmo padrão dos `*Core.ts` de `src/lib/chat/` (zero import de browser ou
+Deno), para a Edge Function `telegram-notify` importar os mesmos arquivos
+por caminho relativo e nunca divergir de número ou de limiar do app web.
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `forecast.ts` | Monta a URL da Open-Meteo (`/v1/forecast`, sem API key), busca e normaliza o payload em `HourPoint[]`/`DayForecast[]` |
+| `geocode.ts` | Busca por nome de cidade (Open-Meteo geocoding), usada pelo picker e pelo fallback de localização |
+| `location.ts` | `resolveWeatherLocation` — a cascata linha salva → env vars → geocodificar a cidade do timezone |
+| `advice.ts` | Lógica pura: janela "seca" (`DRY_RAIN_PROB_MAX`/`DRY_PRECIP_MM_MAX`), sugestão de horário de saída, faixa de roupa por temperatura aparente (`COLD_MAX_C`/`HOT_MIN_C`) |
+| `wmo.ts` | Código WMO → bucket de ícone + rótulo pt-BR |
+| `ribbon.ts` | Geometria pura usada por `WeatherRibbon.tsx` (valor → posição x) |
+
+`src/lib/api/weather.ts` é a ponte do app web com Supabase (`weather_location`,
+ver [Banco de dados](01-database.md#weather_location)) e com `forecast.ts`;
+consumida via `src/hooks/useWeatherLocation.ts`
+(`useWeatherLocation`/`useSetWeatherLocation`/`useWeatherForecast`).
 
 ## `timeTracking.ts` — task_logs
 

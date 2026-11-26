@@ -61,6 +61,7 @@ work that grows out of them. Roadmap phases live in
 | [Assistente detecta mudanças no banco e sugere próxima ação](#assistente-detecta-mudanças-no-banco-e-sugere-próxima-ação) | 2026-10-24 |
 | [Chat do assistente derruba o app ao abrir no mobile](#chat-do-assistente-derruba-o-app-ao-abrir-no-mobile) | 2026-10-28 |
 | [Versionamento do khaos: bump no PR, não por workflow](#versionamento-do-khaos-bump-no-pr-não-por-workflow) | 2026-10-29 |
+| [Clima: temperatura, chuva e roupa no digest e no calendário](#clima-temperatura-chuva-e-roupa-no-digest-e-no-calendário) | 2026-11-18 |
 
 ---
 
@@ -2155,6 +2156,86 @@ fora das PRs" descrevem a regra anterior.
 Pendente: o usuário dizer **"approved"**. Não verificado: o fluxo real do
 Ḫprj bumpando um PR do khaos depois desta mudança (só confere no próximo
 PR gerenciado).
+
+---
+
+## Clima: temperatura, chuva e roupa no digest e no calendário
+
+started 2026-11-18
+
+Pedido do usuário: no digest matinal e no calendário, informar quantos
+graus está e sugerir horários de saída para evitar chuva, além da melhor
+roupa para não passar frio ou calor; para eventos externos, a mesma
+indicação na janela específica do evento; no calendário, uma linha ondulada
+de fundo indicando temperatura (borda esquerda) e probabilidade de chuva
+(borda direita) ao longo do dia vigente, e ícones indicando a previsão dos
+outros dias.
+
+**Investigação**: feature nova, greenfield — nenhuma menção a clima no
+repo antes desta PR, e nada no roadmap a contrariar. O digest mora em
+`supabase/functions/telegram-notify/index.ts` (job `digest`, cron
+~08:00), que roda o mesmo agente/tools do app web via
+`supabase/functions/_shared/khaos.ts` (que importa `src/lib/chat/*Core.ts`
+por caminho relativo — o padrão que esta feature reaproveita para
+`src/lib/weather/`). O calendário é `src/components/calendar/
+CalendarView.tsx`. Não havia fonte de dados meteorológicos nem lugar para
+a localização do usuário (só o timezone, em `localStorage`/env), nem como
+marcar um evento como "externo" (`events` não tinha `location`). Verificado
+por curl nesta sessão: `api.open-meteo.com/v1/forecast` responde sem API
+key, com `access-control-allow-origin: *`, horizonte de 7 dias por hora e
+por dia — exatamente o máximo de dias que o calendário mostra.
+
+**Plano aprovado (Fase 10a) — pontos decididos com o dono**:
+- Provedor: Open-Meteo, sem chave, chamada direta do browser (sem proxy).
+  Alternativa recusada: OpenWeatherMap/WeatherAPI (exigem chave e proxy).
+- Camada compartilhada `src/lib/weather/` (fetch/normalização, lógica de
+  recomendação, ícone WMO, geometria do ribbon), zero import de
+  browser/Deno, no padrão de `src/lib/chat/*Core.ts`.
+- Localização: tabela singleton `weather_location` (RLS "allow all", como o
+  resto do app), não só env vars — para poder trocar a cidade pela
+  interface. Resolução em cascata: tabela → env vars → geocodificar a
+  cidade do timezone configurado, persistindo o resultado.
+- Picker de cidade no header do `AppShell`, ao lado do `TimezonePicker`.
+- Janela "seca" = chuva < 40% e < 0.2mm; faixas de roupa por temperatura
+  aparente (frio/ameno/calor) + fator chuva — limiares em constantes
+  nomeadas, testados.
+- Digest: bloco de clima determinístico (TypeScript, não o modelo) injetado
+  antes da instrução do digest — temperatura, mín/máx, janelas secas, roupa,
+  e por evento externo de hoje. Fail-open: erro no clima nunca atrasa ou
+  derruba o digest.
+- Evento externo = `events.location` não-vazio (não inferência por
+  palavra-chave no nome, nem todo `fixed`). Sincronizado com o `location`
+  do Google, só em `fixed`, como o resto do sync.
+- Tool `get_weather_forecast` (compartilhada chat do app + bot), e no
+  calendário: ícone+mín/máx+chuva no cabeçalho de cada dia dentro do
+  horizonte, ribbon de fundo só no dia vigente, chip por evento externo.
+
+**Implementação** (PR aberto em 2026-11-26, branch `worktree-weather-feature`):
+`src/lib/weather/{forecast,advice,wmo,ribbon,location,geocode}.ts` com
+testes unitários (`*.test.ts`, TDD — limiares nas bordas, série plana,
+payload curto, data fora do horizonte); migrations
+`20261126000000_weather_location.sql` e `20261126010000_events_location.sql`;
+`src/lib/api/weather.ts` + `src/hooks/useWeatherLocation.ts`;
+`WeatherLocationPicker.tsx` no `AppShell`; bloco de clima em
+`telegram-notify/index.ts`; tool `get_weather_forecast` em `toolsCore.ts`
+(compartilhada); `location` no `EventModal` e no `google-calendar-sync`;
+`WeatherRibbon.tsx` + ícones de dia + chip de evento em `CalendarView.tsx`.
+Docs atualizados em `01-database.md`/`02-data-layer.md`/`03-ai.md`/
+`05-roadmap.md`. `npm run test`/`typecheck`/`lint`/`build` passam; os
+arquivos `.ts` das Edge Functions também passam por `deno check`.
+
+`schema.sql`/`database.types.ts`/`supabase/functions/_shared/schema.sql.ts`
+foram atualizados à mão neste PR — `npm run db:push` não roda nesta sandbox
+(projeto Supabase não linkado aqui), então a migration ainda precisa ser
+aplicada pelo dono (`npm run db:push`) antes de ir ao ar. Risco conhecido,
+registrado no PR.
+
+Não verificado nesta sessão (fora do alcance de teste automatizado, por
+depender do Supabase remoto/do browser real): a migration rodando contra o
+projeto remoto, o SVG do ribbon num navegador real, o texto do digest real
+no Telegram, e o sync de `location` ida e volta com o Google.
+
+Pendente: o dono dizer **"approved"**.
 
 ## Resolved
 
